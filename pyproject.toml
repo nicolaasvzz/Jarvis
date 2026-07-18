@@ -53,5 +53,5 @@ strict = true
 mypy_path = "src"
 
 [[tool.mypy.overrides]]
-module = ["anthropic.*", "pyautogui.*", "pygetwindow.*", "pytesseract.*", "mss.*", "playwright.*"]
+module = ["anthropic.*", "PIL.*", "pyautogui.*", "pygetwindow.*", "pytesseract.*", "mss.*", "playwright.*"]
 ignore_missing_imports = true
