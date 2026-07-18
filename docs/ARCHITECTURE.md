@@ -83,13 +83,17 @@ order in which they are being built.
 
 ## Build order (one feature at a time)
 
-1. ✅ **Foundation** — repo scaffolding, Configuration, Logging *(this feature)*
-2. API Server + Authentication — the phone's entry point (FastAPI, token auth)
-3. Notification System — task lifecycle events pushed to the phone
-4. Brain — Anthropic client, conversation state
-5. Planner — plan → execute → observe loop
-6. Tool Manager + Security policy — registry, risk categories, confirmations
-7. File Manager — first real tool set
-8. Memory — persistent storage (SQLite)
-9. Browser Controller — Playwright
-10. Desktop Controller + Vision — screen-aware Windows control
+1. ✅ Foundation — repo scaffolding, Configuration, Logging
+2. ✅ Core types + EventBus, Security policy, Notifications
+3. ✅ Tool Manager — registry, risk gating, audit logging
+4. ✅ File Manager (sandboxed) + Memory (SQLite)
+5. ✅ Brain (Anthropic) + Planner + agent Orchestrator
+6. ✅ API Server + Authentication — the phone's entry point
+7. ✅ Browser Controller (Playwright)
+8. ✅ Desktop Controller + Vision — screen-aware Windows control
+9. ✅ Runtime wiring + `jarvis` CLI
+
+All planned modules are implemented. Natural next steps: a phone push
+channel for notifications (currently log + live SSE feed), sending the
+screen to Claude's vision for richer layout understanding, and an email
+tool (already covered by the `send_email` confirmation category).

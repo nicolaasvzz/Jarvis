@@ -9,14 +9,24 @@
 # variables or a local .env file — see .env.example.
 
 api:
-  host: 127.0.0.1
+  host: 127.0.0.1     # use 0.0.0.0 to accept connections from your phone
   port: 8765
 
 llm:
   provider: anthropic
   model: claude-opus-4-8
   max_tokens: 16000
-  effort: high
+  effort: high         # low | medium | high | xhigh | max
+
+files:
+  # The ONLY directory Jarvis may read/write/organize. Defaults to
+  # <data_dir>/workspace. Point it at the folder tree you want managed:
+  # root: C:/Users/you/JarvisWorkspace
+
+agent:
+  max_step_attempts: 2   # retries per failing step
+  max_plan_revisions: 2  # "try another approach" rounds per task
+  history_messages: 20   # conversation turns given to the planner as context
 
 logging:
   level: INFO
