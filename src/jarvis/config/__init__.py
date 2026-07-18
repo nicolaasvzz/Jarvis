@@ -14,8 +14,10 @@ variables or a local ``.env`` file — never from the YAML config.
 """
 
 from jarvis.config.schema import (
+    AgentConfig,
     ApiServerConfig,
     BrowserConfig,
+    FilesConfig,
     LLMConfig,
     LoggingConfig,
     PathsConfig,
@@ -25,9 +27,11 @@ from jarvis.config.secrets import Secrets, load_secrets
 from jarvis.config.settings import AppConfig, load_config, resolve_config_file
 
 __all__ = [
+    "AgentConfig",
     "ApiServerConfig",
     "AppConfig",
     "BrowserConfig",
+    "FilesConfig",
     "LLMConfig",
     "LoggingConfig",
     "PathsConfig",

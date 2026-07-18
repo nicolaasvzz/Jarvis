@@ -30,8 +30,10 @@ from pydantic_settings import (
 )
 
 from jarvis.config.schema import (
+    AgentConfig,
     ApiServerConfig,
     BrowserConfig,
+    FilesConfig,
     LLMConfig,
     LoggingConfig,
     PathsConfig,
@@ -63,6 +65,8 @@ class AppConfig(BaseSettings):
     paths: PathsConfig = Field(default_factory=PathsConfig)
     security: SecurityConfig = Field(default_factory=SecurityConfig)
     browser: BrowserConfig = Field(default_factory=BrowserConfig)
+    files: FilesConfig = Field(default_factory=FilesConfig)
+    agent: AgentConfig = Field(default_factory=AgentConfig)
 
     @classmethod
     def settings_customise_sources(

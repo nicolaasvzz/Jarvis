@@ -92,3 +92,22 @@ class BrowserConfig(_Section):
     engine: Literal["chromium", "firefox", "webkit"] = "chromium"
     headless: bool = False
     downloads_dir: Path | None = None
+
+
+class FilesConfig(_Section):
+    """Settings for the sandboxed File Manager.
+
+    ``root`` is the only directory Jarvis may touch. When unset it defaults
+    to ``<data_dir>/workspace`` — point it at the folder tree you actually
+    want the assistant to manage.
+    """
+
+    root: Path | None = None
+
+
+class AgentConfig(_Section):
+    """Settings for the plan/execute/observe loop."""
+
+    max_step_attempts: int = Field(default=2, ge=1)
+    max_plan_revisions: int = Field(default=2, ge=0)
+    history_messages: int = Field(default=20, ge=0)
