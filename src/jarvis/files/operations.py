@@ -67,6 +67,13 @@ class FileManager:
         _log.info("wrote file", extra={"path": self._rel(target)})
         return self._rel(target)
 
+    def write_bytes(self, path: str, data: bytes) -> str:
+        target = self._resolve(path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(data)
+        _log.info("wrote file", extra={"path": self._rel(target), "bytes": len(data)})
+        return self._rel(target)
+
     def list_dir(self, path: str = ".") -> list[dict[str, object]]:
         target = self._resolve(path)
         if not target.is_dir():
