@@ -1,0 +1,41 @@
+# Jarvis configuration — example file.
+#
+# Copy to config/config.yaml (gitignored) and adjust. Every key is optional;
+# anything omitted falls back to the defaults in src/jarvis/config/schema.py.
+# Any value can also be overridden per-run with environment variables, e.g.
+#   JARVIS_API__PORT=9000
+#
+# SECRETS NEVER GO IN THIS FILE. API keys and tokens live in environment
+# variables or a local .env file — see .env.example.
+
+api:
+  host: 127.0.0.1
+  port: 8765
+
+llm:
+  provider: anthropic
+  model: claude-opus-4-8
+  max_tokens: 16000
+  effort: high
+
+logging:
+  level: INFO
+  console: true
+  # directory defaults to the per-user log folder, e.g. on Windows:
+  # C:/Users/<you>/AppData/Local/jarvis/Logs
+  # directory: D:/jarvis/logs
+
+security:
+  # Action categories that always require your confirmation before running.
+  require_confirmation:
+    - delete_files
+    - send_email
+    - install_software
+    - modify_system_settings
+    - spend_money
+    - elevated_shell
+
+browser:
+  engine: chromium
+  headless: false
+  # downloads_dir: C:/Users/<you>/Downloads
