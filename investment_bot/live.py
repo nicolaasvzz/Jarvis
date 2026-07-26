@@ -36,6 +36,7 @@ class LiveTrader:
     strategy: Ensemble
     broker: Broker
     console: Console
+    show_dashboard: bool = True  # off when a web UI is the display instead
 
     def __post_init__(self):
         settings = self.config.live_settings
@@ -162,7 +163,8 @@ class LiveTrader:
                     self._execute(Order(symbol, qty, f"entry: {sig.reason}"), prices[symbol], now)
 
         self._save_state()
-        self._render_dashboard(now)
+        if self.show_dashboard:
+            self._render_dashboard(now)
 
     def _execute(self, order: Order, ref_price: float, now: pd.Timestamp) -> None:
         try:
@@ -191,6 +193,20 @@ class LiveTrader:
         self.console.print(
             f"[cyan]{side} {abs(fill.qty):.0f} {fill.symbol} @ {fill.price:.2f}[/cyan] ({fill.reason})"
         )
+
+    def liquidate_all(self, reason: str = "manual abort") -> None:
+        """Close every open position at the latest available price."""
+        now = pd.Timestamp.now()
+        for symbol in list(self.portfolio.positions):
+            pos = self.portfolio.positions[symbol]
+            price = pos.last_price
+            try:
+                price = float(self.feed.latest(symbol, 30)["close"].iloc[-1])
+            except Exception:
+                pass  # fall back to the last mark
+            self._execute(Order(symbol, -pos.qty, reason), price, now)
+        self.portfolio.mark({}, now)
+        self._save_state()
 
     # ---------------- output ----------------
 

@@ -183,6 +183,24 @@ def cmd_trade(args: argparse.Namespace) -> None:
         trader.run_forever(settings["poll_minutes"])
 
 
+def cmd_serve(args: argparse.Namespace) -> None:
+    from .api import serve
+    from .broker.paper import PaperBroker
+
+    config = BotConfig.load(args.config)
+    broker_name = args.broker or config.live_settings["broker"]
+    if broker_name == "alpaca":
+        from .broker.alpaca import AlpacaBroker
+
+        broker = AlpacaBroker(execution=config.build_execution())
+        console.print("[bold yellow]API serving with the Alpaca broker.[/bold yellow]")
+    else:
+        broker = PaperBroker(execution=config.build_execution())
+        console.print("[bold]API serving with the paper broker[/bold] (simulated fills).")
+    console.print(DISCLAIMER)
+    serve(config, broker, host=args.host, port=args.port)
+
+
 def cmd_strategies(_args: argparse.Namespace) -> None:
     table = Table(title="Available strategies")
     table.add_column("Name", style="bold")
@@ -227,6 +245,12 @@ def build_parser() -> argparse.ArgumentParser:
     trade.add_argument("--once", action="store_true", help="Run a single cycle and exit")
     trade.add_argument("--broker", choices=["paper", "alpaca"], default=None)
     trade.set_defaults(func=cmd_trade)
+
+    srv = sub.add_parser("serve", parents=[common], help="Run the dashboard HTTP API")
+    srv.add_argument("--host", default="127.0.0.1")
+    srv.add_argument("--port", type=int, default=8000)
+    srv.add_argument("--broker", choices=["paper", "alpaca"], default=None)
+    srv.set_defaults(func=cmd_serve)
 
     ls = sub.add_parser("strategies", help="List available strategies")
     ls.set_defaults(func=cmd_strategies)
