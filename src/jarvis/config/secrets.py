@@ -34,6 +34,14 @@ class Secrets(BaseSettings):
     # (env: JARVIS_API_TOKEN).
     jarvis_api_token: SecretStr | None = None
 
+    # Bot token from @BotFather for the Telegram phone bridge
+    # (env: TELEGRAM_BOT_TOKEN).
+    telegram_bot_token: SecretStr | None = None
+
+    # Optional auth token for a protected ntfy push server
+    # (env: JARVIS_PUSH_TOKEN). Public ntfy.sh topics need none.
+    jarvis_push_token: SecretStr | None = None
+
     def require(self, name: str) -> SecretStr:
         """Return the named secret or raise a clear error if it is unset."""
         value: SecretStr | None = getattr(self, name)

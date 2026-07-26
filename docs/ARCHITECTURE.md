@@ -47,8 +47,9 @@ order in which they are being built.
 | Vision | `jarvis.vision` | Screen understanding: text, buttons, windows, layouts |
 | File Manager | `jarvis.files` | File and folder operations, archives, search |
 | API Server | `jarvis.api` | Secure HTTP API for the phone client |
+| Phone Bridge | `jarvis.phone` | Telegram remote control + push; outbound-only HTTP transport |
 | Authentication & permissions | `jarvis.security` | Client auth + the safe/confirm action policy |
-| Notifications | `jarvis.notifications` | Task lifecycle, error, and approval notifications |
+| Notifications | `jarvis.notifications` | Task lifecycle, error, and approval notifications; log/live/push channels |
 
 ## Design rules
 
@@ -80,6 +81,9 @@ order in which they are being built.
 | `contextvars` for log context | Works across threads *and* asyncio tasks — the API server and tool execution will be async |
 | `platformdirs` for default paths | Correct per-user locations on Windows (`%LOCALAPPDATA%`) without hardcoding, still works on macOS/Linux for development |
 | Logger tree `jarvis.*`, not root | Third-party libraries keep their own logging; our handlers only see our records |
+| Telegram bridge for phone control | Outbound long-poll only — no LAN, no port-forwarding, no exposed server; works over any internet (even a phone tether), which is exactly the "no wifi on the laptop" case. Gives push + full control in one integration |
+| HTTP behind an `HttpTransport` protocol | The Telegram bridge and push channel are fully unit-testable with a fake transport — no real bot/account/network needed in CI |
+| `owner_chat_id` allowlist for Telegram | A personal bot must obey only its owner; unknown chats are refused (but told their own id, to ease first-run setup) |
 
 ## Build order (one feature at a time)
 
@@ -92,8 +96,10 @@ order in which they are being built.
 7. ✅ Browser Controller (Playwright)
 8. ✅ Desktop Controller + Vision — screen-aware Windows control
 9. ✅ Runtime wiring + `jarvis` CLI
+10. ✅ Phone Bridge — Telegram remote control + push notifications (`jarvis phone`)
 
-All planned modules are implemented. Natural next steps: a phone push
-channel for notifications (currently log + live SSE feed), sending the
-screen to Claude's vision for richer layout understanding, and an email
-tool (already covered by the `send_email` confirmation category).
+All planned modules are implemented, and the phone can now both receive push
+notifications and fully control Jarvis (Telegram bridge + ntfy push). Natural
+next steps: sending the screen to Claude's vision for richer layout
+understanding, and an email tool (already covered by the `send_email`
+confirmation category).

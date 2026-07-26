@@ -43,6 +43,11 @@ def main(argv: list[str] | None = None) -> int:
         help="Approve dangerous actions automatically (use with care)",
     )
 
+    sub.add_parser(
+        "phone",
+        help="Run the Telegram bridge — control Jarvis from your phone "
+        "(outbound only, needs no wifi/LAN)",
+    )
     sub.add_parser("tools", help="List the tools available on this machine")
     sub.add_parser("token", help="Generate a token for JARVIS_API_TOKEN")
 
@@ -55,9 +60,35 @@ def main(argv: list[str] | None = None) -> int:
         return _serve(args)
     if args.command == "run":
         return asyncio.run(_run_once(args))
+    if args.command == "phone":
+        return asyncio.run(_run_phone(args))
     if args.command == "tools":
         return _list_tools(args)
     return 2  # pragma: no cover - argparse enforces the choices
+
+
+async def _run_phone(args: argparse.Namespace) -> int:
+    from jarvis.app.runtime import build_runtime
+
+    runtime = build_runtime(args.config)
+    bridge = runtime.telegram
+    if bridge is None:
+        print(
+            "The Telegram bridge is not configured. Set telegram.enabled: true in\n"
+            "your config and the TELEGRAM_BOT_TOKEN secret, then try again.\n"
+            'Install the extra with: pip install "jarvis-assistant[phone]"',
+            file=sys.stderr,
+        )
+        await runtime.close()
+        return 1
+    print("Jarvis Telegram bridge running. Message your bot; press Ctrl-C to stop.")
+    try:
+        await bridge.run()
+    except (KeyboardInterrupt, asyncio.CancelledError):
+        pass
+    finally:
+        await runtime.close()
+    return 0
 
 
 def _serve(args: argparse.Namespace) -> int:

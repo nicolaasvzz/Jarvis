@@ -37,7 +37,9 @@ from jarvis.config.schema import (
     LLMConfig,
     LoggingConfig,
     PathsConfig,
+    PushConfig,
     SecurityConfig,
+    TelegramConfig,
 )
 
 CONFIG_FILE_ENV_VAR = "JARVIS_CONFIG_FILE"
@@ -67,6 +69,8 @@ class AppConfig(BaseSettings):
     browser: BrowserConfig = Field(default_factory=BrowserConfig)
     files: FilesConfig = Field(default_factory=FilesConfig)
     agent: AgentConfig = Field(default_factory=AgentConfig)
+    push: PushConfig = Field(default_factory=PushConfig)
+    telegram: TelegramConfig = Field(default_factory=TelegramConfig)
 
     @classmethod
     def settings_customise_sources(

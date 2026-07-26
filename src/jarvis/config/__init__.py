@@ -21,7 +21,9 @@ from jarvis.config.schema import (
     LLMConfig,
     LoggingConfig,
     PathsConfig,
+    PushConfig,
     SecurityConfig,
+    TelegramConfig,
 )
 from jarvis.config.secrets import Secrets, load_secrets
 from jarvis.config.settings import AppConfig, load_config, resolve_config_file
@@ -35,8 +37,10 @@ __all__ = [
     "LLMConfig",
     "LoggingConfig",
     "PathsConfig",
+    "PushConfig",
     "Secrets",
     "SecurityConfig",
+    "TelegramConfig",
     "load_config",
     "load_secrets",
     "resolve_config_file",

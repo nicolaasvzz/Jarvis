@@ -49,3 +49,21 @@ browser:
   engine: chromium
   headless: false
   # downloads_dir: C:/Users/<you>/Downloads
+
+# Control Jarvis from your phone via a Telegram bot — the recommended remote
+# path. It only makes OUTBOUND calls to Telegram, so it needs no wifi/LAN, no
+# port forwarding, and no exposed server; works over any internet (even a
+# phone/USB tether). The bot token is the TELEGRAM_BOT_TOKEN secret.
+telegram:
+  enabled: false
+  owner_chat_id:      # ONLY this chat may command Jarvis. Message the bot and
+                      # send /whoami (or just anything) to learn your chat id,
+                      # then paste it here and restart.
+  poll_timeout: 30    # long-poll seconds per getUpdates call
+
+# Push-only notifications via an ntfy-compatible server (no bot, no account).
+# Subscribe your phone to <topic> in the ntfy app. Also outbound-only.
+push:
+  enabled: false
+  server: https://ntfy.sh
+  topic:              # e.g. jarvis-a8f3k2 — pick something unguessable

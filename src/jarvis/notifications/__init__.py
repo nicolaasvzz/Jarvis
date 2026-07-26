@@ -17,6 +17,7 @@ from jarvis.notifications.channels import (
     LogChannel,
     NotificationChannel,
 )
+from jarvis.notifications.push import PushChannel
 from jarvis.notifications.service import Notification, NotificationService
 
 __all__ = [
@@ -25,4 +26,5 @@ __all__ = [
     "Notification",
     "NotificationChannel",
     "NotificationService",
+    "PushChannel",
 ]

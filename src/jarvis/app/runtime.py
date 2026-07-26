@@ -24,7 +24,14 @@ from jarvis.files import FileManager, build_file_tools
 from jarvis.logging import get_logger, setup_logging
 from jarvis.memory import MemoryStore
 from jarvis.memory.tools import build_memory_tools
-from jarvis.notifications import InMemoryChannel, LogChannel, NotificationService
+from jarvis.notifications import (
+    InMemoryChannel,
+    LogChannel,
+    NotificationChannel,
+    NotificationService,
+    PushChannel,
+)
+from jarvis.phone import HttpxTransport, TelegramBridge
 from jarvis.planner import Planner
 from jarvis.security import PermissionPolicy
 from jarvis.tools import ToolManager, ToolRegistry
@@ -50,12 +57,16 @@ class JarvisRuntime:
     planner: Planner
     orchestrator: Orchestrator
     log_file: Path
+    telegram: TelegramBridge | None = None
 
     async def close(self) -> None:
         """Release external resources (browser, database, subscriptions)."""
         browser = getattr(self, "_browser_controller", None)
         if browser is not None:
             await browser.close()
+        transport = getattr(self, "_phone_transport", None)
+        if transport is not None:
+            await transport.aclose()
         self.notifications.close()
         self.memory.close()
 
@@ -103,7 +114,42 @@ def build_runtime(
     )
 
     live_channel = InMemoryChannel()
-    notifications = NotificationService(bus, [LogChannel(), live_channel])
+    channels: list[NotificationChannel] = [LogChannel(), live_channel]
+
+    # Phone connectivity (push + Telegram control) shares one HTTP transport.
+    phone_transport = HttpxTransport() if _phone_enabled(config) else None
+
+    if config.push.enabled and phone_transport is not None:
+        push_token = secrets.jarvis_push_token
+        channels.append(
+            PushChannel(
+                config.push,
+                phone_transport,
+                auth_token=push_token.get_secret_value() if push_token else None,
+            )
+        )
+        _log.info("push notifications enabled", extra={"topic": config.push.topic})
+
+    telegram: TelegramBridge | None = None
+    if config.telegram.enabled and phone_transport is not None:
+        token = secrets.telegram_bot_token
+        if token is None:
+            _log.warning(
+                "telegram enabled but TELEGRAM_BOT_TOKEN is unset; skipping"
+            )
+        else:
+            telegram = TelegramBridge(
+                token=token,
+                config=config.telegram,
+                orchestrator=orchestrator,
+                policy=policy,
+                registry=registry,
+                transport=phone_transport,
+            )
+            channels.append(telegram)  # push + approval buttons to the phone
+            _log.info("telegram bridge enabled")
+
+    notifications = NotificationService(bus, channels)
 
     runtime = JarvisRuntime(
         config=config,
@@ -120,14 +166,20 @@ def build_runtime(
         planner=planner,
         orchestrator=orchestrator,
         log_file=log_file,
+        telegram=telegram,
     )
     # Kept for close(); not part of the public dataclass fields.
     runtime._browser_controller = browser_controller  # type: ignore[attr-defined]
+    runtime._phone_transport = phone_transport  # type: ignore[attr-defined]
     _log.info(
         "runtime ready",
         extra={"tools": registry.names(), "workspace": str(files.root)},
     )
     return runtime
+
+
+def _phone_enabled(config: AppConfig) -> bool:
+    return config.push.enabled or config.telegram.enabled
 
 
 def _register_optional_tools(

@@ -33,9 +33,18 @@ phone ──HTTP+token──▶ API Server ──▶ Brain (Claude) ──▶ Pl
 - **Vision** (`[vision]` extra): screenshots, read screen text (OCR), and
   locate text on screen → coordinates the desktop tools can click, so no
   brittle hardcoded positions.
-- **Phone control**: submit tasks, watch live progress, approve or deny
-  dangerous actions, cancel tasks, upload files, read notifications and
-  logs — all over an authenticated HTTP API.
+- **Phone control (Telegram)** (`[phone]` extra): run everything from a
+  Telegram chat — send any task, get push notifications, approve/deny
+  dangerous actions with tap buttons, check status, cancel. Works over
+  **outbound HTTPS only**, so it needs no wifi/LAN, no open ports, and no
+  exposed server — even a phone/USB tether is enough. See
+  [Control it from your phone](#control-it-from-your-phone-telegram).
+- **Phone control (HTTP API)** (`[api]` extra): the same actions over an
+  authenticated local HTTP API + live server-sent-events feed, for a custom
+  app or `curl` on the same network.
+- **Push notifications** (`[phone]` extra): push-only alerts to an
+  ntfy-compatible server (no bot, no account) if you don't want the full
+  Telegram bridge.
 
 ## Install (on the Windows machine)
 
@@ -48,6 +57,9 @@ python -m venv .venv
 
 # Core + API server + the LLM client:
 pip install -e ".[llm,api]"
+
+# Phone control + push notifications (Telegram / ntfy):
+pip install -e ".[phone]"
 
 # Optional capability packs:
 pip install -e ".[browser]"   ;  playwright install chromium
@@ -78,11 +90,71 @@ jarvis tools
 # One-off task from the terminal (approvals prompt with y/N):
 jarvis run "organize the files in my workspace by extension"
 
-# Start the server your phone talks to:
+# Control it from your phone via Telegram (recommended — no wifi/LAN needed):
+jarvis phone
+
+# Or start the local HTTP API for a custom app / curl on the same network:
 jarvis serve            # add --host 0.0.0.0 to accept LAN connections
 ```
 
-## Use it from your phone
+## Control it from your phone (Telegram)
+
+This is the easiest and most robust way to run Jarvis remotely — and the
+one to use when **your laptop has no wifi**. The bridge only ever makes
+*outbound* HTTPS calls to Telegram: it long-polls for your messages and
+sends replies back. So there's **no LAN, no port-forwarding, no exposed
+server** — it works over any internet the laptop has, including plugging it
+into your phone's USB tether / mobile hotspot.
+
+**One-time setup:**
+
+1. In Telegram, message **@BotFather**, send `/newbot`, and copy the bot
+   token it gives you.
+2. Put the token in `.env`:  `TELEGRAM_BOT_TOKEN=123456:ABC...`
+3. Turn the bridge on in `config/config.yaml`:
+   ```yaml
+   telegram:
+     enabled: true
+   ```
+4. Start it once and message your bot anything — it replies with your chat
+   id:
+   ```powershell
+   jarvis phone
+   ```
+   Put that id in the config so only you can control Jarvis, then restart:
+   ```yaml
+   telegram:
+     enabled: true
+     owner_chat_id: 123456789
+   ```
+
+**Then, from the Telegram app, you can:**
+
+- **Send any task** — just type it (“download my latest invoices and
+  summarise them”). Jarvis plans and does it, messaging progress back.
+- **Approve/deny dangerous actions** — when a step needs confirmation you
+  get a message with **✅ Allow / ⛔ Deny** buttons; tap one.
+- `/status` — recent tasks and their state · `/task <id>` — full detail
+- `/cancel <id>` — stop a running task · `/tools` — what Jarvis can do here
+- `/approvals`, `/approve`, `/deny` — manage confirmations by command too
+
+That is total control of Jarvis from your phone, with native push
+notifications, over nothing but an outbound internet connection.
+
+### Push-only (no bot)
+
+If you just want notifications and not the full control bridge, use ntfy:
+install the **ntfy** app, subscribe to an unguessable topic, and set:
+
+```yaml
+push:
+  enabled: true
+  topic: jarvis-<something-random>
+```
+
+Also outbound-only; no account needed for public ntfy.sh.
+
+## Use it from your phone over HTTP (alternative)
 
 Any HTTP client works (HTTP Shortcuts on Android, Shortcuts on iOS, or
 just a browser + curl). All requests carry `Authorization: Bearer <token>`.
@@ -120,8 +192,8 @@ curl "$BASE/logs?limit=50" -H "Authorization: Bearer $TOKEN"
 ## Development
 
 ```bash
-pip install -e ".[dev,api]"
-pytest          # 95 tests — the whole loop runs against a scripted brain
+pip install -e ".[dev,api,phone]"
+pytest          # 106 tests — the whole loop + phone bridge run against fakes
 ruff check .    # lint
 mypy src        # strict type-check
 ```
@@ -167,7 +239,8 @@ src/jarvis/
 ├── browser/        Playwright controller + 8 browser tools
 ├── desktop/        Windows controller (backend-swappable) + 8 tools
 ├── vision/         screenshots + OCR locate + 3 tools
-├── notifications/  event → notification service with channels
+├── notifications/  event → notification service; log/live/push channels
+├── phone/          Telegram remote-control bridge + HTTP transport
 ├── api/            FastAPI server for the phone
 └── app/            runtime wiring + the `jarvis` CLI
 ```

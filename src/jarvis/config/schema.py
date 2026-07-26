@@ -111,3 +111,34 @@ class AgentConfig(_Section):
     max_step_attempts: int = Field(default=2, ge=1)
     max_plan_revisions: int = Field(default=2, ge=0)
     history_messages: int = Field(default=20, ge=0)
+
+
+class PushConfig(_Section):
+    """Generic push notifications via an ntfy-compatible server.
+
+    Push-only (no remote control). Subscribe your phone to ``topic`` in the
+    ntfy app; Jarvis POSTs each notable notification to
+    ``<server>/<topic>``. Needs only outbound HTTPS, so it works without any
+    inbound network access. The auth token, if the server needs one, is the
+    ``JARVIS_PUSH_TOKEN`` secret.
+    """
+
+    enabled: bool = False
+    server: str = "https://ntfy.sh"
+    topic: str | None = None
+
+
+class TelegramConfig(_Section):
+    """Telegram bot bridge: push notifications AND full remote control.
+
+    The bridge long-polls Telegram (outbound HTTPS only) for your commands
+    and sends results/notifications back — no inbound connection, no LAN, no
+    open ports, so it works over any internet connection (even a phone
+    tether). Only ``owner_chat_id`` may issue commands; the bot token is the
+    ``TELEGRAM_BOT_TOKEN`` secret.
+    """
+
+    enabled: bool = False
+    owner_chat_id: int | None = None
+    poll_timeout: int = Field(default=30, ge=0, le=120)
+    api_base: str = "https://api.telegram.org"
