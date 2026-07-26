@@ -1,0 +1,14 @@
+# Render Blueprint: hosts the bot's dashboard API as an always-on service.
+# In Render: New -> Blueprint -> pick this repo and branch. Then set
+# INVESTMENT_BOT_URL on your dashboard's server to this service's URL.
+services:
+  - type: web
+    name: investment-bot-api
+    runtime: docker
+    branch: claude/automated-trading-bot-ngec1d
+    plan: starter # free tier sleeps when idle, which pauses the trading loop
+    healthCheckPath: /health
+    disk:
+      name: bot-state
+      mountPath: /data
+      sizeGB: 1
