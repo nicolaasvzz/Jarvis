@@ -1,0 +1,50 @@
+# Investment Bot configuration.
+# Copy to config.yaml and edit; every key shown here has a sane default.
+
+data:
+  source: synthetic        # synthetic | yahoo | csv
+  seed: 42                 # synthetic only
+  # directory: data        # csv only: reads <directory>/<SYMBOL>.csv
+  # cache_dir: data_cache  # yahoo only: on-disk cache location
+  # cache_ttl_hours: 12    # yahoo only
+
+universe: [AAPL, MSFT, NVDA, AMZN, GOOG, META, TSLA, SPY]
+
+strategy:
+  threshold: 0.25          # |weighted vote| needed to take a position
+  long_only: false
+  max_volatility: 0.80     # veto entries when 20d annualized vol exceeds this
+  members:
+    - {name: sma_cross, weight: 1.0, params: {fast: 20, slow: 100}}
+    - {name: macd,      weight: 1.0}
+    - {name: breakout,  weight: 1.5, params: {entry_window: 55, exit_window: 20}}
+    - {name: bollinger, weight: 0.75}
+    - {name: rsi,       weight: 0.75}
+
+risk:
+  risk_per_trade: 0.01       # fraction of equity at risk between entry and stop
+  atr_window: 14
+  atr_stop_multiple: 3.0     # stop distance (and trail) in ATRs
+  take_profit_multiple: null # e.g. 6.0; null disables take-profits
+  max_position_weight: 0.20  # any one position <= 20% of equity
+  max_gross_exposure: 1.0    # no leverage
+  max_drawdown: 0.25         # kill switch: liquidate + halt at -25% from peak
+  allow_short: true
+
+execution:
+  slippage_bps: 5
+  commission_per_share: 0.0
+  commission_pct: 0.0005
+  min_commission: 0.0
+
+backtest:
+  starting_cash: 100000
+  days: 1260               # ~5 years
+  lookback: 300            # history window handed to strategies
+
+live:
+  broker: paper            # paper | alpaca (alpaca needs env credentials)
+  poll_minutes: 15
+  state_file: live_state.json
+  starting_cash: 100000
+  lookback: 300
