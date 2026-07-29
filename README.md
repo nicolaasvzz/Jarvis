@@ -245,5 +245,10 @@ src/jarvis/
 └── app/            runtime wiring + the `jarvis` CLI
 ```
 
+Setting someone else up? Send them
+[docs/SETUP_FOR_A_FRIEND.md](docs/SETUP_FOR_A_FRIEND.md) — a step-by-step
+guide for installing their **own** Jarvis with their **own** API key, so
+nothing is shared between your machines.
+
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for design rules and the
 decision log.
