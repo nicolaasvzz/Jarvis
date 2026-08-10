@@ -33,10 +33,11 @@ llm:
   # -- anthropic only --
   effort: high          # low | medium | high | xhigh | max
 
-files:
-  # The ONLY directory Jarvis may read/write/organize. Defaults to
-  # <data_dir>/workspace. Point it at the folder tree you want managed:
-  # root: C:/Users/you/JarvisWorkspace
+# The ONLY directory Jarvis may read/write/organize. Defaults to
+# <data_dir>/workspace. Uncomment and point it at the folder tree you want
+# managed:
+# files:
+#   root: C:/Users/you/JarvisWorkspace
 
 agent:
   max_step_attempts: 2   # retries per failing step

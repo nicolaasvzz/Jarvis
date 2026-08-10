@@ -94,6 +94,37 @@ class TestYamlLayer:
         assert load_config().api.port == 9222
 
 
+class TestShippedExample:
+    """The example file is what everyone copies — it must actually load."""
+
+    def test_config_example_yaml_loads_verbatim(self, tmp_path: Path) -> None:
+        example = Path(__file__).resolve().parent.parent / "config" / "config.example.yaml"
+        copied = tmp_path / "config.yaml"
+        copied.write_text(example.read_text(encoding="utf-8"), encoding="utf-8")
+        config = load_config(copied)
+        assert config.llm.provider == "ollama"
+        assert config.llm.model == "qwen3:8b"
+
+    def test_a_section_with_only_comments_falls_back_to_defaults(
+        self, tmp_path: Path
+    ) -> None:
+        """YAML parses a bare heading as None; that must mean "defaults"."""
+        config_file = write_yaml(
+            tmp_path,
+            """
+            files:
+              # root: C:/somewhere
+            browser:
+            api:
+              port: 9300
+            """,
+        )
+        config = load_config(config_file)
+        assert config.files.root is None
+        assert config.browser.engine == "chromium"
+        assert config.api.port == 9300
+
+
 class TestProviderSelection:
     """The short LLM_* names, which is how the provider is usually set."""
 

@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Any
 
 from platformdirs import user_config_path
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic.fields import FieldInfo
 from pydantic_settings import (
     BaseSettings,
@@ -137,6 +137,24 @@ class AppConfig(BaseSettings):
     agent: AgentConfig = Field(default_factory=AgentConfig)
     push: PushConfig = Field(default_factory=PushConfig)
     telegram: TelegramConfig = Field(default_factory=TelegramConfig)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _empty_section_means_defaults(cls, data: Any) -> Any:
+        """Treat a section with nothing under it as "use the defaults".
+
+        Writing a heading and then only comments beneath it —
+
+            files:
+              # root: C:/Users/you/JarvisWorkspace
+
+        — is a natural way to leave a section alone, but YAML parses it as
+        ``None``, which would otherwise fail validation with a type error
+        that says nothing about the real cause.
+        """
+        if isinstance(data, dict):
+            return {key: value for key, value in data.items() if value is not None}
+        return data
 
     @classmethod
     def settings_customise_sources(
