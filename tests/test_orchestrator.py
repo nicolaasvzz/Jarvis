@@ -9,8 +9,9 @@ from pathlib import Path
 import pytest
 
 from jarvis.agent import Orchestrator
+from jarvis.brain.base import BrainMessage, BrainResponse
 from jarvis.config.schema import AgentConfig, SecurityConfig
-from jarvis.core.errors import ToolError
+from jarvis.core.errors import BrainError, ToolError
 from jarvis.core.events import EventBus, EventType
 from jarvis.core.models import ApprovalDecision, StepStatus, TaskStatus
 from jarvis.files import FileManager, build_file_tools
@@ -19,6 +20,23 @@ from jarvis.planner import Planner
 from jarvis.security import PermissionPolicy
 from jarvis.tools import ToolManager, ToolRegistry, tool
 from tests.helpers import ScriptedBrain
+
+
+class _ExplodingBrain:
+    """A Brain whose first call raises a BrainError, as AnthropicBrain does
+    on an API failure (bad key, no credit, rate limit, ...)."""
+
+    def __init__(self, message: str) -> None:
+        self._message = message
+
+    async def complete(
+        self,
+        *,
+        system: str,
+        messages: list[BrainMessage],
+        tools: list[dict[str, object]] | None = None,
+    ) -> BrainResponse:
+        raise BrainError(self._message)
 
 
 def _system(
@@ -232,3 +250,21 @@ async def test_finished_tasks_are_persisted_to_memory(tmp_path: Path) -> None:
     assert history and history[0]["id"] == task.id
     roles = [m.role for m in store.recent_messages()]
     assert roles == ["user", "assistant"]
+
+
+async def test_brain_error_fails_the_task_with_its_own_message(tmp_path: Path) -> None:
+    """A BrainError (e.g. Anthropic billing/auth/rate-limit failure) should
+    fail the task with its own friendly message, not a generic dump."""
+    brain = _ExplodingBrain(
+        "Your Anthropic account has insufficient credit. Add credits at "
+        "https://console.anthropic.com/settings/billing."
+    )
+    orchestrator, _, _, _ = _system(tmp_path, brain)  # type: ignore[arg-type]
+    task = await orchestrator.submit("do anything")
+    task = await orchestrator.wait(task.id)
+    assert task.status is TaskStatus.FAILED
+    assert task.error == (
+        "Your Anthropic account has insufficient credit. Add credits at "
+        "https://console.anthropic.com/settings/billing."
+    )
+    assert "Unexpected error" not in (task.error or "")

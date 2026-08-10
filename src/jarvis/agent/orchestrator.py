@@ -20,7 +20,7 @@ import contextlib
 
 from jarvis.brain.base import Brain, BrainMessage
 from jarvis.config.schema import AgentConfig
-from jarvis.core.errors import PlanningError
+from jarvis.core.errors import BrainError, PlanningError
 from jarvis.core.events import EventBus, EventType
 from jarvis.core.models import (
     StepStatus,
@@ -116,6 +116,8 @@ class Orchestrator:
                 raise
             except PlanningError as exc:
                 await self._fail(task, f"Planning failed: {exc}")
+            except BrainError as exc:
+                await self._fail(task, str(exc))
             except Exception as exc:  # noqa: BLE001 — the loop must survive anything
                 _log.exception("unexpected orchestrator error")
                 await self._fail(task, f"Unexpected error: {type(exc).__name__}: {exc}")

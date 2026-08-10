@@ -47,3 +47,12 @@ class ApprovalDenied(JarvisError):
 
 class PlanningError(JarvisError):
     """The planner could not produce a valid plan for the request."""
+
+
+class BrainError(JarvisError):
+    """The language model backend could not complete a request.
+
+    Raised with a message that is already safe to show the user directly —
+    translated from whatever the underlying provider actually returned (an
+    HTTP status, a network failure, ...) into plain language.
+    """
