@@ -16,7 +16,7 @@ from jarvis.config.settings import CONFIG_FILE_ENV_VAR
 def _clean_environment(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """Isolate every test from the host environment and working directory."""
     for key in list(os.environ):
-        if key.startswith(("JARVIS_", "ANTHROPIC_")):
+        if key.startswith(("JARVIS_", "ANTHROPIC_", "LLM_")):
             monkeypatch.delenv(key)
     monkeypatch.chdir(tmp_path)
 
@@ -32,8 +32,10 @@ class TestDefaults:
         config = load_config()
         assert config.api.host == "127.0.0.1"
         assert config.api.port == 8765
-        assert config.llm.provider == "anthropic"
-        assert config.llm.model == "claude-opus-4-8"
+        # Local-first: no API key needed for a default install.
+        assert config.llm.provider == "ollama"
+        assert config.llm.model == "qwen3:8b"
+        assert config.llm.base_url == "http://localhost:11434"
         assert config.logging.level == "INFO"
         assert config.browser.engine == "chromium"
         assert "delete_files" in config.security.require_confirmation
@@ -90,6 +92,53 @@ class TestYamlLayer:
         monkeypatch.setenv(CONFIG_FILE_ENV_VAR, str(config_file))
         assert resolve_config_file() == config_file
         assert load_config().api.port == 9222
+
+
+class TestProviderSelection:
+    """The short LLM_* names, which is how the provider is usually set."""
+
+    def test_short_env_vars_select_the_provider(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("LLM_PROVIDER", "ollama")
+        monkeypatch.setenv("LLM_MODEL", "qwen3:8b")
+        monkeypatch.setenv("LLM_BASE_URL", "http://127.0.0.1:11434")
+        config = load_config()
+        assert config.llm.provider == "ollama"
+        assert config.llm.model == "qwen3:8b"
+        assert config.llm.base_url == "http://127.0.0.1:11434"
+
+    def test_short_env_vars_are_read_from_dotenv(self, tmp_path: Path) -> None:
+        (tmp_path / ".env").write_text(
+            "# a comment\nLLM_PROVIDER=ollama\nLLM_MODEL='qwen3:8b'\n",
+            encoding="utf-8",
+        )
+        config = load_config()
+        assert config.llm.provider == "ollama"
+        assert config.llm.model == "qwen3:8b"
+
+    def test_short_env_vars_override_yaml(self, tmp_path: Path, monkeypatch) -> None:
+        config_file = write_yaml(tmp_path, "llm:\n  provider: anthropic\n")
+        monkeypatch.setenv("LLM_PROVIDER", "ollama")
+        assert load_config(config_file).llm.provider == "ollama"
+
+    def test_prefixed_env_var_wins_over_the_short_name(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("LLM_MODEL", "qwen3:8b")
+        monkeypatch.setenv("JARVIS_LLM__MODEL", "qwen3:14b")
+        assert load_config().llm.model == "qwen3:14b"
+
+    def test_model_defaults_to_the_providers_own_model(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("LLM_PROVIDER", "anthropic")
+        assert load_config().llm.model == "claude-opus-4-8"
+
+    def test_unknown_provider_is_rejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("LLM_PROVIDER", "openai")
+        with pytest.raises(ValidationError):
+            load_config()
 
 
 class TestEnvLayer:

@@ -18,9 +18,17 @@ from pathlib import Path
 from typing import Literal
 
 from platformdirs import user_data_path, user_log_path
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 _APP_NAME = "jarvis"
+
+# The model each provider uses when ``llm.model`` is left unset, so that
+# switching providers is a one-line change and never leaves a model name
+# pointing at the wrong service.
+DEFAULT_MODELS = {
+    "ollama": "qwen3:8b",
+    "anthropic": "claude-opus-4-8",
+}
 
 
 class _Section(BaseModel):
@@ -37,14 +45,49 @@ class ApiServerConfig(_Section):
 
 
 class LLMConfig(_Section):
-    """Settings for the language model behind the Brain module."""
+    """Settings for the language model behind the Brain module.
+
+    ``provider`` chooses which implementation of the Brain protocol gets
+    built. The default is ``ollama``: a model running on this machine, so
+    no API key is needed and no conversation leaves the computer.
+    ``anthropic`` stays available as an optional provider — picking it is
+    the only thing that requires ``ANTHROPIC_API_KEY``.
+
+    Leaving ``model`` unset selects the right default for the chosen
+    provider (see :data:`DEFAULT_MODELS`).
+    """
 
     model_config = ConfigDict(extra="forbid", protected_namespaces=())
 
-    provider: Literal["anthropic"] = "anthropic"
-    model: str = "claude-opus-4-8"
+    provider: Literal["ollama", "anthropic"] = "ollama"
+    model: str = ""
     max_tokens: int = Field(default=16000, gt=0)
+
+    # Anthropic only: how hard the model should think before answering.
     effort: Literal["low", "medium", "high", "xhigh", "max"] = "high"
+
+    # Ollama only ---------------------------------------------------------
+    # Where the local Ollama server listens.
+    base_url: str = "http://localhost:11434"
+    # Local models generate far slower than a hosted API, and the first
+    # request also pays for loading the weights into memory.
+    timeout: float = Field(default=180.0, gt=0)
+    # Ollama's own default context window is small enough that the
+    # planner's tool catalogue can overflow it — and an overflowing prompt
+    # is silently truncated rather than rejected, so set it explicitly.
+    context_window: int = Field(default=8192, gt=0)
+    # Left unset, the model's own defaults apply. Lower values make the
+    # planner's JSON output more reliable on small local models.
+    temperature: float | None = Field(default=None, ge=0.0, le=2.0)
+    # Turn a hybrid reasoning model's thinking on or off (qwen3 supports
+    # both). Unset means "whatever the model does by default".
+    think: bool | None = None
+
+    @model_validator(mode="after")
+    def _default_model_for_provider(self) -> LLMConfig:
+        if not self.model:
+            self.model = DEFAULT_MODELS[self.provider]
+        return self
 
 
 class LoggingConfig(_Section):

@@ -6,12 +6,17 @@ before it acts**, and controls the computer safely — asking for your
 confirmation before dangerous actions and notifying you as work progresses.
 
 ```
-phone ──HTTP+token──▶ API Server ──▶ Brain (Claude) ──▶ Planner
+phone ──HTTP+token──▶ API Server ──▶ Brain (local Qwen) ──▶ Planner
                                           │
                                     Tool Manager ──▶ permission policy
                                           │          (confirm dangerous)
                      files · memory · browser · desktop · vision
 ```
+
+The model runs **on your own machine** by default, through
+[Ollama](https://ollama.com): no API key, no account, and nothing you say
+leaves the computer. Claude remains available as an optional provider —
+see [Choosing the model](#choosing-the-model).
 
 ## What it can do
 
@@ -50,13 +55,22 @@ phone ──HTTP+token──▶ API Server ──▶ Brain (Claude) ──▶ Pl
 
 Requires Python 3.11+.
 
+First install [Ollama](https://ollama.com) and pull the model Jarvis uses
+by default — one download, then it works offline:
+
+```powershell
+ollama pull qwen3:8b
+```
+
+Then:
+
 ```powershell
 git clone <this repo> jarvis && cd jarvis
 python -m venv .venv
 .venv\Scripts\activate
 
-# Core + API server + the LLM client:
-pip install -e ".[llm,api]"
+# Core + API server (the local model needs nothing extra):
+pip install -e ".[api]"
 
 # Phone control + push notifications (Telegram / ntfy):
 pip install -e ".[phone]"
@@ -65,6 +79,9 @@ pip install -e ".[phone]"
 pip install -e ".[browser]"   ;  playwright install chromium
 pip install -e ".[desktop]"
 pip install -e ".[vision]"    # also install Tesseract OCR for screen reading
+
+# Only if you want to use Claude instead of a local model:
+pip install -e ".[llm]"
 ```
 
 Configure:
@@ -77,13 +94,51 @@ copy .env.example .env
 Edit `.env`:
 
 ```
-ANTHROPIC_API_KEY=sk-ant-...        # console.anthropic.com
+LLM_PROVIDER=ollama                 # the default: a model on this machine
+LLM_MODEL=qwen3:8b
 JARVIS_API_TOKEN=<run: jarvis token>
 ```
+
+## Choosing the model
+
+`LLM_PROVIDER` picks which Brain implementation Jarvis builds. Both speak
+the same internal interface, so the planner, tools, memory, phone bridge,
+and everything else are identical either way.
+
+| | `ollama` (default) | `anthropic` |
+|---|---|---|
+| Runs | on your machine | Anthropic's API |
+| Default model | `qwen3:8b` | `claude-opus-4-8` |
+| Needs a key | no | `ANTHROPIC_API_KEY` |
+| Privacy | nothing leaves the machine | prompts sent to Anthropic |
+| Install | nothing extra | `pip install -e ".[llm]"` |
+
+Check the connection before doing anything else:
+
+```powershell
+jarvis brain
+# provider: ollama
+# model:    qwen3:8b
+# endpoint: http://localhost:11434
+# connected: yes — 3 model(s) downloaded
+# model 'qwen3:8b' is available — Jarvis is ready.
+```
+
+To switch to Claude, set `LLM_PROVIDER=anthropic` and `ANTHROPIC_API_KEY`
+in `.env`. To use a different local model, `ollama pull` it and set
+`LLM_MODEL` — it must support tool calling, which Jarvis relies on.
+
+Tuning for local models lives under `llm:` in `config/config.yaml`:
+`timeout` (raise it on slower hardware), `context_window` (`num_ctx` — too
+small silently truncates the plan), `temperature`, and `think` (qwen3
+reasons before answering by default; `false` is faster).
 
 ## Run
 
 ```powershell
+# Check the model connection:
+jarvis brain
+
 # See which tools are available on this machine:
 jarvis tools
 
@@ -193,20 +248,23 @@ curl "$BASE/logs?limit=50" -H "Authorization: Bearer $TOKEN"
 
 ```bash
 pip install -e ".[dev,api,phone]"
-pytest          # 114 tests — the whole loop + phone bridge run against fakes
+pytest          # 170 tests — the whole loop, both providers, all on fakes
 ruff check .    # lint
 mypy src        # strict type-check
 ```
 
 ## Configuration model
 
-Three layers, highest precedence first (see `jarvis.config`):
+Four layers, highest precedence first (see `jarvis.config`):
 
 1. **Environment variables** — `JARVIS_` prefix, `__` nesting:
    `JARVIS_API__PORT=9000`, `JARVIS_LOGGING__LEVEL=DEBUG`
-2. **YAML file** — explicit path, `$JARVIS_CONFIG_FILE`,
+2. **Provider shortcuts** — `LLM_PROVIDER`, `LLM_MODEL`, `LLM_BASE_URL`,
+   read from the environment or `.env`, since those are the settings that
+   change most often
+3. **YAML file** — explicit path, `$JARVIS_CONFIG_FILE`,
    `./config/config.yaml`, or the per-user config dir
-3. **Coded defaults** — `src/jarvis/config/schema.py`
+4. **Coded defaults** — `src/jarvis/config/schema.py`
 
 Secrets are a separate, environment-only layer (`jarvis.config.secrets`):
 they cannot be expressed in YAML at all, so they cannot be committed.
@@ -230,7 +288,7 @@ src/jarvis/
 ├── config/         typed settings (YAML+env) and env-only secrets
 ├── logging/        structured JSON-lines logging with task context
 ├── security/       token auth + safe/confirm permission policy
-├── brain/          Brain protocol + Anthropic implementation
+├── brain/          Brain protocol + Ollama (local) and Anthropic providers
 ├── planner/        request → validated JSON plan; revision on failure
 ├── agent/          the plan → execute → observe orchestrator
 ├── tools/          Tool abstraction, registry, gated ToolManager
@@ -247,7 +305,7 @@ src/jarvis/
 
 Setting someone else up? Send them
 [docs/SETUP_FOR_A_FRIEND.md](docs/SETUP_FOR_A_FRIEND.md) — a step-by-step
-guide for installing their **own** Jarvis with their **own** API key, so
+guide for installing their **own** Jarvis with their **own** model, so
 nothing is shared between your machines.
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for design rules and the

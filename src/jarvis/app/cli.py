@@ -5,6 +5,7 @@ Subcommands:
 * ``jarvis serve`` — start the API server the phone connects to.
 * ``jarvis run "<request>"`` — run one task from the terminal, streaming
   progress and prompting for approvals interactively.
+* ``jarvis brain`` — show the configured model provider and check it works.
 * ``jarvis tools`` — list the tools available on this machine.
 * ``jarvis token`` — generate a strong token for ``JARVIS_API_TOKEN``.
 
@@ -48,6 +49,9 @@ def main(argv: list[str] | None = None) -> int:
         help="Run the Telegram bridge — control Jarvis from your phone "
         "(outbound only, needs no wifi/LAN)",
     )
+    sub.add_parser(
+        "brain", help="Show the configured model provider and check it responds"
+    )
     sub.add_parser("tools", help="List the tools available on this machine")
     sub.add_parser("token", help="Generate a token for JARVIS_API_TOKEN")
 
@@ -62,6 +66,8 @@ def main(argv: list[str] | None = None) -> int:
         return asyncio.run(_run_once(args))
     if args.command == "phone":
         return asyncio.run(_run_phone(args))
+    if args.command == "brain":
+        return asyncio.run(_check_brain(args))
     if args.command == "tools":
         return _list_tools(args)
     return 2  # pragma: no cover - argparse enforces the choices
@@ -169,6 +175,62 @@ async def _run_once(args: argparse.Namespace) -> int:
         print(task.result or "Done.")
         return 0
     print(f"Task {task.status.value}: {task.error or ''}", file=sys.stderr)
+    return 1
+
+
+async def _check_brain(args: argparse.Namespace) -> int:
+    """Report which provider is configured and prove it is usable.
+
+    Deliberately does not build the whole runtime: this must stay useful
+    when the reason nothing works is the model connection itself.
+    """
+    import logging
+
+    from jarvis.brain import OllamaBrain, build_brain
+    from jarvis.config import load_config, load_secrets
+    from jarvis.core.errors import BrainError
+
+    # This command prints its own diagnosis; the library's log line for a
+    # failed call would only say the same thing twice, less clearly.
+    logging.getLogger("jarvis").setLevel(logging.CRITICAL)
+
+    config = load_config(args.config)
+    print(f"provider: {config.llm.provider}")
+    print(f"model:    {config.llm.model}")
+
+    try:
+        brain = build_brain(config.llm, load_secrets())
+    except RuntimeError as exc:  # a required secret is missing
+        print(f"Cannot use this provider: {exc}", file=sys.stderr)
+        return 1
+
+    if not isinstance(brain, OllamaBrain):
+        print("endpoint: Anthropic API (hosted)")
+        return 0
+
+    print(f"endpoint: {config.llm.base_url}")
+    try:
+        models = await brain.list_models()
+    except BrainError as exc:
+        print(f"NOT reachable: {exc}", file=sys.stderr)
+        return 1
+    finally:
+        await brain.aclose()
+
+    print(f"connected: yes — {len(models)} model(s) downloaded")
+    # "qwen3" in config means "qwen3:latest" to Ollama.
+    wanted = {config.llm.model}
+    if ":" not in config.llm.model:
+        wanted.add(f"{config.llm.model}:latest")
+    if wanted & set(models):
+        print(f"model {config.llm.model!r} is available — Jarvis is ready.")
+        return 0
+    print(
+        f"model {config.llm.model!r} is NOT downloaded "
+        f"(have: {', '.join(models) or 'none'}).\n"
+        f"Download it with: ollama pull {config.llm.model}",
+        file=sys.stderr,
+    )
     return 1
 
 

@@ -33,8 +33,12 @@ class BrainResponse(BaseModel):
 class Brain(Protocol):
     """Anything that can complete a conversation.
 
-    ``tools`` is a list of Anthropic-format tool schemas; when provided the
-    model may answer with tool calls instead of (or in addition to) text.
+    ``tools`` is a list of Jarvis tool schemas, as produced by
+    :meth:`jarvis.tools.base.Tool.schema`; when provided the model may
+    answer with tool calls instead of (or in addition to) text. Each
+    implementation is responsible for translating them into whatever shape
+    its provider expects, so callers never need to know which model is
+    behind the protocol.
     """
 
     async def complete(
