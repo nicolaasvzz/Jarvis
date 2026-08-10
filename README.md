@@ -193,7 +193,7 @@ curl "$BASE/logs?limit=50" -H "Authorization: Bearer $TOKEN"
 
 ```bash
 pip install -e ".[dev,api,phone]"
-pytest          # 106 tests — the whole loop + phone bridge run against fakes
+pytest          # 114 tests — the whole loop + phone bridge run against fakes
 ruff check .    # lint
 mypy src        # strict type-check
 ```
