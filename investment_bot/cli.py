@@ -35,11 +35,22 @@ def _load_data(config: BotConfig, days: int, symbols: list[str] | None = None):
         try:
             data[symbol] = feed.history(symbol, days)
         except Exception as exc:
-            console.print(f"[yellow]skipping {symbol}: {exc}[/yellow]")
+            console.print(f"[yellow]skipping {symbol}: {_brief(exc)}[/yellow]")
     if not data:
         console.print("[red]No data loaded for any symbol.[/red]")
+        if config.section("data").get("source", "synthetic").lower() == "yahoo":
+            console.print(
+                "[dim]Yahoo Finance was unreachable. Check your connection, or set "
+                "data.source to 'synthetic' in your config to run offline.[/dim]"
+            )
         sys.exit(1)
     return data
+
+
+def _brief(exc: Exception, limit: int = 140) -> str:
+    """One-line error text — network stack traces are unreadable in bulk."""
+    text = " ".join(str(exc).split())
+    return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
 def cmd_backtest(args: argparse.Namespace) -> None:

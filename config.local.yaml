@@ -1,0 +1,29 @@
+# Local (free) setup: real market data, simulated money, state in this folder.
+# Used by run-local.ps1 / run-local.sh. Nothing here costs anything.
+
+data:
+  source: yahoo          # free daily bars; swap to 'synthetic' to run offline
+  cache_dir: data_cache  # gitignored
+  cache_ttl_hours: 12
+
+universe: [AAPL, MSFT, NVDA, AMZN, GOOG, META, TSLA, SPY]
+
+strategy:
+  threshold: 0.25
+  long_only: false
+  max_volatility: 0.80
+
+risk:
+  risk_per_trade: 0.01
+  atr_stop_multiple: 3.0
+  max_position_weight: 0.20
+  max_gross_exposure: 1.0
+  max_drawdown: 0.25
+  allow_short: true
+
+live:
+  broker: paper
+  poll_minutes: 60       # daily-bar strategy: hourly is plenty, and polite to Yahoo
+  state_file: live_state.json   # gitignored; survives restarts on your machine
+  starting_cash: 100000
+  lookback: 300

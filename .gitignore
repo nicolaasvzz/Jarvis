@@ -12,3 +12,7 @@ data_cache/
 .env
 config.yaml
 live_state.json
+
+# local run artifacts
+.venv/
+report.html

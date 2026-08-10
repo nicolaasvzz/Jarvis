@@ -39,7 +39,50 @@ config and a single CLI.
   (works offline — the default), Yahoo Finance daily bars (free, cached on
   disk), or your own CSVs.
 
-## Quickstart
+## Quickstart — run it locally, free
+
+One command. First run builds a virtualenv and installs dependencies; after
+that it starts immediately. Costs nothing to run — no hosting, no API keys,
+no data fees.
+
+**Windows (PowerShell):**
+
+```powershell
+.\run-local.ps1                 # live paper trading, terminal dashboard
+.\run-local.ps1 -Mode backtest  # backtest + HTML report
+.\run-local.ps1 -Mode api       # HTTP API on :8000, for a web dashboard
+.\run-local.ps1 -Mode once      # one cycle, then exit (Task Scheduler)
+```
+
+**macOS / Linux:**
+
+```bash
+./run-local.sh                  # live paper trading, terminal dashboard
+./run-local.sh backtest
+./run-local.sh api
+./run-local.sh once             # one cycle, then exit (cron)
+```
+
+Settings live in [`config.local.yaml`](config.local.yaml): real Yahoo prices,
+simulated money, state saved next to the script so positions survive
+restarts. No internet? Change `data.source` to `synthetic` and it runs
+entirely offline.
+
+### Reaching it from your phone
+
+Run `api` mode, then expose it with a free [Cloudflare
+Tunnel](https://developers.cloudflare.com/cloudflare-tunnel/) in a second
+window:
+
+```bash
+cloudflared tunnel --url http://localhost:8000
+```
+
+Point your dashboard's `INVESTMENT_BOT_URL` at the URL it prints. Quick
+tunnels get a new random URL each restart; a named tunnel (free Cloudflare
+account) gives you a permanent one.
+
+## Manual usage
 
 ```bash
 pip install -r requirements.txt
