@@ -24,3 +24,6 @@ investment-bot = "investment_bot.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["investment_bot*"]
+
+[tool.setuptools.package-data]
+investment_bot = ["static/*.html"]

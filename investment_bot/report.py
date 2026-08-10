@@ -129,32 +129,75 @@ def write_html_report(result: BacktestResult, path: str | Path) -> Path:
         else ""
     )
 
+    total_return = result.metrics.get("total_return", 0.0)
+    headline_color = "var(--green)" if total_return >= 0 else "var(--red)"
+
     html = f"""<!doctype html>
-<html><head><meta charset="utf-8"><title>Investment Bot — Backtest Report</title>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Investment Bot — Backtest Report</title>
 <style>
- body {{ font-family: -apple-system, "Segoe UI", Roboto, sans-serif; margin: 2rem auto; max-width: 960px; color: #1a1a2e; padding: 0 1rem; }}
- h1 {{ font-size: 1.5rem; }} h2 {{ font-size: 1.1rem; margin-top: 2rem; }}
- .sub {{ color: #666; }}
- table {{ border-collapse: collapse; width: 100%; font-size: 0.9rem; }}
- td, th {{ padding: 0.35rem 0.6rem; border-bottom: 1px solid #eee; text-align: left; }}
- .num {{ text-align: right; font-variant-numeric: tabular-nums; }}
- .pos {{ color: #0a7a3d; }} .neg {{ color: #c0392b; }}
- .halted {{ color: #c0392b; font-weight: 600; }}
- .chart {{ border: 1px solid #eee; border-radius: 8px; padding: 0.5rem; margin: 0.5rem 0 1.5rem; }}
-</style></head><body>
-<h1>Investment Bot — Backtest Report</h1>
-<p class="sub">Period: {period} &nbsp;|&nbsp; {len(result.trades)} closed trades</p>
+ :root {{ --bg:#050505; --green:#4ade80; --red:#f87171; --purple:#c084fc; }}
+ * {{ box-sizing:border-box; margin:0; padding:0; }}
+ body {{ background:var(--bg); color:#fff; padding:1.5rem 1rem 4rem;
+   font-family:'Montserrat',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; font-size:15px; }}
+ .wrap {{ max-width:1100px; margin:0 auto; }}
+ h1 {{ font-size:1.5rem; font-weight:700; letter-spacing:-.02em; display:flex; align-items:center; gap:.5rem; }}
+ .sub {{ color:rgba(255,255,255,.6); font-size:.875rem; margin-top:.35rem; }}
+ h2 {{ font-size:.7rem; font-weight:700; text-transform:uppercase; letter-spacing:.12em;
+   color:rgba(255,255,255,.6); margin:2rem 0 .75rem; }}
+ .card {{ background:rgba(0,0,0,.7); border:1px solid rgba(255,255,255,.2); border-radius:1.5rem;
+   padding:1.25rem; box-shadow:0 10px 30px rgba(0,0,0,.5); }}
+ .grid {{ display:grid; gap:1rem; grid-template-columns:repeat(2,1fr); }}
+ @media(min-width:900px) {{ .grid {{ grid-template-columns:repeat(4,1fr); }} }}
+ .label {{ font-size:.7rem; font-weight:700; text-transform:uppercase; letter-spacing:.12em;
+   color:rgba(255,255,255,.6); margin-bottom:.5rem; }}
+ .stat {{ font-size:1.5rem; font-weight:700; font-variant-numeric:tabular-nums; }}
+ table {{ border-collapse:collapse; width:100%; font-size:.85rem; }}
+ th {{ font-size:.65rem; font-weight:700; text-transform:uppercase; letter-spacing:.1em;
+   color:rgba(255,255,255,.5); text-align:left; padding:.5rem .7rem; }}
+ td {{ padding:.5rem .7rem; border-top:1px solid rgba(255,255,255,.07); }}
+ tbody tr:hover {{ background:rgba(255,255,255,.04); }}
+ .num {{ text-align:right; font-variant-numeric:tabular-nums; }}
+ .pos {{ color:var(--green); }} .neg {{ color:var(--red); }}
+ .halted {{ background:rgba(69,10,10,.4); border:1px solid rgba(239,68,68,.4); border-radius:1rem;
+   padding:.8rem 1rem; color:#fca5a5; font-weight:600; margin:1rem 0; }}
+ .scroll {{ overflow-x:auto; }}
+ .tall {{ max-height:520px; overflow-y:auto; }}
+ ::-webkit-scrollbar {{ width:6px; height:6px; }}
+ ::-webkit-scrollbar-track {{ background:#080808; }}
+ ::-webkit-scrollbar-thumb {{ background:#333; border-radius:3px; }}
+</style></head><body><div class="wrap">
+<h1>
+<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>
+Backtest Report</h1>
+<p class="sub">{period} &nbsp;·&nbsp; {len(result.trades)} closed trades</p>
 {halted_banner}
-<h2>Equity curve</h2>
-<div class="chart">{_svg_line(equity, 900, 220, "#2563eb", "#2563eb18") if len(equity) else "no data"}</div>
+
+<div class="grid" style="margin-top:1.5rem">
+  <div class="card"><div class="label">Total Return</div>
+    <p class="stat" style="color:{headline_color}">{total_return:.2%}</p></div>
+  <div class="card"><div class="label">Sharpe</div>
+    <p class="stat">{result.metrics.get('sharpe', 0):.2f}</p></div>
+  <div class="card"><div class="label">Max Drawdown</div>
+    <p class="stat neg">{result.metrics.get('max_drawdown', 0):.2%}</p></div>
+  <div class="card"><div class="label">Win Rate</div>
+    <p class="stat" style="color:var(--purple)">{result.metrics.get('win_rate', 0):.2%}</p></div>
+</div>
+
+<h2>Equity Curve</h2>
+<div class="card">{_svg_line(equity, 900, 220, "#4ade80" if total_return >= 0 else "#f87171", "#4ade8022" if total_return >= 0 else "#f8717122") if len(equity) else "no data"}</div>
 <h2>Drawdown</h2>
-<div class="chart">{_svg_line(dd, 900, 120, "#c0392b", "#c0392b18") if len(dd) else "no data"}</div>
-<h2>Metrics</h2>
-<table>{metric_rows}</table>
-<h2>Closed trades</h2>
-<table><tr><th>Exit date</th><th>Symbol</th><th>Side</th><th class="num">Qty</th>
-<th class="num">Entry</th><th class="num">Exit</th><th class="num">P&amp;L</th><th>Reason</th></tr>
-{trade_rows}</table>
-</body></html>"""
+<div class="card">{_svg_line(dd, 900, 120, "#f87171", "#f8717122") if len(dd) else "no data"}</div>
+
+<h2>All Metrics</h2>
+<div class="card scroll"><table>{metric_rows}</table></div>
+
+<h2>Closed Trades</h2>
+<div class="card scroll tall"><table>
+<thead><tr><th>Exit date</th><th>Symbol</th><th>Side</th><th class="num">Qty</th>
+<th class="num">Entry</th><th class="num">Exit</th><th class="num">P&amp;L</th><th>Reason</th></tr></thead>
+<tbody>{trade_rows}</tbody></table></div>
+</div></body></html>"""
     path.write_text(html)
     return path

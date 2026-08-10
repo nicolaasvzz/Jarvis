@@ -68,6 +68,23 @@ simulated money, state saved next to the script so positions survive
 restarts. No internet? Change `data.source` to `synthetic` and it runs
 entirely offline.
 
+### The built-in dashboard
+
+`api` mode also serves a full dashboard at **http://localhost:8000** — same
+dark glass styling as the AgencyOS trading tab, no build step, no CDN, works
+offline:
+
+- **Dashboard** — balance, P&L today, trades today, win rate; win-rate donut
+  with drawdown / Sharpe / best symbol; live open positions with LONG/SHORT
+  badges and running P&L; order history
+- **Equity** — equity curve and drawdown charts with 1D/1W/1M/ALL ranges and
+  hover inspection
+- **Trades** — every closed trade
+- **Controls** — start / halt / abort, the active risk parameters, watched
+  symbols, and a live system log showing each strategy's vote per trade
+
+It polls every 2 seconds and warns if the bot goes away.
+
 ### Reaching it from your phone
 
 Run `api` mode, then expose it with a free [Cloudflare

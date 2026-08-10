@@ -1,0 +1,489 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Investment Bot — Control Center</title>
+<style>
+:root{
+  --bg:#050505;
+  --accent:#ffffff;      /* Chrome, matching the dash default */
+  --accent-dim:#cccccc;
+  --green:#4ade80; --red:#f87171; --purple:#c084fc; --blue:#3b82f6;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{-webkit-text-size-adjust:100%}
+body{
+  background:var(--bg); color:#fff; min-height:100dvh;
+  font-family:'Montserrat',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+  padding:1rem 1rem 6rem; font-size:15px;
+}
+@media(min-width:900px){body{padding:2rem 2rem 2rem}}
+.wrap{max-width:1200px;margin:0 auto}
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:#080808}
+::-webkit-scrollbar-thumb{background:#333;border-radius:3px}
+.no-bar::-webkit-scrollbar{display:none}
+.no-bar{scrollbar-width:none}
+
+/* ---- shell ---- */
+header{display:flex;justify-content:space-between;align-items:flex-start;gap:1rem;margin-bottom:1.5rem;flex-wrap:wrap}
+h1{font-size:1.5rem;font-weight:700;letter-spacing:-.02em;display:flex;align-items:center;gap:.5rem;
+   text-shadow:0 2px 8px rgba(0,0,0,.6)}
+h1 svg{color:var(--accent)}
+.sub{font-size:.875rem;color:rgba(255,255,255,.8);font-weight:500;margin-top:.25rem}
+.pill{display:inline-flex;align-items:center;gap:.4rem;padding:.4rem .8rem;border-radius:999px;
+      font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;
+      background:rgba(0,0,0,.4);border:1px solid rgba(255,255,255,.15)}
+.dot{width:8px;height:8px;border-radius:50%;background:#555}
+.dot.on{background:var(--green);box-shadow:0 0 10px var(--green);animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+
+/* ---- nav ---- */
+nav{display:flex;gap:.25rem;background:rgba(0,0,0,.4);border:1px solid rgba(255,255,255,.1);
+    border-radius:1rem;padding:.25rem;width:fit-content;margin-bottom:1.5rem;overflow-x:auto;max-width:100%}
+nav button{background:none;border:0;color:rgba(255,255,255,.6);cursor:pointer;white-space:nowrap;
+  padding:.55rem 1rem;border-radius:.75rem;font-size:.75rem;font-weight:700;font-family:inherit;
+  display:flex;align-items:center;gap:.4rem;transition:all .2s}
+nav button:hover{color:#fff}
+nav button.active{background:var(--accent);color:#000;box-shadow:0 0 12px rgba(255,255,255,.3)}
+
+/* ---- cards ---- */
+.card{background:rgba(0,0,0,.7);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);
+  border:1px solid rgba(255,255,255,.2);border-radius:1.5rem;padding:1.25rem;
+  box-shadow:0 10px 30px rgba(0,0,0,.5)}
+.grid{display:grid;gap:1rem}
+.g4{grid-template-columns:repeat(2,1fr)}
+.g2{grid-template-columns:1fr}
+@media(min-width:900px){.g4{grid-template-columns:repeat(4,1fr)}.g2{grid-template-columns:1fr 1fr}}
+.label{font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.12em;
+  color:rgba(255,255,255,.6);display:flex;align-items:center;gap:.5rem;margin-bottom:.5rem}
+.stat{font-size:1.5rem;font-weight:700;font-variant-numeric:tabular-nums}
+.pos{color:var(--green)} .neg{color:var(--red)} .pur{color:var(--purple)}
+h3.sec{font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.12em;
+  color:rgba(255,255,255,.6);display:flex;align-items:center;gap:.5rem;margin-bottom:.75rem}
+section{margin-bottom:1.5rem}
+.empty{border:1px dashed rgba(255,255,255,.1);border-radius:1rem;min-height:150px;
+  display:flex;align-items:center;justify-content:center;text-align:center;padding:0 1rem;
+  font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.12em;color:rgba(255,255,255,.4)}
+.scroll{max-height:320px;overflow-y:auto;padding-right:.4rem}
+
+/* ---- positions ---- */
+.posrow{position:relative;overflow:hidden;background:rgba(0,0,0,.6);border:1px solid rgba(255,255,255,.1);
+  border-radius:1rem;padding:.9rem .9rem .9rem 1.1rem;margin-bottom:.6rem;
+  display:flex;justify-content:space-between;align-items:center;gap:1rem;transition:background .2s}
+.posrow:hover{background:rgba(255,255,255,.05)}
+.bar{position:absolute;top:0;left:0;width:4px;height:100%;animation:pulse 2s infinite}
+.bar.up{background:var(--green);box-shadow:0 0 10px var(--green)}
+.bar.dn{background:var(--red);box-shadow:0 0 10px var(--red)}
+.badge{font-size:.625rem;padding:.15rem .4rem;border-radius:.25rem;font-weight:700;letter-spacing:.05em}
+.badge.long{background:rgba(74,222,128,.2);color:var(--green)}
+.badge.short{background:rgba(248,113,113,.2);color:var(--red)}
+.mono{font-size:.65rem;color:rgba(255,255,255,.5);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;margin-top:.3rem}
+.sym{font-weight:700;font-size:.875rem}
+
+/* ---- trades ---- */
+.trade{background:rgba(0,0,0,.4);border:1px solid rgba(255,255,255,.05);border-radius:1rem;
+  padding:.7rem;margin-bottom:.5rem;display:flex;justify-content:space-between;align-items:center;gap:.75rem}
+.trade:hover{background:rgba(255,255,255,.05)}
+.ico{width:32px;height:32px;border-radius:.5rem;display:flex;align-items:center;justify-content:center;flex:0 0 auto}
+.ico.long{background:rgba(74,222,128,.2);color:var(--green)}
+.ico.short{background:rgba(248,113,113,.2);color:var(--red)}
+
+/* ---- donut ---- */
+.donut{width:96px;height:96px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+  position:relative;flex:0 0 auto;box-shadow:0 0 20px rgba(74,222,128,.2)}
+.donut i{width:78px;height:78px;background:#000;border-radius:50%;position:absolute;
+  display:flex;align-items:center;justify-content:center;font-style:normal;font-size:1.15rem;font-weight:700}
+.kv{display:flex;justify-content:space-between;align-items:center;padding:.5rem 0;
+  border-bottom:1px solid rgba(255,255,255,.1)}
+.kv:last-child{border-bottom:0}
+.kv span:first-child{font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.12em;color:rgba(255,255,255,.5)}
+.kv span:last-child{font-size:.875rem;font-weight:700}
+.muted{color:rgba(255,255,255,.4)}
+
+/* ---- chart ---- */
+.chart{position:relative;width:100%}
+.chart svg{display:block;width:100%;height:240px;overflow:visible}
+.tf{display:flex;gap:.25rem;background:rgba(0,0,0,.4);border:1px solid rgba(255,255,255,.1);
+  border-radius:.75rem;padding:.2rem;width:fit-content}
+.tf button{background:none;border:0;color:rgba(255,255,255,.5);cursor:pointer;font-family:inherit;
+  padding:.35rem .7rem;border-radius:.5rem;font-size:.7rem;font-weight:700}
+.tf button.active{background:rgba(255,255,255,.15);color:#fff}
+.crosshair{font-size:.7rem;color:rgba(255,255,255,.6);font-variant-numeric:tabular-nums;margin-top:.4rem}
+
+/* ---- controls ---- */
+.danger{background:rgba(69,10,10,.2);border:1px solid rgba(239,68,68,.3);border-radius:1.5rem;
+  padding:1.5rem;position:relative;overflow:hidden;backdrop-filter:blur(20px)}
+.danger h3{font-size:1.15rem;font-weight:700;color:#ef4444;display:flex;align-items:center;gap:.5rem;margin-bottom:.5rem}
+.danger p{color:rgba(252,165,165,.8);font-size:.8rem;max-width:28rem}
+.btn{border:0;cursor:pointer;font-family:inherit;font-weight:700;border-radius:1rem;
+  padding:1rem 1.5rem;display:flex;align-items:center;justify-content:center;gap:.6rem;
+  font-size:.875rem;width:100%;transition:all .2s}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.btn-start{background:#fff;color:#dc2626;box-shadow:0 0 30px rgba(255,255,255,.55)}
+.btn-halt{background:#dc2626;color:#fff;box-shadow:0 0 20px rgba(220,38,38,.6)}
+.btn-abort{background:#450a0a;color:#f87171;border:1px solid rgba(239,68,68,.5);padding:.8rem 1.5rem;margin-top:.75rem}
+.chips{display:flex;flex-wrap:wrap;gap:.5rem}
+.chip{padding:.35rem .7rem;border-radius:.5rem;background:rgba(255,255,255,.1);
+  border:1px solid rgba(255,255,255,.2);font-size:.8rem;font-weight:700}
+.logs{background:#000;border:1px solid rgba(255,255,255,.1);border-radius:1rem;padding:.9rem;
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.7rem;line-height:1.7;
+  max-height:340px;overflow-y:auto;color:rgba(255,255,255,.75);white-space:pre-wrap;word-break:break-word}
+.toast{position:fixed;left:50%;bottom:1.5rem;transform:translateX(-50%);z-index:50;
+  background:rgba(0,0,0,.9);border:1px solid rgba(255,255,255,.2);border-radius:1rem;
+  padding:.8rem 1.2rem;font-size:.8rem;font-weight:600;backdrop-filter:blur(20px);
+  opacity:0;transition:opacity .3s;pointer-events:none;max-width:90vw}
+.toast.show{opacity:1}
+.hide{display:none !important}
+.offline{background:rgba(69,10,10,.4);border:1px solid rgba(239,68,68,.4);border-radius:1rem;
+  padding:.8rem 1rem;font-size:.8rem;color:#fca5a5;font-weight:600;margin-bottom:1rem}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div>
+      <h1>
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>
+        Investment Bot
+      </h1>
+      <p class="sub">Paper trading · multi-strategy ensemble</p>
+    </div>
+    <span class="pill"><span class="dot" id="dot"></span><span id="runstate">Stopped</span></span>
+  </header>
+
+  <div class="offline hide" id="offline">⚠ Cannot reach the bot API. Is it still running?</div>
+
+  <nav>
+    <button class="active" data-tab="dash">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>
+      Dashboard</button>
+    <button data-tab="equity">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>
+      Equity</button>
+    <button data-tab="trades">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+      Trades</button>
+    <button data-tab="controls">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>
+      Controls</button>
+  </nav>
+
+  <!-- ================= DASHBOARD ================= -->
+  <div id="tab-dash">
+    <section class="grid g4">
+      <div class="card">
+        <div class="label"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>Account Balance</div>
+        <p class="stat" id="balance">$—</p>
+      </div>
+      <div class="card">
+        <div class="label"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>Profit Today</div>
+        <p class="stat" id="pnl">—</p>
+      </div>
+      <div class="card">
+        <div class="label"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>Trades Today</div>
+        <p class="stat" id="ntrades">0</p>
+      </div>
+      <div class="card">
+        <div class="label"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>Win Rate</div>
+        <p class="stat pur" id="winrate">0.0%</p>
+      </div>
+    </section>
+
+    <section class="grid g2">
+      <div class="card">
+        <div class="label"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.9 4.9l2.9 2.9M16.2 16.2l2.9 2.9M2 12h4M18 12h4M4.9 19.1l2.9-2.9M16.2 7.8l2.9-2.9"/></svg>Strategy Status</div>
+        <p id="statusline" style="font-size:.875rem;line-height:1.7;color:rgba(255,255,255,.75)">
+          Press <strong>Start</strong> in Controls to begin trading.</p>
+      </div>
+      <div class="card" style="display:flex;align-items:center;gap:1.5rem;flex-wrap:wrap">
+        <div class="donut" id="donut"><i id="donutlabel">0.0%</i></div>
+        <div style="flex:1;min-width:180px">
+          <div class="kv"><span>Max Drawdown</span><span class="muted" id="mdd">—</span></div>
+          <div class="kv"><span>Sharpe Ratio</span><span class="muted" id="sharpe">—</span></div>
+          <div class="kv"><span>Best Symbol</span><span class="muted" id="bestpair">—</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="grid g2">
+      <div>
+        <h3 class="sec"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>Live Open Positions</h3>
+        <div class="scroll no-bar" id="positions"><div class="empty">Zero open positions. Capital is secured.</div></div>
+      </div>
+      <div>
+        <h3 class="sec"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>Order History</h3>
+        <div class="scroll no-bar" id="trades"><div class="empty">No trades closed yet.</div></div>
+      </div>
+    </section>
+  </div>
+
+  <!-- ================= EQUITY ================= -->
+  <div id="tab-equity" class="hide">
+    <section class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:1rem;margin-bottom:1rem;flex-wrap:wrap">
+        <div>
+          <div class="label" style="margin:0">Equity Curve</div>
+          <p class="stat" id="eq-current" style="margin-top:.35rem">$—</p>
+          <p style="font-size:.8rem;font-weight:700" id="eq-change">—</p>
+        </div>
+        <div class="tf" id="tf">
+          <button data-range="1D">1D</button>
+          <button data-range="1W">1W</button>
+          <button data-range="1M">1M</button>
+          <button class="active" data-range="ALL">ALL</button>
+        </div>
+      </div>
+      <div class="chart"><svg id="eqchart" viewBox="0 0 900 240" preserveAspectRatio="none"></svg></div>
+      <p class="crosshair" id="eq-hint">Hover the chart to inspect a point.</p>
+    </section>
+
+    <section class="card">
+      <h3 class="sec">Drawdown</h3>
+      <div class="chart"><svg id="ddchart" viewBox="0 0 900 120" preserveAspectRatio="none" style="height:120px"></svg></div>
+    </section>
+  </div>
+
+  <!-- ================= TRADES ================= -->
+  <div id="tab-trades" class="hide">
+    <section>
+      <h3 class="sec">All Closed Trades Today</h3>
+      <div id="alltrades"><div class="empty">No trades closed yet.</div></div>
+    </section>
+  </div>
+
+  <!-- ================= CONTROLS ================= -->
+  <div id="tab-controls" class="hide">
+    <section class="danger">
+      <h3><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>Bot Controls</h3>
+      <p>Start and stop the trading loop. Abort closes every open position immediately at market.</p>
+      <div style="margin-top:1.25rem;max-width:22rem">
+        <button class="btn btn-start" id="toggle" onclick="control()">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg>
+          <span id="togglelabel">START ALGO BOT</span>
+        </button>
+        <button class="btn btn-abort" onclick="control('ABORT')">CLOSE ALL POSITIONS &amp; ABORT</button>
+      </div>
+    </section>
+
+    <section class="grid g2" style="margin-top:1.5rem">
+      <div class="card">
+        <h3 class="sec">Risk Parameters</h3>
+        <div class="kv"><span>Risk / Trade</span><span>1% of equity</span></div>
+        <div class="kv"><span>Stop Loss</span><span>3 × ATR trailing</span></div>
+        <div class="kv"><span>Take Profit</span><span class="muted">None — winners run</span></div>
+        <div class="kv"><span>Max Position</span><span>20% of equity</span></div>
+        <div class="kv"><span>Max Exposure</span><span>100% — no leverage</span></div>
+        <div class="kv"><span>Kill Switch</span><span class="neg">−25% from peak</span></div>
+      </div>
+      <div class="card">
+        <h3 class="sec">Watched Symbols</h3>
+        <div class="chips" id="universe"><span class="chip">loading…</span></div>
+        <p style="font-size:.7rem;color:rgba(255,255,255,.4);margin-top:1rem;line-height:1.6">
+          Edit <code>config.local.yaml</code> to change the universe or risk settings, then restart the bot.</p>
+      </div>
+    </section>
+
+    <section style="margin-top:1.5rem">
+      <h3 class="sec">System Log</h3>
+      <div class="logs no-bar" id="logs">Waiting for the bot…</div>
+    </section>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const API = location.origin;
+let running=false, busy=false, stats=null, equity=[], range='ALL';
+
+const $ = id => document.getElementById(id);
+const money = v => (v<0?'-':'')+'$'+Math.abs(v).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+function toast(msg){ const t=$('toast'); t.textContent=msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),2600); }
+
+/* ---------- tabs ---------- */
+document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('nav button').forEach(x=>x.classList.remove('active'));
+  b.classList.add('active');
+  ['dash','equity','trades','controls'].forEach(t=>$('tab-'+t).classList.toggle('hide', t!==b.dataset.tab));
+  if(b.dataset.tab==='equity') drawCharts();
+});
+document.querySelectorAll('#tf button').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('#tf button').forEach(x=>x.classList.remove('active'));
+  b.classList.add('active'); range=b.dataset.range; drawCharts();
+});
+
+/* ---------- rendering ---------- */
+function renderStats(d){
+  stats=d; running=d.running;
+  $('balance').textContent = money(d.balance);
+  const p=$('pnl'); p.textContent=(d.pnl_today>=0?'+':'')+money(d.pnl_today);
+  p.className='stat '+(d.pnl_today>=0?'pos':'neg');
+  $('ntrades').textContent=d.recent_trades.length;
+  $('winrate').textContent=d.winRate;
+  $('donutlabel').textContent=d.winRate;
+  const wr=parseFloat(d.winRate)||0;
+  $('donut').style.background=`conic-gradient(var(--green) 0% ${wr}%, var(--red) ${wr}% 100%)`;
+
+  setKV('mdd', d.max_drawdown); setKV('sharpe', d.sharpe); setKV('bestpair', d.best_pair);
+
+  $('dot').className='dot'+(running?' on':'');
+  $('runstate').textContent=running?'Running':'Stopped';
+  const t=$('toggle'), l=$('togglelabel');
+  t.className='btn '+(running?'btn-halt':'btn-start');
+  l.textContent=running?'HALT ALL TRADING':'START ALGO BOT';
+  $('statusline').innerHTML = running
+    ? `Trading live. Evaluating <strong>${d.positions.length}</strong> open position(s) against the ensemble each cycle.`
+    : 'Press <strong>Start</strong> in Controls to begin trading.';
+
+  renderPositions(d.positions);
+  renderTrades(d.recent_trades);
+}
+function setKV(id,val){ const e=$(id); e.textContent=val||'—'; e.className=val?'':'muted'; }
+
+function renderPositions(list){
+  const el=$('positions');
+  if(!list.length){ el.innerHTML='<div class="empty">Zero open positions. Capital is secured.</div>'; return; }
+  el.innerHTML=list.map(p=>`
+    <div class="posrow">
+      <div class="bar ${p.isPositive?'up':'dn'}"></div>
+      <div>
+        <div style="display:flex;gap:.5rem;align-items:center">
+          <span class="badge ${p.type==='LONG'?'long':'short'}">${p.type}</span>
+          <span class="sym">${esc(p.asset)}</span>
+        </div>
+        <div class="mono">IN: ${esc(p.entry)} → NOW: ${esc(p.current)}</div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-weight:700" class="${p.isPositive?'pos':'neg'}">${esc(p.pnl)}</div>
+        <div style="font-size:.65rem;font-weight:700;opacity:.7" class="${p.isPositive?'pos':'neg'}">${esc(p.pnlPercent)}</div>
+      </div>
+    </div>`).join('');
+}
+
+const upIcon='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>';
+const dnIcon='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 18 13.5 8.5 8.5 13.5 1 6"/><polyline points="17 18 23 18 23 12"/></svg>';
+
+function tradeRow(t){
+  return `<div class="trade">
+    <div style="display:flex;gap:.75rem;align-items:center">
+      <div class="ico ${t.type==='LONG'?'long':'short'}">${t.type==='LONG'?upIcon:dnIcon}</div>
+      <div>
+        <div class="sym">${esc(t.asset)}</div>
+        <div style="font-size:.65rem;color:rgba(255,255,255,.5)">${esc(t.type)} • ${esc(t.time)}</div>
+      </div>
+    </div>
+    <div style="font-weight:700;font-size:.875rem" class="${t.isWin?'pos':'neg'}">${esc(t.profit)}</div>
+  </div>`;
+}
+function renderTrades(list){
+  const html = list.length ? list.map(tradeRow).join('') : '<div class="empty">No trades closed yet.</div>';
+  $('trades').innerHTML=html; $('alltrades').innerHTML=html;
+}
+
+/* ---------- charts ---------- */
+function sliceRange(pts){
+  if(range==='ALL'||!pts.length) return pts;
+  const days={'1D':1,'1W':7,'1M':30}[range];
+  const cutoff=new Date(pts[pts.length-1][0]).getTime()-days*864e5;
+  const out=pts.filter(p=>new Date(p[0]).getTime()>=cutoff);
+  return out.length>1?out:pts.slice(-2);
+}
+function path(vals,w,h,pad){
+  const lo=Math.min(...vals), hi=Math.max(...vals), span=(hi-lo)||1;
+  return vals.map((v,i)=>{
+    const x=(i/Math.max(vals.length-1,1))*w;
+    const y=h-((v-lo)/span)*(h-pad*2)-pad;
+    return `${i?'L':'M'}${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(' ');
+}
+function drawCharts(){
+  const pts=sliceRange(equity);
+  const eq=$('eqchart'), dd=$('ddchart');
+  if(pts.length<2){
+    eq.innerHTML='<text x="450" y="120" fill="rgba(255,255,255,.35)" font-size="13" text-anchor="middle" font-family="Montserrat,sans-serif">Not enough history yet — start the bot.</text>';
+    dd.innerHTML=''; return;
+  }
+  const vals=pts.map(p=>p[1]);
+  const first=vals[0], last=vals[vals.length-1];
+  const up=last>=first, col=up?'var(--green)':'var(--red)';
+  $('eq-current').textContent=money(last);
+  const chg=last-first, pct=first?chg/first*100:0;
+  const ce=$('eq-change');
+  ce.textContent=`${chg>=0?'+':''}${money(chg)} (${pct>=0?'+':''}${pct.toFixed(2)}%) this ${range==='ALL'?'run':range}`;
+  ce.className=chg>=0?'pos':'neg';
+
+  const d=path(vals,900,240,12);
+  eq.innerHTML=`<defs><linearGradient id="g1" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="${up?'#4ade80':'#f87171'}" stop-opacity=".35"/>
+      <stop offset="100%" stop-color="${up?'#4ade80':'#f87171'}" stop-opacity="0"/></linearGradient></defs>
+    <path d="${d} L900,240 L0,240 Z" fill="url(#g1)"/>
+    <path d="${d}" fill="none" stroke="${col}" stroke-width="2" vector-effect="non-scaling-stroke"/>`;
+
+  let peak=-Infinity;
+  const ddv=vals.map(v=>{ peak=Math.max(peak,v); return (v/peak-1)*100; });
+  const d2=path(ddv,900,120,8);
+  dd.innerHTML=`<defs><linearGradient id="g2" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#f87171" stop-opacity=".05"/>
+      <stop offset="100%" stop-color="#f87171" stop-opacity=".35"/></linearGradient></defs>
+    <path d="${d2} L900,120 L0,120 Z" fill="url(#g2)"/>
+    <path d="${d2}" fill="none" stroke="#f87171" stroke-width="1.5" vector-effect="non-scaling-stroke"/>`;
+
+  eq.onmousemove=e=>{
+    const r=eq.getBoundingClientRect();
+    const i=Math.min(pts.length-1,Math.max(0,Math.round((e.clientX-r.left)/r.width*(pts.length-1))));
+    const dt=new Date(pts[i][0]);
+    $('eq-hint').textContent=`${dt.toLocaleString()} — ${money(pts[i][1])}`;
+  };
+  eq.onmouseleave=()=>{ $('eq-hint').textContent='Hover the chart to inspect a point.'; };
+}
+
+/* ---------- controls ---------- */
+async function control(cmd){
+  if(busy) return;
+  cmd = cmd || (running?'STOP':'START');
+  if(cmd==='ABORT' && !confirm('Close ALL open positions at market and stop the bot?')) return;
+  busy=true; $('toggle').disabled=true;
+  try{
+    const r=await fetch(API+'/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({command:cmd})});
+    const d=await r.json();
+    toast(d.message||d.error||'Done');
+  }catch(e){ toast('Command failed: '+e.message); }
+  busy=false; $('toggle').disabled=false;
+  poll();
+}
+
+/* ---------- polling ---------- */
+async function poll(){
+  try{
+    const [s,l,e] = await Promise.all([
+      fetch(API+'/stats').then(r=>r.json()),
+      fetch(API+'/logs').then(r=>r.json()),
+      fetch(API+'/equity').then(r=>r.json())
+    ]);
+    $('offline').classList.add('hide');
+    if(s.success) renderStats(s);
+    if(l.logs){ const el=$('logs'); const bottom=el.scrollHeight-el.scrollTop-el.clientHeight<40;
+      el.textContent=l.logs.join('\n')||'No log output yet.'; if(bottom) el.scrollTop=el.scrollHeight; }
+    if(e.points){ equity=e.points; if(!$('tab-equity').classList.contains('hide')) drawCharts(); }
+  }catch(err){ $('offline').classList.remove('hide'); }
+}
+
+fetch(API+'/stats').then(r=>r.json()).then(d=>{
+  const syms = d.universe || [];
+  $('universe').innerHTML = syms.length
+    ? syms.map(s=>`<span class="chip">${esc(s)}</span>`).join('')
+    : '<span class="chip muted">none configured</span>';
+}).catch(()=>{});
+
+poll();
+setInterval(poll, 2000);
+</script>
+</body>
+</html>

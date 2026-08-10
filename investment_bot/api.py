@@ -1,8 +1,10 @@
 """HTTP API for driving the bot from a dashboard.
 
-Endpoints (all JSON):
+Endpoints:
+    GET  /         -> the built-in dashboard (HTML)
     GET  /health   -> {ok: true}
     GET  /stats    -> account/positions/trades snapshot for a dashboard
+    GET  /equity   -> {points: [[iso8601, equity], ...]} for the chart
     GET  /logs     -> {logs: [...last 200 lines...]}
     POST /logs     -> {lines: [...]} append external log lines
     POST /control  -> {command: START | STOP | ABORT}
@@ -21,6 +23,7 @@ import json
 import threading
 from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 
 import pandas as pd
 from rich.console import Console
@@ -29,6 +32,9 @@ from .backtest.metrics import compute_metrics
 from .broker.base import Broker
 from .config import BotConfig
 from .live import LiveTrader
+
+
+DASHBOARD_HTML = Path(__file__).parent / "static" / "dashboard.html"
 
 
 class _LogBuffer:
@@ -160,6 +166,7 @@ class BotService:
         return {
             "success": True,
             "running": self.running,
+            "universe": self.config.universe,
             "balance": round(equity, 2),
             "pnl_today": round(equity - baseline, 2),
             "winRate": win_rate,
@@ -167,6 +174,12 @@ class BotService:
             "recent_trades": recent,
             **extras,
         }
+
+    def equity_points(self) -> list[list]:
+        """The equity curve as [iso8601, value] pairs for charting."""
+        with self.lock:
+            curve = self.trader.portfolio.equity_series()
+        return [[ts.isoformat(), round(float(v), 2)] for ts, v in curve.items()]
 
     @staticmethod
     def _format_position(pos) -> dict:
@@ -201,6 +214,14 @@ def make_handler(service: BotService):
         def log_message(self, *args):  # silence default per-request stderr noise
             pass
 
+        def _send_html(self, html: str, status: int = 200) -> None:
+            body = html.encode()
+            self.send_response(status)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
         def _send(self, payload: dict, status: int = 200) -> None:
             body = json.dumps(payload).encode()
             self.send_response(status)
@@ -225,15 +246,23 @@ def make_handler(service: BotService):
             self._send({})
 
         def do_GET(self):
-            if self.path == "/health":
+            path = self.path.split("?", 1)[0]
+            if path == "/":
+                try:
+                    self._send_html(DASHBOARD_HTML.read_text(encoding="utf-8"))
+                except OSError:
+                    self._send({"error": "dashboard.html missing"}, 500)
+            elif path == "/health":
                 self._send({"ok": True})
-            elif self.path == "/stats":
+            elif path == "/stats":
                 try:
                     self._send(service.stats())
                 except Exception as exc:
                     self._send({"success": False, "error": str(exc)}, 500)
-            elif self.path == "/logs":
-                self._send({"logs": service.logs.snapshot()[-20:]})
+            elif path == "/equity":
+                self._send({"points": service.equity_points()})
+            elif path == "/logs":
+                self._send({"logs": service.logs.snapshot()[-40:]})
             else:
                 self._send({"error": "not found"}, 404)
 
@@ -263,7 +292,9 @@ def serve(config: BotConfig, broker: Broker, host: str = "127.0.0.1", port: int 
     """Run the API server (blocking). Ctrl-C stops it."""
     service = BotService(config, broker)
     server = ThreadingHTTPServer((host, port), make_handler(service))
-    print(f"Investment Bot API listening on http://{host}:{port} (Ctrl-C to stop)")
+    display_host = "localhost" if host in ("0.0.0.0", "127.0.0.1") else host
+    print(f"\n  Dashboard →  http://{display_host}:{port}\n")
+    print(f"  API listening on http://{host}:{port} (Ctrl-C to stop)")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
