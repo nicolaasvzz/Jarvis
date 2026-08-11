@@ -38,7 +38,7 @@ order in which they are being built.
 |---|---|---|
 | Configuration | `jarvis.config` | Typed settings from defaults → YAML → env vars; secrets kept structurally separate |
 | Logging | `jarvis.logging` | Structured JSON-lines logs + console output, with task context propagation |
-| Brain | `jarvis.brain` | LLM connection (Anthropic); decides what to do next |
+| Brain | `jarvis.brain` | LLM connection (Anthropic or a local Ollama server); decides what to do next |
 | Planner | `jarvis.planner` | Breaks requests into steps, estimates risk, tracks progress |
 | Memory | `jarvis.memory` | Persistent conversations, preferences, and task history |
 | Tool Manager | `jarvis.tools` | Tool registry + dispatch; enforces permissions; logs every invocation |
@@ -84,6 +84,7 @@ order in which they are being built.
 | Telegram bridge for phone control | Outbound long-poll only — no LAN, no port-forwarding, no exposed server; works over any internet (even a phone tether), which is exactly the "no wifi on the laptop" case. Gives push + full control in one integration |
 | HTTP behind an `HttpTransport` protocol | The Telegram bridge and push channel are fully unit-testable with a fake transport — no real bot/account/network needed in CI |
 | `owner_chat_id` allowlist for Telegram | A personal bot must obey only its owner; unknown chats are refused (but told their own id, to ease first-run setup) |
+| `OllamaBrain` alongside `AnthropicBrain` | Both implement the same `Brain` protocol, so the Planner/Orchestrator are unaware which one is running; `llm.provider: ollama` gets Jarvis planning and executing against a local model with no API key and no internet connection required |
 
 ## Build order (one feature at a time)
 

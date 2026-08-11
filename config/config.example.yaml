@@ -13,10 +13,16 @@ api:
   port: 8765
 
 llm:
-  provider: anthropic
+  provider: anthropic  # anthropic | ollama (fully local — no API key, no internet)
   model: claude-opus-4-8
   max_tokens: 16000
-  effort: high         # low | medium | high | xhigh | max
+  effort: high         # low | medium | high | xhigh | max — anthropic only
+  # base_url: http://localhost:11434  # ollama only
+  # timeout_seconds: 120               # ollama only
+  #
+  # To run Jarvis fully offline, install `ollama serve` + pull a model, then:
+  #   provider: ollama
+  #   model: llama3.1
 
 files:
   # The ONLY directory Jarvis may read/write/organize. Defaults to

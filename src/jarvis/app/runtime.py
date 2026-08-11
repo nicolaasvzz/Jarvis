@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from jarvis.agent import Orchestrator
-from jarvis.brain import AnthropicBrain
+from jarvis.brain import AnthropicBrain, OllamaBrain
 from jarvis.brain.base import Brain
 from jarvis.config import AppConfig, Secrets, load_config, load_secrets
 from jarvis.core.events import EventBus
@@ -67,6 +67,9 @@ class JarvisRuntime:
         transport = getattr(self, "_phone_transport", None)
         if transport is not None:
             await transport.aclose()
+        brain_close = getattr(self.brain, "aclose", None)
+        if brain_close is not None:
+            await brain_close()
         self.notifications.close()
         self.memory.close()
 
@@ -78,8 +81,10 @@ def build_runtime(
 ) -> JarvisRuntime:
     """Load config, wire every module, and return the ready runtime.
 
-    ``brain`` may be injected (tests, offline mode); by default the
-    Anthropic brain is built and requires ``ANTHROPIC_API_KEY``.
+    ``brain`` may be injected (tests, offline mode); by default the brain is
+    chosen from ``config.llm.provider``: ``anthropic`` (requires
+    ``ANTHROPIC_API_KEY``) or ``ollama`` (a local ``ollama serve``, no key,
+    no internet).
     """
     config = load_config(config_file)
     log_file = setup_logging(config.logging)
@@ -100,8 +105,11 @@ def build_runtime(
     tool_manager = ToolManager(registry, policy, bus)
 
     if brain is None:
-        api_key = secrets.require("anthropic_api_key")
-        brain = AnthropicBrain(config.llm, api_key)
+        if config.llm.provider == "ollama":
+            brain = OllamaBrain(config.llm)
+        else:
+            api_key = secrets.require("anthropic_api_key")
+            brain = AnthropicBrain(config.llm, api_key)
 
     planner = Planner(brain, registry, policy)
     orchestrator = Orchestrator(

@@ -6,7 +6,7 @@ before it acts**, and controls the computer safely — asking for your
 confirmation before dangerous actions and notifying you as work progresses.
 
 ```
-phone ──HTTP+token──▶ API Server ──▶ Brain (Claude) ──▶ Planner
+phone ──HTTP+token──▶ API Server ──▶ Brain (Claude or local Ollama) ──▶ Planner
                                           │
                                     Tool Manager ──▶ permission policy
                                           │          (confirm dangerous)
@@ -45,6 +45,12 @@ phone ──HTTP+token──▶ API Server ──▶ Brain (Claude) ──▶ Pl
 - **Push notifications** (`[phone]` extra): push-only alerts to an
   ntfy-compatible server (no bot, no account) if you don't want the full
   Telegram bridge.
+- **Fully offline mode** (`[ollama]` extra): set `llm.provider: ollama` in
+  `config.yaml` to run the Brain against a local
+  [Ollama](https://ollama.com) server instead of the Anthropic API — no API
+  key, no internet connection required for planning or execution. (The
+  Telegram bridge itself still needs internet if you want phone control;
+  run `jarvis run` from the terminal for a fully air-gapped setup.)
 
 ## Install (on the Windows machine)
 
@@ -57,6 +63,9 @@ python -m venv .venv
 
 # Core + API server + the LLM client:
 pip install -e ".[llm,api]"
+
+# Fully offline instead? Skip [llm] and use a local Ollama server:
+pip install -e ".[ollama,api]"    # then set llm.provider: ollama in config.yaml
 
 # Phone control + push notifications (Telegram / ntfy):
 pip install -e ".[phone]"

@@ -37,14 +37,23 @@ class ApiServerConfig(_Section):
 
 
 class LLMConfig(_Section):
-    """Settings for the language model behind the Brain module."""
+    """Settings for the language model behind the Brain module.
+
+    ``provider: ollama`` runs entirely against a local ``ollama serve``
+    instance — no API key, no internet connection, fully offline. Set
+    ``model`` to a model you have pulled locally (e.g. ``llama3.1``).
+    ``base_url`` and ``timeout_seconds`` only apply to the ``ollama``
+    provider; ``effort`` only applies to ``anthropic``.
+    """
 
     model_config = ConfigDict(extra="forbid", protected_namespaces=())
 
-    provider: Literal["anthropic"] = "anthropic"
+    provider: Literal["anthropic", "ollama"] = "anthropic"
     model: str = "claude-opus-4-8"
     max_tokens: int = Field(default=16000, gt=0)
     effort: Literal["low", "medium", "high", "xhigh", "max"] = "high"
+    base_url: str = "http://localhost:11434"
+    timeout_seconds: float = Field(default=120.0, gt=0)
 
 
 class LoggingConfig(_Section):

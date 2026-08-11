@@ -17,6 +17,7 @@ dependencies = [
 [project.optional-dependencies]
 # Heavy / platform-specific integrations, installed only where needed.
 llm = ["anthropic>=0.40"]
+ollama = ["httpx>=0.27"]
 api = ["fastapi>=0.110", "uvicorn[standard]>=0.29", "python-multipart>=0.0.9"]
 phone = ["httpx>=0.27"]
 browser = ["playwright>=1.44"]
