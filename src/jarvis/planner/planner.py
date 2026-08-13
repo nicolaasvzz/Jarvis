@@ -28,7 +28,8 @@ Schema:
     {
       "description": "<what this step accomplishes, user-readable>",
       "tool": "<name of one available tool>",
-      "arguments": { <arguments matching that tool's input schema> }
+      "arguments": { <arguments matching that tool's input schema> },
+      "depends_on": [<step numbers that must finish first>]
     }
   ]
 }
@@ -40,8 +41,26 @@ Rules:
   steps list and put the answer in "response".
 - If the request cannot be done with the available tools, return an empty
   steps list and explain what is missing in "response".
-- Steps run strictly in order; a step may rely on files or state produced by
-  earlier steps.
+
+Ordering — this is what lets several agents work at once:
+- Steps are numbered from 1 in the order you list them.
+- "depends_on" lists the steps that must COMPLETE before this one may start.
+  It may only refer to EARLIER step numbers.
+- Steps with no shared dependency run AT THE SAME TIME, on different agents.
+- Use "depends_on": [] for a step that can start immediately.
+- Omit "depends_on" entirely if the step simply follows the previous one.
+- Be honest about it. If a step reads a file an earlier step writes, or acts
+  on a window an earlier step opened, it DEPENDS on that step. Claiming
+  independence that isn't real will corrupt the result.
+- Genuinely independent work — reading four different files, searching two
+  unrelated folders, fetching several pages — should be marked independent so
+  it finishes in a fraction of the time.
+
+Example of a plan that fans out and rejoins:
+  1. list_directory  (depends_on: [])
+  2. read_file A     (depends_on: [1])
+  3. read_file B     (depends_on: [1])     <- 2 and 3 run together
+  4. write_file summary (depends_on: [2, 3])
 
 Available tools:
 """
@@ -52,8 +71,13 @@ A step of the current plan failed. Propose replacement steps for the failed
 step and the remaining unfinished work, taking the error into account.
 Answer with JSON only, using this schema:
 {
-  "steps": [ {"description": ..., "tool": ..., "arguments": {...}} ]
+  "steps": [
+    {"description": ..., "tool": ..., "arguments": {...}, "depends_on": [...]}
+  ]
 }
+Steps are numbered from 1 within THIS list; "depends_on" may only name
+earlier numbers, and steps that share no dependency run at the same time.
+Omit "depends_on" if a step simply follows the previous one.
 Return an empty steps list if there is no sensible way to recover.
 
 Available tools:
@@ -78,6 +102,49 @@ def _extract_json(text: str) -> dict[str, Any]:
     if not isinstance(parsed, dict):
         raise ValueError("Plan JSON must be an object.")
     return parsed
+
+
+def _dependency_indices(raw: dict[str, Any], position: int) -> list[int]:
+    """Read one step's ``depends_on`` as a list of earlier step positions.
+
+    Only references to strictly *earlier* steps are kept. That single rule
+    makes a dependency cycle structurally impossible, so no amount of
+    confused model output can produce a plan that deadlocks. Anything else —
+    forward references, self-references, out-of-range numbers, junk — is
+    dropped rather than raised on, because a slightly-wrong ordering hint is
+    not worth failing an otherwise good plan over.
+    """
+    declared = raw.get("depends_on")
+    if not isinstance(declared, list):
+        return []
+    indices: list[int] = []
+    for entry in declared:
+        try:
+            number = int(entry)
+        except (TypeError, ValueError):
+            continue
+        earlier = number - 1  # the model counts from 1
+        if 0 <= earlier < position and earlier not in indices:
+            indices.append(earlier)
+    return indices
+
+
+def _resolve_dependencies(steps: list[PlanStep], raw_steps: list[Any]) -> None:
+    """Turn the model's step numbers into real step ids, in place.
+
+    A step that says nothing about ordering is chained to the one before it.
+    Sequencing is the safe assumption: a step that quietly relies on an
+    earlier one and runs too early produces a wrong answer, whereas a step
+    needlessly serialised is merely slower.
+    """
+    for position, (step, raw) in enumerate(zip(steps, raw_steps, strict=False)):
+        if not isinstance(raw, dict) or "depends_on" not in raw:
+            if position > 0:
+                step.depends_on = [steps[position - 1].id]
+            continue
+        step.depends_on = [
+            steps[earlier].id for earlier in _dependency_indices(raw, position)
+        ]
 
 
 class Planner:
@@ -203,4 +270,5 @@ class Planner:
                     risk=self._policy.risk_for(tool.risk_category),
                 )
             )
+        _resolve_dependencies(steps, raw_steps)
         return steps

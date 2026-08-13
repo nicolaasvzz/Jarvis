@@ -2,11 +2,19 @@
 
 Subcommands:
 
-* ``jarvis serve`` — start the API server the phone connects to.
+* ``jarvis serve`` — start the API server, the dashboard, and (if configured)
+  the phone bridge, all in one process.
+* ``jarvis dash`` — the same, and open the dashboard in your browser.
 * ``jarvis run "<request>"`` — run one task from the terminal, streaming
   progress and prompting for approvals interactively.
+* ``jarvis phone`` — the Telegram bridge on its own.
 * ``jarvis tools`` — list the tools available on this machine.
 * ``jarvis token`` — generate a strong token for ``JARVIS_API_TOKEN``.
+
+``serve`` runs everything on one event loop on purpose. Live agent state
+exists only in the Orchestrator's memory, so a dashboard or bridge in a
+second process would each build their own runtime and show a different,
+emptier Jarvis than the one actually doing the work.
 
 argparse is used deliberately: zero extra dependencies for the entry point.
 """
@@ -15,10 +23,16 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import secrets as pysecrets
 import sys
+import webbrowser
+from typing import TYPE_CHECKING
 
 from jarvis import __version__
+
+if TYPE_CHECKING:
+    from jarvis.app.runtime import JarvisRuntime
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -31,9 +45,24 @@ def main(argv: list[str] | None = None) -> int:
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    serve = sub.add_parser("serve", help="Start the API server for the phone client")
-    serve.add_argument("--host", default=None, help="Override api.host")
-    serve.add_argument("--port", type=int, default=None, help="Override api.port")
+    for name, help_text in (
+        ("serve", "Start the API server, dashboard and phone bridge"),
+        ("dash", "Start everything and open the dashboard in your browser"),
+    ):
+        parser_for = sub.add_parser(name, help=help_text)
+        parser_for.add_argument("--host", default=None, help="Override api.host")
+        parser_for.add_argument("--port", type=int, default=None, help="Override api.port")
+        parser_for.add_argument(
+            "--no-dash",
+            action="store_true",
+            help="Run the API only, without the web dashboard",
+        )
+        parser_for.add_argument(
+            "--open",
+            dest="open_browser",
+            action="store_true",
+            help="Open the dashboard in your browser once it is up",
+        )
 
     run = sub.add_parser("run", help="Run a single request from the terminal")
     run.add_argument("request", help="What you want Jarvis to do")
@@ -56,8 +85,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "token":
         print(pysecrets.token_urlsafe(48))
         return 0
-    if args.command == "serve":
-        return _serve(args)
+    if args.command in {"serve", "dash"}:
+        if args.command == "dash":
+            args.open_browser = True
+        return asyncio.run(_serve(args))
     if args.command == "run":
         return asyncio.run(_run_once(args))
     if args.command == "phone":
@@ -67,10 +98,28 @@ def main(argv: list[str] | None = None) -> int:
     return 2  # pragma: no cover - argparse enforces the choices
 
 
-async def _run_phone(args: argparse.Namespace) -> int:
+def _build(args: argparse.Namespace) -> JarvisRuntime | None:
+    """Build the runtime, or explain in plain language why it cannot start.
+
+    A missing secret is the single most likely first-run failure, and a
+    stack trace is a poor way to say "you have not set your API key yet".
+    """
     from jarvis.app.runtime import build_runtime
 
-    runtime = build_runtime(args.config)
+    try:
+        return build_runtime(args.config)
+    except RuntimeError as exc:
+        print(f"Cannot start: {exc}", file=sys.stderr)
+        return None
+    except FileNotFoundError as exc:
+        print(f"Cannot start: {exc}", file=sys.stderr)
+        return None
+
+
+async def _run_phone(args: argparse.Namespace) -> int:
+    runtime = _build(args)
+    if runtime is None:
+        return 1
     bridge = runtime.telegram
     if bridge is None:
         print(
@@ -91,7 +140,8 @@ async def _run_phone(args: argparse.Namespace) -> int:
     return 0
 
 
-def _serve(args: argparse.Namespace) -> int:
+async def _serve(args: argparse.Namespace) -> int:
+    """Run the API, the dashboard and the phone bridge on one event loop."""
     try:
         import uvicorn
     except ImportError:
@@ -102,17 +152,20 @@ def _serve(args: argparse.Namespace) -> int:
         return 1
 
     from jarvis.api import create_app
-    from jarvis.app.runtime import build_runtime
     from jarvis.security import TokenAuthenticator
 
-    runtime = build_runtime(args.config)
+    runtime = _build(args)
+    if runtime is None:
+        return 1
     try:
         token = runtime.secrets.require("jarvis_api_token")
     except RuntimeError as exc:
         print(f"Cannot start: {exc}", file=sys.stderr)
         print("Generate one with: jarvis token", file=sys.stderr)
+        await runtime.close()
         return 1
 
+    hub = None if args.no_dash else runtime.dashboard
     app = create_app(
         orchestrator=runtime.orchestrator,
         policy=runtime.policy,
@@ -121,20 +174,82 @@ def _serve(args: argparse.Namespace) -> int:
         files=runtime.files,
         authenticator=TokenAuthenticator(token),
         log_file=runtime.log_file,
+        hub=hub,
+        dashboard=runtime.config.dashboard,
+        voice=runtime.voice,
     )
+
     host = args.host or runtime.config.api.host
     port = args.port or runtime.config.api.port
-    print(f"Jarvis API listening on http://{host}:{port} — workspace: {runtime.files.root}")
-    uvicorn.run(app, host=host, port=port, log_level="warning")
+    _print_banner(runtime, host, port, hub is not None, token.get_secret_value())
+
+    server = uvicorn.Server(
+        uvicorn.Config(app, host=host, port=port, log_level="warning")
+    )
+    # One stop signal shared by everything: whichever component exits first
+    # (usually the server, on Ctrl-C) brings the others down with it.
+    stop = asyncio.Event()
+
+    async def run_server() -> None:
+        try:
+            await server.serve()
+        finally:
+            stop.set()
+
+    jobs = [run_server()]
+    if runtime.telegram is not None:
+        jobs.append(runtime.telegram.run(stop))
+
+    if args.open_browser or (hub and runtime.config.dashboard.open_browser):
+        _open_dashboard(host, port, token.get_secret_value())
+
+    try:
+        await asyncio.gather(*jobs)
+    except (KeyboardInterrupt, asyncio.CancelledError):
+        pass
+    finally:
+        stop.set()
+        await runtime.close()
     return 0
 
 
+def _print_banner(
+    runtime: JarvisRuntime, host: str, port: int, dashboard: bool, token: str
+) -> None:
+    config = runtime.config
+    print(f"Jarvis API listening on http://{host}:{port}")
+    print(f"  workspace  {runtime.files.root}")
+    print(
+        f"  agents     {config.agent.pool_size} "
+        f"({'parallel' if config.agent.parallel else 'sequential'})"
+    )
+    if dashboard:
+        print(f"  dashboard  http://{host}:{port}/dash/?token={token}")
+    if runtime.voice is not None:
+        speaks = runtime.voice.voice_name if runtime.voice.can_speak else "off"
+        hears = "on" if runtime.voice.can_listen else "off"
+        print(f"  voice      speaks: {speaks} · listens: {hears}")
+    if runtime.telegram is not None:
+        print("  telegram   bridge running in this process")
+    print("Press Ctrl-C to stop.")
+
+
+def _open_dashboard(host: str, port: int, token: str) -> None:
+    # 0.0.0.0 means "every interface" to a server but nothing to a browser.
+    reachable = "127.0.0.1" if host in {"0.0.0.0", "::"} else host
+    url = f"http://{reachable}:{port}/dash/?token={token}"
+    # A headless box has no browser to open; that is not worth failing over.
+    with contextlib.suppress(Exception):
+        webbrowser.open(url)
+
+
 async def _run_once(args: argparse.Namespace) -> int:
-    from jarvis.app.runtime import build_runtime
     from jarvis.core.events import Event, EventType
     from jarvis.core.models import ApprovalDecision, TaskStatus
 
-    runtime = build_runtime(args.config)
+    runtime = _build(args)
+    if runtime is None:
+        return 1
 
     async def on_event(event: Event) -> None:
         print(f"  [{event.type.value}] {event.message}")

@@ -56,3 +56,13 @@ class BrainError(JarvisError):
     translated from whatever the underlying provider actually returned (an
     HTTP status, a network failure, ...) into plain language.
     """
+
+
+class VoiceError(JarvisError):
+    """Speech could not be synthesised or transcribed.
+
+    Like :class:`BrainError`, the message is already user-facing: a missing
+    engine, an unavailable voice or an unreadable recording should read as an
+    instruction, not a stack trace. Speech is a convenience, so callers are
+    expected to catch this and carry on silently in text.
+    """

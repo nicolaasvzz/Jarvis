@@ -37,6 +37,16 @@ class EventType(StrEnum):
     APPROVAL_REQUIRED = "approval.required"
     APPROVAL_RESOLVED = "approval.resolved"
     ERROR = "error"
+    # Agent lifecycle — who is doing the work, and where they are. These
+    # carry the identity the dashboard draws as a character in the office.
+    AGENT_HIRED = "agent.hired"
+    AGENT_ASSIGNED = "agent.assigned"
+    AGENT_IDLE = "agent.idle"
+    AGENT_RELEASED = "agent.released"
+    # Speech, so the HUD can pulse in time with the voice.
+    SPEECH_STARTED = "speech.started"
+    SPEECH_FINISHED = "speech.finished"
+    HEARD = "heard"
 
 
 class Event(BaseModel):

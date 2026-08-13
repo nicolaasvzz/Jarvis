@@ -11,11 +11,20 @@ order in which they are being built.
 ```
                          ┌──────────────┐
         phone client ──▶ │  API Server  │──▶ Authentication
+        browser      ──▶ │  + Dashboard │
                          └──────┬───────┘
                                 ▼
       ┌───────────┐      ┌──────────────┐      ┌───────────────┐
       │  Memory   │◀────▶│    Brain     │◀────▶│    Planner    │
       └───────────┘      └──────┬───────┘      └───────────────┘
+                                ▼            (plan = dependency graph)
+                         ┌──────────────┐
+                         │ Orchestrator │──▶ retry / revise / give up
+                         └──────┬───────┘
+                                ▼
+                         ┌──────────────┐
+                         │  Agent Pool  │──▶ N agents, unblocked steps
+                         └──────┬───────┘
                                 ▼
                          ┌──────────────┐
                          │ Tool Manager │──▶ Security (permissions)
@@ -27,11 +36,14 @@ order in which they are being built.
       └──────────────┘ └────┬────┘ └───────────┘ └──────────────┘
                             ▼
                        ┌─────────┐
-                       │ Vision  │
+                       │ Vision  │       Voice ──▶ speech in / out
                        └─────────┘
 
       Configuration and Logging are cross-cutting: every module uses them,
       neither depends on any other module.
+
+      The Dashboard is a pure consumer: it subscribes to the Event Bus and
+      reads the Orchestrator, and nothing depends on it.
 ```
 
 | Module | Package | Responsibility |
@@ -39,8 +51,11 @@ order in which they are being built.
 | Configuration | `jarvis.config` | Typed settings from defaults → YAML → env vars; secrets kept structurally separate |
 | Logging | `jarvis.logging` | Structured JSON-lines logs + console output, with task context propagation |
 | Brain | `jarvis.brain` | LLM connection (Anthropic); decides what to do next |
-| Planner | `jarvis.planner` | Breaks requests into steps, estimates risk, tracks progress |
+| Planner | `jarvis.planner` | Breaks requests into a risk-tagged dependency graph of steps |
+| Agent Pool | `jarvis.agent.pool` | Runs every unblocked step at once across named agents |
 | Memory | `jarvis.memory` | Persistent conversations, preferences, and task history |
+| Voice | `jarvis.voice` | Neural speech out; wake-word listening, transcribed locally |
+| Dashboard | `jarvis.dashboard` | Live web HUD: particle core, file constellation, agent office |
 | Tool Manager | `jarvis.tools` | Tool registry + dispatch; enforces permissions; logs every invocation |
 | Desktop Controller | `jarvis.desktop` | Windows control: apps, windows, mouse, keyboard |
 | Browser Controller | `jarvis.browser` | Playwright web automation |
@@ -57,8 +72,15 @@ order in which they are being built.
    `jarvis.config` and `jarvis.logging`, and on the *interfaces* of the
    modules directly beneath it in the diagram — never on their internals.
 2. **Nothing executes without a plan.** Requests flow phone → API → Brain →
-   Planner; only then does the Tool Manager execute, one step at a time,
-   observing each result.
+   Planner; only then does the Agent Pool execute, observing each result.
+   Steps run concurrently only where the plan says they are independent.
+7. **Sequencing is the safe default.** A plan that says nothing about
+   ordering is chained. A step that quietly relied on an earlier one and ran
+   too early produces a wrong answer; one needlessly serialised is merely
+   slower.
+8. **Observers never slow down work.** The dashboard's subscribers have
+   bounded queues and drop frames rather than apply back-pressure to the
+   agent loop, and no module depends on anything in `jarvis.dashboard`.
 3. **The Tool Manager is the only execution gateway.** Brain and Planner never
    touch the OS directly. This gives one choke point for permission checks,
    confirmation prompts, and audit logging.
@@ -84,6 +106,15 @@ order in which they are being built.
 | Telegram bridge for phone control | Outbound long-poll only — no LAN, no port-forwarding, no exposed server; works over any internet (even a phone tether), which is exactly the "no wifi on the laptop" case. Gives push + full control in one integration |
 | HTTP behind an `HttpTransport` protocol | The Telegram bridge and push channel are fully unit-testable with a fake transport — no real bot/account/network needed in CI |
 | `owner_chat_id` allowlist for Telegram | A personal bot must obey only its owner; unknown chats are refused (but told their own id, to ease first-run setup) |
+| Plans are dependency graphs, not lists | Lets independent work run in parallel without inventing a second planning concept. A fully-chained graph behaves exactly as the old sequential list did |
+| Dependencies may only point backwards | Makes a cycle — and therefore a deadlock — structurally impossible, rather than something to detect at runtime |
+| Concurrency in the pool, policy in the Orchestrator | Retry/revise needs the Planner and task history; task-juggling needs neither. Splitting them keeps both readable |
+| Tool arguments are redacted before publishing | The dashboard needs to know *which file*; it must never receive the file's contents or a password. Identifying fields survive, payloads become `<N chars>` |
+| Dashboard served in-process | Live agent state exists only in the Orchestrator's memory; a second process could only ever show what had already reached disk |
+| Vanilla ES modules, no build step | A Python project should not need npm to serve its own UI. Canvas 2D and modules are enough for all three views |
+| Office sprites drawn in code | No third-party art licence to honour, and agent colour can be derived from the agent's own hue so twenty stay distinguishable |
+| Speech synthesised server-side, played in the browser | Lets the HUD visualise the waveform in time with the voice, and keeps a headless server silent instead of talking to an empty room |
+| Transcription runs locally | An always-listening microphone that streams to someone else's server is a different product; Jarvis should not quietly be the first |
 
 ## Build order (one feature at a time)
 
@@ -97,9 +128,12 @@ order in which they are being built.
 8. ✅ Desktop Controller + Vision — screen-aware Windows control
 9. ✅ Runtime wiring + `jarvis` CLI
 10. ✅ Phone Bridge — Telegram remote control + push notifications (`jarvis phone`)
+11. ✅ Agent Pool — dependency-graph plans executed by N named agents
+12. ✅ Voice — British neural speech out, wake-word listening transcribed locally
+13. ✅ Dashboard — particle core, file constellation, pixel agent office
 
-All planned modules are implemented, and the phone can now both receive push
-notifications and fully control Jarvis (Telegram bridge + ntfy push). Natural
-next steps: sending the screen to Claude's vision for richer layout
+All planned modules are implemented. Jarvis plans as a graph, works on
+several branches at once, can be watched doing it, and can be spoken to.
+Natural next steps: sending the screen to Claude's vision for richer layout
 understanding, and an email tool (already covered by the `send_email`
 confirmation category).

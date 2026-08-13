@@ -27,6 +27,10 @@ agent:
   max_step_attempts: 2   # retries per failing step
   max_plan_revisions: 2  # "try another approach" rounds per task
   history_messages: 20   # conversation turns given to the planner as context
+  parallel: true         # let independent steps run at the same time
+  pool_size: 4           # how many agents may work on one plan at once (1-20).
+                         # Only steps the planner marked independent run in
+                         # parallel, so raising this never reorders real work.
 
 logging:
   level: INFO
@@ -67,3 +71,33 @@ push:
   enabled: false
   server: https://ntfy.sh
   topic:              # e.g. jarvis-a8f3k2 — pick something unguessable
+
+# The local web dashboard — the heads-up display. Served by the same process
+# and port as the API: open http://127.0.0.1:8765/dash (or run `jarvis dash`).
+dashboard:
+  enabled: true
+  particles: 900      # drifting background particles; 0 on a slow machine
+  accent: "#22d3ee"
+  history_limit: 300  # events back-filled into a freshly opened page
+  file_tree_depth: 3
+  file_tree_max_nodes: 260
+  open_browser: false # launch the browser automatically on `jarvis serve`
+
+# Speech. Out: a British neural voice. In: your microphone, transcribed
+# locally — audio never leaves the machine.
+voice:
+  enabled: true
+  provider: edge      # edge (free neural, needs internet) | sapi (offline) | none
+  voice: en-GB-RyanNeural   # ThomasNeural = clipped, SoniaNeural = female
+  rate: "+8%"
+  pitch: "-2Hz"
+  speak_events:       # what Jarvis reads aloud unprompted
+    - task.completed
+    - task.failed
+    - approval.required
+  listen_enabled: true
+  wake_word: jarvis
+  wake_word_required: true  # false = every utterance is treated as a command
+  stt_provider: whisper     # whisper (local, free) | none
+  stt_model: small.en       # base.en is faster, medium.en needs more VRAM
+  stt_device: auto          # auto | cuda | cpu

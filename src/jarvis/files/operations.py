@@ -47,7 +47,16 @@ class FileManager:
         return resolved
 
     def _rel(self, path: Path) -> str:
-        return str(path.relative_to(self._root)) or "."
+        """Path relative to the root, always with forward slashes.
+
+        Every path Jarvis reports comes through here, so normalising the
+        separator once keeps workspace paths identical on Windows and
+        elsewhere. That matters beyond tidiness: these strings are compared
+        against each other across the API, the event stream and the
+        dashboard, and ``notes\\todo.txt`` matching ``notes/todo.txt`` only by
+        accident is not a comparison worth relying on.
+        """
+        return path.relative_to(self._root).as_posix()
 
     def read_text(self, path: str, max_bytes: int = 1_000_000) -> str:
         target = self._resolve(path)

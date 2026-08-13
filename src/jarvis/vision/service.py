@@ -40,7 +40,12 @@ class MssGrabber:
         with mss.mss() as screen:
             monitor = screen.monitors[1] if len(screen.monitors) > 1 else screen.monitors[0]
             shot = screen.grab(monitor)
-            png: bytes = mss.tools.to_png(shot.rgb, shot.size)
+            # to_png returns None when asked to write to a file; called
+            # without one it hands back the bytes. Check rather than assume,
+            # so a surprise here is a clear error and not a None downstream.
+            png = mss.tools.to_png(shot.rgb, shot.size)
+            if png is None:  # pragma: no cover - defensive
+                raise ToolError("Screen capture produced no image data.")
             return png
 
 
