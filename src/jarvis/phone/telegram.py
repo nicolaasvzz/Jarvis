@@ -320,10 +320,41 @@ class TelegramBridge:
                 self._config.owner_chat_id, "🤖 Jarvis is online and ready."
             )
 
+    async def _log_identity(self) -> None:
+        """Say which bot the token actually authenticated as.
+
+        Polling starts whether or not the token is any good, so on its own
+        "polling started" cannot be told apart from a bridge that will never
+        receive anything. One getMe at startup settles it in the log.
+        """
+        try:
+            me = await self._call("getMe", {})
+        except TransportError as exc:
+            _log.error(
+                "Telegram would not accept the bot token - check "
+                "TELEGRAM_BOT_TOKEN in .env",
+                extra={"error": str(exc)},
+            )
+            return
+        username = me.get("username")
+        _log.info(
+            "telegram bridge connected",
+            extra={"bot": f"@{username}" if username else "unknown"},
+        )
+
     async def run(self, stop_event: asyncio.Event | None = None) -> None:
         """Long-poll and dispatch until ``stop_event`` is set or cancelled."""
         stop_event = stop_event or asyncio.Event()
-        await self.announce_online()
+        await self._log_identity()
+        try:
+            await self.announce_online()
+        except TransportError as exc:
+            # A greeting that will not send is not a reason to refuse to run:
+            # the poll loop below reports and retries its own failures.
+            _log.warning(
+                "could not send the startup greeting",
+                extra={"error": str(exc)},
+            )
         _log.info("telegram bridge polling started")
         backoff = 1.0
         while not stop_event.is_set():
