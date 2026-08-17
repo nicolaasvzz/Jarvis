@@ -697,6 +697,19 @@ try {
 }
 finally { Pop-Location }
 
+# A rejected config key prints as a pydantic dump that buries the useful
+# part. The field path is on the line above the message, so name it plainly.
+if (($brain.Output -join "`n") -match 'Extra inputs are not permitted') {
+    $badKeys = @()
+    for ($i = 1; $i -lt $brain.Output.Count; $i++) {
+        if ($brain.Output[$i] -match 'Extra inputs are not permitted') {
+            $badKeys += $brain.Output[$i - 1].Trim()
+        }
+    }
+    Write-Warn "config.yaml has setting(s) Jarvis does not recognise: $($badKeys -join ', ')"
+    Write-Warn "Delete or comment out those lines, then run this again:  notepad $cfgFile"
+}
+
 $brainReady = ($brain.Code -eq 0)
 if ($brainReady) { Write-Good "$provider is ready" }
 else { Write-Warn 'The model is not usable yet - the lines above say why. Re-check any time with:  jarvis brain' }
@@ -705,9 +718,16 @@ else { Write-Warn 'The model is not usable yet - the lines above say why. Re-che
 
 Write-Step 'Skills available on this machine'
 
-$exe = if ($IsWin) { Join-Path $venvBin 'jarvis.exe' } else { Join-Path $venvBin 'jarvis' }
-if (Test-Path -LiteralPath $exe) { $tools = @(Get-NativeOutput $exe @('tools')) }
-else { $tools = @(Get-NativeOutput $venvPy @('-c', $jarvisBootstrap, 'tools')) }
+# From $Path, so config/config.yaml is found the same way every other
+# command finds it - run from elsewhere, discovery silently falls back to the
+# coded defaults and reports a state that is not the real one.
+Push-Location $Path
+try {
+    $exe = if ($IsWin) { Join-Path $venvBin 'jarvis.exe' } else { Join-Path $venvBin 'jarvis' }
+    if (Test-Path -LiteralPath $exe) { $tools = @(Get-NativeOutput $exe @('tools')) }
+    else { $tools = @(Get-NativeOutput $venvPy @('-c', $jarvisBootstrap, 'tools')) }
+}
+finally { Pop-Location }
 if ($tools.Count -gt 0) {
     $names = $tools | ForEach-Object { ($_ -split '\s+')[0] }
     $packs = [ordered]@{
@@ -740,7 +760,8 @@ if ($tools.Count -gt 0) {
     }
 }
 else {
-    Write-Warn 'Could not list the skills. Run this to see the error:  jarvis tools'
+    Write-Warn 'Could not list the skills. If a config key was rejected above, fix that first.'
+    Write-Warn 'Otherwise run this to see the error:  jarvis tools'
 }
 
 # ------------------------------------------------------------ 8. start ----
