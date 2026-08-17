@@ -83,6 +83,17 @@ JARVIS_API_TOKEN=<run: jarvis token>
 
 ## Run
 
+Every day, from the folder you cloned into:
+
+```powershell
+cd C:\path\to\jarvis
+git pull --ff-only            # get the latest code
+.venv\Scripts\activate        # enter the virtual environment
+jarvis phone                  # start it — control from Telegram (Ctrl-C to stop)
+```
+
+The rest of the commands:
+
 ```powershell
 # See which tools are available on this machine:
 jarvis tools
@@ -96,6 +107,9 @@ jarvis phone
 # Or start the local HTTP API for a custom app / curl on the same network:
 jarvis serve            # add --host 0.0.0.0 to accept LAN connections
 ```
+
+Every command, every skill, and every API route in one page:
+[docs/COMMANDS.md](docs/COMMANDS.md).
 
 ## Control it from your phone (Telegram)
 
@@ -250,5 +264,6 @@ Setting someone else up? Send them
 guide for installing their **own** Jarvis with their **own** API key, so
 nothing is shared between your machines.
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for design rules and the
+See [docs/COMMANDS.md](docs/COMMANDS.md) for the complete command set, and
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for design rules and the
 decision log.
