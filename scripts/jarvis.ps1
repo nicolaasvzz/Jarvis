@@ -60,6 +60,9 @@ param(
     # Skip the git pull.
     [switch] $NoUpdate,
 
+    # Run pip even when nothing has changed since the last install.
+    [switch] $Reinstall,
+
     # Don't try to install the Tesseract OCR binary.
     [switch] $NoTesseract
 )
@@ -121,6 +124,18 @@ function Get-NativeExitCode {
     if ($Quiet) { & $Exe @Arguments 2>&1 | Out-Null }
     else { & $Exe @Arguments | Out-Host }
     return $LASTEXITCODE
+}
+
+# For a command whose failure text needs interpreting: returns the exit code
+# and the combined output as plain strings.
+function Invoke-NativeCapture {
+    param(
+        [Parameter(Mandatory)] [string] $Exe,
+        [string[]] $Arguments = @()
+    )
+    $ErrorActionPreference = 'Continue'
+    $out = @(& $Exe @Arguments 2>&1 | ForEach-Object { "$_" })
+    return [pscustomobject]@{ Code = $LASTEXITCODE; Output = $out }
 }
 
 # For commands we need to read: returns stdout lines, discards stderr.
@@ -318,14 +333,26 @@ else {
 
 # ---------------------------------------------------------- 3. the venv ---
 
-$venvBin = if ($IsWin) { Join-Path $Path '.venv\Scripts' } else { Join-Path $Path '.venv/bin' }
+$venvRoot = Join-Path $Path '.venv'
+$venvBin = if ($IsWin) { Join-Path $venvRoot 'Scripts' } else { Join-Path $venvRoot 'bin' }
 $venvPy = if ($IsWin) { Join-Path $venvBin 'python.exe' } else { Join-Path $venvBin 'python' }
 
 if (-not (Test-Path -LiteralPath $venvPy)) {
     Write-Step 'Creating the virtual environment'
-    Invoke-Native $python @('-m', 'venv', (Join-Path $Path '.venv'))
+    Invoke-Native $python @('-m', 'venv', $venvRoot)
 }
 if (-not (Test-Path -LiteralPath $venvPy)) { throw "The virtual environment is missing its interpreter: $venvPy" }
+
+# Anything running out of the venv holds its files open, and Windows will not
+# let pip replace jarvis.exe while it does.
+function Get-VenvProcess {
+    $ErrorActionPreference = 'Continue'
+    return @(Get-Process -ErrorAction SilentlyContinue | Where-Object {
+            $exe = $null
+            try { $exe = $_.Path } catch { $exe = $null }
+            $exe -and $exe.StartsWith($venvRoot, [StringComparison]::OrdinalIgnoreCase)
+        })
+}
 
 $jarvisBootstrap = 'from jarvis.app.cli import main; raise SystemExit(main())'
 
@@ -374,14 +401,62 @@ else {
 }
 $extras = (@($wanted) | Sort-Object) -join ','
 
-Write-Step "Installing packs: $extras"
-Push-Location $Path
-try {
-    Get-NativeExitCode $venvPy @('-m', 'pip', 'install', '--upgrade', '--quiet', 'pip') | Out-Null
-    Invoke-Native $venvPy @('-m', 'pip', 'install', '--quiet', '-e', ".[$extras]")
-    Write-Good "pip install -e `".[$extras]`" done"
+# pip rewrites jarvis.exe on every install, so re-running it needlessly is
+# what turns "Jarvis is already running" into a failed setup. Skip the install
+# when neither the requested packs nor pyproject.toml have changed since the
+# last successful one; -Reinstall forces it.
+$stampFile = Join-Path $venvRoot '.jarvis-install-stamp'
+$stamp = "$extras|" + (Get-FileHash (Join-Path $Path 'pyproject.toml') -Algorithm SHA256).Hash
+$upToDate = (Test-Path -LiteralPath $stampFile) -and
+            ((Get-Content -LiteralPath $stampFile -Raw).Trim() -eq $stamp)
+
+if ($upToDate -and -not $Reinstall) {
+    Write-Step "Packs already installed: $extras"
+    Write-Info 'Nothing changed since the last install, so pip is skipped. Force it with -Reinstall.'
 }
-finally { Pop-Location }
+else {
+    Write-Step "Installing packs: $extras"
+
+    # Stop a Jarvis that is already running from this venv, or pip cannot
+    # replace its files. It is this script's own app, and a new one starts at
+    # the end, but the running one may be mid-task - so ask first.
+    $running = @(Get-VenvProcess)
+    if ($running.Count -gt 0) {
+        $names = ($running | Select-Object -ExpandProperty Name -Unique) -join ', '
+        Write-Warn "Jarvis is already running from this folder ($names) and its files are locked."
+        $stop = $false
+        if ([Environment]::UserInteractive -and -not [Console]::IsInputRedirected) {
+            $answer = Read-Host '    Stop it and continue? A fresh one starts when setup finishes. [Y/n]'
+            $stop = ($answer.Trim() -eq '') -or ($answer.Trim().ToLowerInvariant() -in @('y', 'yes'))
+        }
+        if (-not $stop) {
+            throw "Stop the running Jarvis (close its window, or Ctrl-C it) and run this again. Nothing was changed."
+        }
+        foreach ($proc in $running) {
+            Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+        }
+        Start-Sleep -Seconds 2      # let Windows release the file handles
+        Write-Info "Stopped $names."
+    }
+
+    Push-Location $Path
+    try {
+        Get-NativeExitCode $venvPy @('-m', 'pip', 'install', '--upgrade', '--quiet', 'pip') | Out-Null
+        $pip = Invoke-NativeCapture $venvPy @('-m', 'pip', 'install', '--quiet', '-e', ".[$extras]")
+        if ($pip.Code -ne 0) {
+            foreach ($line in $pip.Output) { Write-Host "    $line" -ForegroundColor DarkGray }
+            # The lock is worth naming: pip has to replace jarvis.exe, which
+            # Windows refuses while a Jarvis started earlier is still running.
+            if (($pip.Output -join "`n") -match 'being used by another process|WinError 32|Access is denied') {
+                throw 'pip could not replace files in .venv because Jarvis is still running from it. Close that window (or Ctrl-C it) and run this again.'
+            }
+            throw "pip install -e `".[$extras]`" failed with exit code $($pip.Code)."
+        }
+        Write-Good "pip install -e `".[$extras]`" done"
+        Set-Content -LiteralPath $stampFile -Value $stamp
+    }
+    finally { Pop-Location }
+}
 
 if ($wanted.Contains('browser')) {
     Write-Step 'Browser pack: downloading Chromium'
@@ -526,8 +601,8 @@ Write-Step 'Skills available on this machine'
 $tools = @()
 if ($hasKey) {
     $exe = if ($IsWin) { Join-Path $venvBin 'jarvis.exe' } else { Join-Path $venvBin 'jarvis' }
-    if (Test-Path -LiteralPath $exe) { $tools = Get-NativeOutput $exe @('tools') }
-    else { $tools = Get-NativeOutput $venvPy @('-c', $jarvisBootstrap, 'tools') }
+    if (Test-Path -LiteralPath $exe) { $tools = @(Get-NativeOutput $exe @('tools')) }
+    else { $tools = @(Get-NativeOutput $venvPy @('-c', $jarvisBootstrap, 'tools')) }
 }
 if ($tools.Count -gt 0) {
     $names = $tools | ForEach-Object { ($_ -split '\s+')[0] }
