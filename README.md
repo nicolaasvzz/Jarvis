@@ -79,15 +79,35 @@ want to start Jarvis — it updates and picks up where it left off.
     }
 
     # An existing clone can be on an older branch that has no scripts/ yet, on
-    # a detached HEAD, or left half-checked-out. Rather than trying to repair
-    # whatever state it is in — the script that normally does the updating is
-    # the very file that would be missing — move it aside, clone fresh, and
-    # carry the two files worth keeping across.
+    # a detached HEAD, or left half-checked-out. Repair it in place with git:
+    # another window sitting inside the folder locks it against being renamed
+    # or deleted, but not against git rewriting its contents.
     $Script = Join-Path $Dir 'scripts\jarvis.ps1'
     if (-not (Test-Path $Script)) {
+        Write-Host "Updating the clone in $Dir to $Branch ..." -ForegroundColor Cyan
+        git -C $Dir fetch origin
+        if ($LASTEXITCODE -ne 0) { Stop-With 'Could not reach the repository — check the GitHub sign-in prompt, or your internet connection.'; return }
+        if (@(git -C $Dir status --porcelain).Count -gt 0) {
+            Write-Host 'Stashing local changes first.' -ForegroundColor Gray
+            git -C $Dir stash push -u -m 'jarvis bootstrap'
+        }
+        git -C $Dir checkout -B $Branch "origin/$Branch"
+        if ($LASTEXITCODE -ne 0) { Stop-With "git could not switch $Dir to $Branch."; return }
+    }
+
+    # Last resort: move the folder aside and clone fresh, keeping the two files
+    # worth keeping. Verified rather than assumed — the move is what fails when
+    # another process holds the folder.
+    if (-not (Test-Path $Script)) {
         $Old = "$Dir-old-$(Get-Date -Format yyyyMMdd-HHmmss)"
-        Move-Item -LiteralPath $Dir -Destination $Old
-        Write-Host "That clone predates this script; moved it to $Old" -ForegroundColor Gray
+        Move-Item -LiteralPath $Dir -Destination $Old -ErrorAction SilentlyContinue
+        if (Test-Path $Dir) {
+            Stop-With "Could not move $Dir aside — another program is holding it open. Close any PowerShell, Explorer or editor window sitting in that folder, then paste this again."
+            $holders = @(Get-Process | Where-Object { $_.Path -and $_.Path.StartsWith($Dir, [StringComparison]::OrdinalIgnoreCase) })
+            if ($holders.Count -gt 0) { Write-Host ('Running from that folder: ' + (($holders | Select-Object -ExpandProperty Name -Unique) -join ', ')) -ForegroundColor Yellow }
+            return
+        }
+        Write-Host "Moved the old folder to $Old" -ForegroundColor Gray
         Write-Host "Cloning Jarvis into $Dir ..." -ForegroundColor Cyan
         git clone --branch $Branch $Repo $Dir
         if ($LASTEXITCODE -ne 0) { Stop-With "Clone failed. Your old folder is still at $Old"; return }
@@ -100,7 +120,7 @@ want to start Jarvis — it updates and picks up where it left off.
         }
     }
     if (-not (Test-Path $Script)) {
-        Stop-With "$Script is missing even after a fresh clone. Check what this prints: git -C $Dir log --oneline -1"
+        Stop-With "$Script is still missing. Check what this prints: git -C $Dir log --oneline -1"
         return
     }
 
