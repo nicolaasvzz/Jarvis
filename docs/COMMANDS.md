@@ -10,6 +10,52 @@ differences are `source .venv/bin/activate` instead of
 
 ---
 
+## The one-file way
+
+`scripts\jarvis.ps1` does sections 1-3 below — update, install, configure,
+start — in a single command that is safe to re-run:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File ~\jarvis\scripts\jarvis.ps1
+```
+
+It clones Jarvis if it isn't there yet, so that command also works as the
+very first thing you ever run. Useful variations:
+
+```powershell
+# Install every skill pack, then start:
+powershell -ExecutionPolicy Bypass -File ~\jarvis\scripts\jarvis.ps1 -Skills all
+
+# Add just two packs and don't start anything:
+powershell -ExecutionPolicy Bypass -File ~\jarvis\scripts\jarvis.ps1 -Skills "browser,vision" -Start none
+
+# Update, then run one task in the terminal:
+powershell -ExecutionPolicy Bypass -File ~\jarvis\scripts\jarvis.ps1 -Start run -Request "organize my workspace by file type"
+
+# Start the HTTP API instead of the Telegram bridge:
+powershell -ExecutionPolicy Bypass -File ~\jarvis\scripts\jarvis.ps1 -Start serve
+
+# Skip the git pull / skip installing Tesseract:
+powershell -ExecutionPolicy Bypass -File ~\jarvis\scripts\jarvis.ps1 -NoUpdate -NoTesseract
+```
+
+Already in a PowerShell window with the repo cloned? Then it's just
+`.\scripts\jarvis.ps1` — the `-ExecutionPolicy Bypass -File` wrapper is only
+needed if PowerShell refuses to run local scripts.
+
+What it does: checks git and Python 3.11+, clones or fast-forwards the repo
+(stashing local edits first), creates `.venv`, installs the packs you asked
+for plus their non-Python parts, creates `.env` and `config/config.yaml`,
+generates `JARVIS_API_TOKEN`, asks for any missing secret with the input
+hidden, creates the workspace folder and writes it into the config, turns on
+the Telegram bridge once a bot token exists, prints the skill inventory, and
+starts Jarvis. It never overwrites a value you already set.
+
+The rest of this page is the same work done by hand — useful when something
+goes wrong, or when you want to run one piece on its own.
+
+---
+
 ## 1. Every day: start Jarvis
 
 Copy-paste this whole block. It updates to the latest code, then starts the

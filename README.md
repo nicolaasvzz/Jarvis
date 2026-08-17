@@ -48,7 +48,15 @@ phone ──HTTP+token──▶ API Server ──▶ Brain (Claude) ──▶ Pl
 
 ## Install (on the Windows machine)
 
-Requires Python 3.11+.
+Requires Python 3.11+. One command does the whole thing — clone, virtual
+environment, skill packs, config, secrets, and start — and is safe to re-run
+every day:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File ~\jarvis\scripts\jarvis.ps1 -Skills all
+```
+
+Or do it by hand:
 
 ```powershell
 git clone <this repo> jarvis && cd jarvis
@@ -83,7 +91,14 @@ JARVIS_API_TOKEN=<run: jarvis token>
 
 ## Run
 
-Every day, from the folder you cloned into:
+Every day, either run the script — it pulls, checks the install, and starts
+the bridge:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File ~\jarvis\scripts\jarvis.ps1
+```
+
+…or do the same by hand:
 
 ```powershell
 cd ~\jarvis
