@@ -86,6 +86,12 @@ function Write-Info { param([string]$Message) Write-Host "    $Message" -Foregro
 function Write-Good { param([string]$Message) Write-Host "    $Message" -ForegroundColor Green }
 function Write-Warn { param([string]$Message) Write-Host "    ! $Message" -ForegroundColor Yellow }
 
+# Every native call below runs with $ErrorActionPreference = 'Continue'.
+# Windows PowerShell 5.1 turns a native command's stderr into a terminating
+# error when the preference is 'Stop' — and git, pip, winget and python's own
+# logging all write to stderr routinely. Exit codes are the truth here, so
+# they are checked explicitly instead.
+
 # Run a command, let its output go to the console, and return nothing.
 # Throws if it fails, so the script stops where the problem is.
 function Invoke-Native {
@@ -95,6 +101,7 @@ function Invoke-Native {
         # Swallow the command's own output.
         [switch] $Quiet
     )
+    $ErrorActionPreference = 'Continue'
     if ($Quiet) { & $Exe @Arguments 2>&1 | Out-Null }
     else { & $Exe @Arguments | Out-Host }
     if ($LASTEXITCODE -ne 0) {
@@ -110,9 +117,20 @@ function Get-NativeExitCode {
         [string[]] $Arguments = @(),
         [switch] $Quiet
     )
+    $ErrorActionPreference = 'Continue'
     if ($Quiet) { & $Exe @Arguments 2>&1 | Out-Null }
     else { & $Exe @Arguments | Out-Host }
     return $LASTEXITCODE
+}
+
+# For commands we need to read: returns stdout lines, discards stderr.
+function Get-NativeOutput {
+    param(
+        [Parameter(Mandatory)] [string] $Exe,
+        [string[]] $Arguments = @()
+    )
+    $ErrorActionPreference = 'Continue'
+    return @(& $Exe @Arguments 2>$null)
 }
 
 function Test-Exe { param([string]$Name) return [bool](Get-Command $Name -ErrorAction SilentlyContinue) }
@@ -234,17 +252,31 @@ Write-Step 'Checking prerequisites'
 
 if (-not (Test-Exe 'git')) { throw 'git is not installed. Get it from https://git-scm.com and re-run.' }
 
+# Take the first name that actually reports 3.11+. Testing the name alone is
+# not enough on Windows: python.exe may be the Store alias stub, which is on
+# PATH but runs nothing. Note the -c argument carries no double quotes —
+# Windows PowerShell 5.1 strips those before python sees them.
 $python = $null
+$pythonVersion = $null
 foreach ($candidate in @('python', 'python3', 'py')) {
-    if (Test-Exe $candidate) { $python = $candidate; break }
+    if (-not (Test-Exe $candidate)) { continue }
+    $probe = @('-c', 'import sys; print(sys.version.split()[0])')
+    $reported = (Get-NativeOutput $candidate $probe | Select-Object -First 1)
+    if (-not $reported -or $reported -notmatch '^(\d+)\.(\d+)') { continue }
+    if ([version]"$($Matches[1]).$($Matches[2])" -ge [version]'3.11') {
+        $python = $candidate
+        $pythonVersion = $reported
+        break
+    }
+    if (-not $pythonVersion) { $pythonVersion = $reported }   # for the error below
 }
-if (-not $python) { throw 'Python is not installed. Get 3.11+ from https://python.org (tick "Add Python to PATH") and re-run.' }
-
-$versionText = (& $python -c 'import sys; print("%d.%d" % sys.version_info[:2])' 2>$null)
-if ($LASTEXITCODE -ne 0) { throw "Could not run '$python'. Install Python 3.11+ and re-run." }
-$version = [version]$versionText
-if ($version -lt [version]'3.11') { throw "Python $versionText found, but Jarvis needs 3.11 or newer." }
-Write-Good "git and Python $versionText"
+if (-not $python) {
+    if ($pythonVersion) {
+        throw "Python $pythonVersion is installed, but Jarvis needs 3.11 or newer. Get it from https://python.org (tick 'Add Python to PATH') and re-run."
+    }
+    throw "Python 3.11+ is not installed. Get it from https://python.org (tick 'Add Python to PATH') and re-run."
+}
+Write-Good "git and Python $pythonVersion"
 
 # --------------------------------------------------------- 2. get / pull --
 
@@ -295,6 +327,8 @@ if (-not (Test-Path -LiteralPath $venvPy)) {
 }
 if (-not (Test-Path -LiteralPath $venvPy)) { throw "The virtual environment is missing its interpreter: $venvPy" }
 
+$jarvisBootstrap = 'from jarvis.app.cli import main; raise SystemExit(main())'
+
 # Run the jarvis CLI: the console script when pip installed it, otherwise
 # the same entry point through the venv's python. Returns its exit code.
 function Invoke-Jarvis {
@@ -303,8 +337,7 @@ function Invoke-Jarvis {
     if (Test-Path -LiteralPath $exe) {
         return Get-NativeExitCode $exe $Arguments
     }
-    $bootstrap = 'from jarvis.app.cli import main; raise SystemExit(main())'
-    return Get-NativeExitCode $venvPy (@('-c', $bootstrap) + $Arguments)
+    return Get-NativeExitCode $venvPy (@('-c', $jarvisBootstrap) + $Arguments)
 }
 
 # ------------------------------------------------------ 4. the packs ------
@@ -368,7 +401,7 @@ if ($wanted.Contains('desktop')) {
 if ($wanted.Contains('vision')) {
     Write-Step 'Vision pack: the Tesseract OCR binary'
     if (Test-Exe 'tesseract') {
-        Write-Good ((& tesseract --version 2>$null | Select-Object -First 1))
+        Write-Good ((Get-NativeOutput 'tesseract' @('--version') | Select-Object -First 1))
     }
     elseif ($NoTesseract) {
         Write-Warn 'Skipped (-NoTesseract). capture_screen works; read_screen_text and locate_text_on_screen do not.'
@@ -493,8 +526,8 @@ Write-Step 'Skills available on this machine'
 $tools = @()
 if ($hasKey) {
     $exe = if ($IsWin) { Join-Path $venvBin 'jarvis.exe' } else { Join-Path $venvBin 'jarvis' }
-    if (Test-Path -LiteralPath $exe) { $tools = @(& $exe tools 2>$null) }
-    else { $tools = @(& $venvPy -c 'from jarvis.app.cli import main; raise SystemExit(main())' tools 2>$null) }
+    if (Test-Path -LiteralPath $exe) { $tools = Get-NativeOutput $exe @('tools') }
+    else { $tools = Get-NativeOutput $venvPy @('-c', $jarvisBootstrap, 'tools') }
 }
 if ($tools.Count -gt 0) {
     $names = $tools | ForEach-Object { ($_ -split '\s+')[0] }
@@ -514,10 +547,9 @@ if ($tools.Count -gt 0) {
     # The browser skills register as soon as playwright imports, but they only
     # work once the Chromium binary is actually on disk. Say so if it isn't.
     if ($names -contains 'browser_open') {
-        $probe = 'from playwright.sync_api import sync_playwright' +
-        "`nimport os, sys" +
-        "`np = sync_playwright().start()" +
-        "`nsys.exit(0 if os.path.exists(p.chromium.executable_path) else 3)"
+        $probe = 'import os, sys; from playwright.sync_api import sync_playwright; ' +
+        'p = sync_playwright().start(); ' +
+        'sys.exit(0 if os.path.exists(p.chromium.executable_path) else 3)'
         if ((Get-NativeExitCode $venvPy @('-c', $probe) -Quiet) -ne 0) {
             Write-Warn 'The 8 browser skills are registered but Chromium is missing — they will fail until you run:'
             Write-Warn '  .venv\Scripts\python -m playwright install chromium'

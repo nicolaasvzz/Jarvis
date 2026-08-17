@@ -22,7 +22,10 @@ want to start Jarvis — it updates and picks up where it left off.
 
 ```powershell
 & {
-    $ErrorActionPreference = 'Stop'
+    # 'Continue', not 'Stop': Windows PowerShell 5.1 turns anything a native
+    # command writes to stderr into a terminating error under 'Stop', and git,
+    # winget and python all use stderr routinely. Exit codes are checked below.
+    $ErrorActionPreference = 'Continue'
     $Repo = 'https://github.com/nicolaasvzz/Jarvis.'
     $Branch = 'claude/jarvis-startup-skills-commands-ilp298'
     $Dir = Join-Path $HOME 'jarvis'
@@ -33,10 +36,13 @@ want to start Jarvis — it updates and picks up where it left off.
         [Environment]::GetEnvironmentVariable('Path', 'User')
     }
     function PyOk {
+        # The -c text carries no double quotes on purpose: Windows PowerShell
+        # 5.1 strips those before python sees them. The exit code is the
+        # answer, so nothing has to be parsed either.
         foreach ($py in @('python', 'py', 'python3')) {
             if (-not (Have $py)) { continue }
-            $v = (& $py -c 'import sys; print("%d.%d" % sys.version_info[:2])' 2>$null)
-            if ($LASTEXITCODE -eq 0 -and $v -and [version]$v -ge [version]'3.11') { return $true }
+            & $py -c 'import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)' 2>$null
+            if ($LASTEXITCODE -eq 0) { return $true }
         }
         return $false
     }
