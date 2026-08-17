@@ -592,6 +592,26 @@ Write-Step 'The model'
 # `jarvis brain` is the authority here: it applies the config defaults, prints
 # which provider and model are configured, and for Ollama checks that the
 # server answers and the model is downloaded. Its exit code is the verdict.
+# The Windows installer drops ollama.exe in a per-user folder, and a shell that
+# was already open will not have it on PATH yet - so look there too rather than
+# telling someone to install what they already have.
+function Resolve-Ollama {
+    $ErrorActionPreference = 'Continue'
+    $cmd = Get-Command 'ollama' -ErrorAction SilentlyContinue
+    if ($cmd -and $cmd.Source) { return $cmd.Source }
+    $candidates = @()
+    foreach ($root in @($env:LOCALAPPDATA, $env:ProgramFiles, ${env:ProgramFiles(x86)})) {
+        if ($root) {
+            $candidates += (Join-Path $root 'Programs\Ollama\ollama.exe')
+            $candidates += (Join-Path $root 'Ollama\ollama.exe')
+        }
+    }
+    foreach ($candidate in $candidates) {
+        if (Test-Path -LiteralPath $candidate -ErrorAction SilentlyContinue) { return $candidate }
+    }
+    return ''
+}
+
 function Invoke-BrainCheck {
     $exe = if ($IsWin) { Join-Path $venvBin 'jarvis.exe' } else { Join-Path $venvBin 'jarvis' }
     if (Test-Path -LiteralPath $exe) { return Invoke-NativeCapture $exe @('brain') }
@@ -610,34 +630,41 @@ try {
         elseif ($line -match '^\s*model:\s*(\S+)') { $model = $Matches[1] }
     }
 
-    # A local model is a prerequisite like any other: install it, start it,
+    # A local model is a prerequisite like any other: find it, start it,
     # download the weights. No API key is involved at any point.
     if ($brain.Code -ne 0 -and $provider -eq 'ollama') {
-        if (-not (Test-Exe 'ollama')) {
-            if (Test-Exe 'winget') {
-                Write-Info 'Installing Ollama...'
-                Get-NativeExitCode winget @(
-                    'install', '--id', 'Ollama.Ollama', '--exact', '--silent',
-                    '--accept-package-agreements', '--accept-source-agreements'
-                ) | Out-Null
-                if ($IsWin) {
-                    $env:Path = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' +
-                    [Environment]::GetEnvironmentVariable('Path', 'User')
+        $ollama = Resolve-Ollama
+        if (-not $ollama -and (Test-Exe 'winget')) {
+            Write-Info 'Installing Ollama...'
+            Get-NativeExitCode winget @(
+                'install', '--id', 'Ollama.Ollama', '--exact', '--silent',
+                '--accept-package-agreements', '--accept-source-agreements'
+            ) | Out-Null
+            if ($IsWin) {
+                $env:Path = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' +
+                [Environment]::GetEnvironmentVariable('Path', 'User')
+            }
+            $ollama = Resolve-Ollama
+        }
+        if (-not $ollama) {
+            Write-Warn 'Ollama is not on this machine. Install it once from https://ollama.com/download'
+            Write-Warn '(a normal installer, no admin needed), then run this again.'
+        }
+        else {
+            Write-Info "Using $ollama"
+            # `ollama list` fails when the server is not up.
+            if ((Get-NativeExitCode $ollama @('list') -Quiet) -ne 0) {
+                Write-Info 'Starting the Ollama server...'
+                if ($IsWin) { Start-Process -FilePath $ollama -ArgumentList 'serve' -WindowStyle Hidden }
+                else { Start-Process -FilePath $ollama -ArgumentList 'serve' }
+                Start-Sleep -Seconds 3
+                if ((Get-NativeExitCode $ollama @('list') -Quiet) -ne 0) {
+                    Write-Warn 'The Ollama server did not come up. Start it in its own window with:  ollama serve'
                 }
             }
-            else { Write-Warn 'Install Ollama from https://ollama.com/download, then run this again.' }
-        }
-        if (Test-Exe 'ollama') {
-            # `ollama list` fails when the server is not up.
-            if ((Get-NativeExitCode 'ollama' @('list') -Quiet) -ne 0) {
-                Write-Info 'Starting the Ollama server...'
-                if ($IsWin) { Start-Process -FilePath 'ollama' -ArgumentList 'serve' -WindowStyle Hidden }
-                else { Start-Process -FilePath 'ollama' -ArgumentList 'serve' }
-                Start-Sleep -Seconds 3
-            }
             if ($model) {
-                Write-Info "Downloading the model $model - first time only, and it is a few GB."
-                Get-NativeExitCode 'ollama' @('pull', $model) | Out-Null
+                Write-Info "Checking the model $model is downloaded - the first pull is a few GB."
+                Get-NativeExitCode $ollama @('pull', $model) | Out-Null
             }
             $brain = Invoke-BrainCheck
             foreach ($line in $brain.Output) { Write-Info $line }
