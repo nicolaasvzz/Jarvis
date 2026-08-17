@@ -75,34 +75,34 @@ want to start Jarvis — it updates and picks up where it left off.
         }
         Write-Host "Cloning Jarvis into $Dir ..." -ForegroundColor Cyan
         git clone --branch $Branch $Repo $Dir
-        if ($LASTEXITCODE -ne 0) { Stop-With 'Clone failed — check the GitHub sign-in prompt, or your internet connection.'; return }
+        if ($LASTEXITCODE -ne 0) { Stop-With 'Clone failed - check the GitHub sign-in prompt, or your internet connection.'; return }
     }
 
-    # An existing clone can be on an older branch that has no scripts/ yet, on
-    # a detached HEAD, or left half-checked-out. Repair it in place with git:
-    # another window sitting inside the folder locks it against being renamed
-    # or deleted, but not against git rewriting its contents.
+    # Always bring the clone to origin's tip before handing off, even when the
+    # script is already there: a stale copy of it is just as unusable as a
+    # missing one, and it cannot update itself if it will not run. This also
+    # covers a clone on an old branch, on a detached HEAD, or half-checked-out.
+    # Done in place with git on purpose - another window sitting inside the
+    # folder locks it against being renamed, but not against git rewriting it.
     $Script = Join-Path $Dir 'scripts\jarvis.ps1'
-    if (-not (Test-Path $Script)) {
-        Write-Host "Updating the clone in $Dir to $Branch ..." -ForegroundColor Cyan
-        git -C $Dir fetch origin
-        if ($LASTEXITCODE -ne 0) { Stop-With 'Could not reach the repository — check the GitHub sign-in prompt, or your internet connection.'; return }
-        if (@(git -C $Dir status --porcelain).Count -gt 0) {
-            Write-Host 'Stashing local changes first.' -ForegroundColor Gray
-            git -C $Dir stash push -u -m 'jarvis bootstrap'
-        }
-        git -C $Dir checkout -B $Branch "origin/$Branch"
-        if ($LASTEXITCODE -ne 0) { Stop-With "git could not switch $Dir to $Branch."; return }
+    Write-Host "Updating $Dir to $Branch ..." -ForegroundColor Cyan
+    git -C $Dir fetch origin
+    if ($LASTEXITCODE -ne 0) { Stop-With 'Could not reach the repository - check the GitHub sign-in prompt, or your internet connection.'; return }
+    if (@(git -C $Dir status --porcelain).Count -gt 0) {
+        Write-Host 'Stashing your local changes first (git stash pop brings them back).' -ForegroundColor Gray
+        git -C $Dir stash push -u -m 'jarvis bootstrap'
     }
+    git -C $Dir checkout -B $Branch "origin/$Branch"
+    if ($LASTEXITCODE -ne 0) { Stop-With "git could not switch $Dir to $Branch."; return }
 
     # Last resort: move the folder aside and clone fresh, keeping the two files
-    # worth keeping. Verified rather than assumed — the move is what fails when
+    # worth keeping. Verified rather than assumed - the move is what fails when
     # another process holds the folder.
     if (-not (Test-Path $Script)) {
         $Old = "$Dir-old-$(Get-Date -Format yyyyMMdd-HHmmss)"
         Move-Item -LiteralPath $Dir -Destination $Old -ErrorAction SilentlyContinue
         if (Test-Path $Dir) {
-            Stop-With "Could not move $Dir aside — another program is holding it open. Close any PowerShell, Explorer or editor window sitting in that folder, then paste this again."
+            Stop-With "Could not move $Dir aside - another program is holding it open. Close any PowerShell, Explorer or editor window sitting in that folder, then paste this again."
             $holders = @(Get-Process | Where-Object { $_.Path -and $_.Path.StartsWith($Dir, [StringComparison]::OrdinalIgnoreCase) })
             if ($holders.Count -gt 0) { Write-Host ('Running from that folder: ' + (($holders | Select-Object -ExpandProperty Name -Unique) -join ', ')) -ForegroundColor Yellow }
             return

@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Install, update, and start Jarvis — one file, safe to re-run.
+    Install, update, and start Jarvis - one file, safe to re-run.
 
 .DESCRIPTION
     Does everything in docs/COMMANDS.md sections 1-3:
@@ -88,7 +88,7 @@ function Write-Warn { param([string]$Message) Write-Host "    ! $Message" -Foreg
 
 # Every native call below runs with $ErrorActionPreference = 'Continue'.
 # Windows PowerShell 5.1 turns a native command's stderr into a terminating
-# error when the preference is 'Stop' — and git, pip, winget and python's own
+# error when the preference is 'Stop' - and git, pip, winget and python's own
 # logging all write to stderr routinely. Exit codes are the truth here, so
 # they are checked explicitly instead.
 
@@ -138,7 +138,7 @@ function Test-Exe { param([string]$Name) return [bool](Get-Command $Name -ErrorA
 # ------------------------------------------------------------ file edits ---
 
 # Jarvis reads .env and config.yaml as UTF-8. Write them as UTF-8 without a
-# BOM so a non-ASCII path (C:\Users\José\...) survives and no stray BOM ends
+# BOM so a non-ASCII path (C:\Users\Jose\...) survives and no stray BOM ends
 # up on the first key.
 function Write-TextLines {
     param([string]$File, [System.Collections.Generic.List[string]]$Lines)
@@ -244,7 +244,7 @@ else {
     }
 }
 
-Write-Host "Jarvis setup — $Path" -ForegroundColor White
+Write-Host "Jarvis setup - $Path" -ForegroundColor White
 
 # ------------------------------------------------------ 1. prerequisites --
 
@@ -254,7 +254,7 @@ if (-not (Test-Exe 'git')) { throw 'git is not installed. Get it from https://gi
 
 # Take the first name that actually reports 3.11+. Testing the name alone is
 # not enough on Windows: python.exe may be the Store alias stub, which is on
-# PATH but runs nothing. Note the -c argument carries no double quotes —
+# PATH but runs nothing. Note the -c argument carries no double quotes -
 # Windows PowerShell 5.1 strips those before python sees them.
 $python = $null
 $pythonVersion = $null
@@ -297,7 +297,7 @@ else {
     try {
         $dirty = @(& git status --porcelain)
         if ($dirty.Count -gt 0) {
-            Write-Warn "$($dirty.Count) local change(s) — stashing them first."
+            Write-Warn "$($dirty.Count) local change(s) - stashing them first."
             Invoke-Native git @('stash', 'push', '-u', '-m', "jarvis.ps1 $(Get-Date -Format s)")
             $stashed = $true
         }
@@ -394,7 +394,7 @@ if ($wanted.Contains('desktop')) {
     Write-Step 'Desktop pack: checking it can load'
     $code = Get-NativeExitCode $venvPy @('-c', 'import pyautogui, pygetwindow') -Quiet
     if ($code -eq 0) { Write-Good 'pyautogui and pygetwindow load' }
-    elseif ($IsWin) { Write-Warn 'pyautogui will not load — it needs a real desktop session (not a remote/headless shell). The 8 desktop skills stay off until it does.' }
+    elseif ($IsWin) { Write-Warn 'pyautogui will not load - it needs a real desktop session (not a remote/headless shell). The 8 desktop skills stay off until it does.' }
     else { Write-Warn 'The desktop pack is Windows-only; its 8 skills will not appear here.' }
 }
 
@@ -478,7 +478,7 @@ if (-not (Get-EnvValue $envFile 'JARVIS_API_TOKEN')) {
 $hasKey = [bool](Get-EnvValue $envFile 'ANTHROPIC_API_KEY')
 if (-not $hasKey) {
     Write-Info 'Jarvis needs an Anthropic API key (console.anthropic.com). Input is hidden.'
-    Write-Info 'Press Enter to skip — setup finishes, but Jarvis cannot run until it is set.'
+    Write-Info 'Press Enter to skip - setup finishes, but Jarvis cannot run until it is set.'
     $key = Read-Secret 'ANTHROPIC_API_KEY'
     if ($key) {
         Set-EnvValue $envFile 'ANTHROPIC_API_KEY' $key
@@ -514,7 +514,7 @@ if ($botToken) {
         Write-Good 'Telegram bridge enabled in config.yaml'
     }
     if (-not (Get-YamlSectionKey $cfgFile 'telegram' 'owner_chat_id')) {
-        Write-Warn 'owner_chat_id is not set yet — anyone who finds your bot could command it.'
+        Write-Warn 'owner_chat_id is not set yet - anyone who finds your bot could command it.'
         Write-Warn "Message your bot /whoami, then put the id it replies with into $cfgFile and re-run."
     }
 }
@@ -551,7 +551,7 @@ if ($tools.Count -gt 0) {
         'p = sync_playwright().start(); ' +
         'sys.exit(0 if os.path.exists(p.chromium.executable_path) else 3)'
         if ((Get-NativeExitCode $venvPy @('-c', $probe) -Quiet) -ne 0) {
-            Write-Warn 'The 8 browser skills are registered but Chromium is missing — they will fail until you run:'
+            Write-Warn 'The 8 browser skills are registered but Chromium is missing - they will fail until you run:'
             Write-Warn '  .venv\Scripts\python -m playwright install chromium'
         }
     }
@@ -567,7 +567,7 @@ else {
 # ------------------------------------------------------------ 7. start ----
 
 Write-Step 'Ready'
-Write-Info "Re-run any time — this script is safe to repeat:  .\scripts\jarvis.ps1"
+Write-Info "Re-run any time - this script is safe to repeat:  .\scripts\jarvis.ps1"
 Write-Info "Everything else you can type is in docs\COMMANDS.md"
 
 if (-not $hasKey) {
@@ -583,7 +583,7 @@ try {
             Invoke-Jarvis @('phone') | Out-Null
         }
         'serve' {
-            Write-Host "`nStarting the API server on http://127.0.0.1:8765 — Ctrl-C to stop.`n" -ForegroundColor White
+            Write-Host "`nStarting the API server on http://127.0.0.1:8765 - Ctrl-C to stop.`n" -ForegroundColor White
             Invoke-Jarvis @('serve') | Out-Null
         }
         'run' {
