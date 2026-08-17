@@ -69,13 +69,39 @@ want to start Jarvis — it updates and picks up where it left off.
         return
     }
     if (-not (Test-Path (Join-Path $Dir '.git'))) {
+        if ((Test-Path $Dir) -and @(Get-ChildItem -LiteralPath $Dir -Force).Count -gt 0) {
+            Stop-With "$Dir already exists and is not a Jarvis clone. Rename or delete that folder, then paste this again."
+            return
+        }
         Write-Host "Cloning Jarvis into $Dir ..." -ForegroundColor Cyan
         git clone --branch $Branch $Repo $Dir
         if ($LASTEXITCODE -ne 0) { Stop-With 'Clone failed — check the GitHub sign-in prompt, or your internet connection.'; return }
     }
 
+    # An existing clone can be on an older branch that has no scripts/ yet, or
+    # be a clone whose checkout never finished. Get it onto the right branch
+    # before handing off, since the script that normally does the updating is
+    # the very thing that would be missing.
+    $Script = Join-Path $Dir 'scripts\jarvis.ps1'
+    if (-not (Test-Path $Script)) {
+        Write-Host "Updating $Dir to $Branch ..." -ForegroundColor Cyan
+        git -C $Dir fetch origin $Branch
+        if ($LASTEXITCODE -ne 0) { Stop-With 'Could not reach the repository — check the GitHub sign-in prompt, or your internet connection.'; return }
+        if (@(git -C $Dir status --porcelain).Count -gt 0) {
+            Write-Host 'Stashing local changes first.' -ForegroundColor Gray
+            git -C $Dir stash push -u -m 'jarvis bootstrap'
+        }
+        git -C $Dir checkout $Branch
+        if ($LASTEXITCODE -ne 0) { Stop-With "Could not switch $Dir to $Branch. Rename that folder and paste this again to get a fresh clone."; return }
+        git -C $Dir pull --ff-only origin $Branch
+    }
+    if (-not (Test-Path $Script)) {
+        Stop-With "$Script is still missing. Rename $Dir and paste this again to get a fresh clone."
+        return
+    }
+
     $shell = if (Have 'powershell') { 'powershell' } else { 'pwsh' }
-    & $shell -ExecutionPolicy Bypass -File (Join-Path $Dir 'scripts\jarvis.ps1') -Skills all
+    & $shell -ExecutionPolicy Bypass -File $Script -Skills all
 }
 ```
 
