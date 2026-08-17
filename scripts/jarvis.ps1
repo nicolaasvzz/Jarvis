@@ -662,9 +662,33 @@ try {
                     Write-Warn 'The Ollama server did not come up. Start it in its own window with:  ollama serve'
                 }
             }
+            # Only download when there is nothing to choose from. Someone who
+            # already has models locally should not have a multi-GB pull of a
+            # different one started for them.
             if ($model) {
-                Write-Info "Checking the model $model is downloaded - the first pull is a few GB."
-                Get-NativeExitCode $ollama @('pull', $model) | Out-Null
+                $installed = @(Get-NativeOutput $ollama @('list') |
+                    Select-Object -Skip 1 |
+                    ForEach-Object { ($_ -split '\s+')[0] } |
+                    Where-Object { $_ })
+                $have = ($installed -contains $model) -or ($installed -contains "${model}:latest")
+                if ($have) {
+                    Write-Good "$model is downloaded"
+                }
+                elseif ($installed.Count -eq 0) {
+                    Write-Info "Downloading $model - first time only, and it is a few GB."
+                    Get-NativeExitCode $ollama @('pull', $model) | Out-Null
+                }
+                else {
+                    Write-Warn "The configured model $model is not downloaded."
+                    Write-Warn ("Downloaded here: " + ($installed -join ', '))
+                    Write-Warn "Point Jarvis at one of those by putting it in .env:  LLM_MODEL=<name>"
+                    $pull = $false
+                    if ([Environment]::UserInteractive -and -not [Console]::IsInputRedirected) {
+                        $answer = Read-Host "    Or download $model now? [y/N]"
+                        $pull = ($answer.Trim().ToLowerInvariant() -in @('y', 'yes'))
+                    }
+                    if ($pull) { Get-NativeExitCode $ollama @('pull', $model) | Out-Null }
+                }
             }
             $brain = Invoke-BrainCheck
             foreach ($line in $brain.Output) { Write-Info $line }

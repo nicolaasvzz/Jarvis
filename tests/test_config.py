@@ -34,7 +34,7 @@ class TestDefaults:
         assert config.api.port == 8765
         # Local-first: no API key needed for a default install.
         assert config.llm.provider == "ollama"
-        assert config.llm.model == "qwen3:8b"
+        assert config.llm.model == "gpt-oss:20b"
         assert config.llm.base_url == "http://localhost:11434"
         assert config.logging.level == "INFO"
         assert config.browser.engine == "chromium"
@@ -103,7 +103,7 @@ class TestShippedExample:
         copied.write_text(example.read_text(encoding="utf-8"), encoding="utf-8")
         config = load_config(copied)
         assert config.llm.provider == "ollama"
-        assert config.llm.model == "qwen3:8b"
+        assert config.llm.model == "gpt-oss:20b"
 
     def test_a_section_with_only_comments_falls_back_to_defaults(
         self, tmp_path: Path

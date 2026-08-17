@@ -10,7 +10,7 @@ speaks. Nothing downstream can tell which provider answered.
 Two facts of life about local models are absorbed here rather than allowed
 to leak into the Planner:
 
-* reasoning models (qwen3 among them) may wrap their private reasoning in
+* reasoning models (gpt-oss and qwen3 among them) may wrap their reasoning in
   ``<think>`` tags inside the reply; those are stripped, so the Planner
   sees only the answer it asked for;
 * Ollama's context window defaults to a few thousand tokens and silently
@@ -305,7 +305,7 @@ class OllamaBrain:
             return (
                 f"The model {self._config.model!r} does not support tool "
                 "calling, which Jarvis needs. Use a tool-capable model such "
-                "as qwen3:8b."
+                "as gpt-oss:20b."
             )
         if status >= 500:
             return f"Ollama hit an internal error: {detail or 'no detail given'}"

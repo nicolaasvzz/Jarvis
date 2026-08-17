@@ -139,7 +139,7 @@ Install it and pull the model:
 
 ```powershell
 winget install --id Ollama.Ollama --exact --accept-package-agreements --accept-source-agreements
-ollama pull qwen3:8b
+ollama pull gpt-oss:20b
 jarvis brain                        # provider, model, and whether it answers
 ```
 

@@ -192,7 +192,7 @@ First install [Ollama](https://ollama.com) and pull the model Jarvis uses
 by default — one download, then it works offline:
 
 ```powershell
-ollama pull qwen3:8b
+ollama pull gpt-oss:20b
 ```
 
 Then:
@@ -228,7 +228,7 @@ Edit `.env`:
 
 ```
 LLM_PROVIDER=ollama                 # the default: a model on this machine
-LLM_MODEL=qwen3:8b
+LLM_MODEL=gpt-oss:20b
 JARVIS_API_TOKEN=<run: jarvis token>
 ```
 
@@ -241,7 +241,7 @@ and everything else are identical either way.
 | | `ollama` (default) | `anthropic` |
 |---|---|---|
 | Runs | on your machine | Anthropic's API |
-| Default model | `qwen3:8b` | `claude-opus-4-8` |
+| Default model | `gpt-oss:20b` | `claude-opus-4-8` |
 | Needs a key | no | `ANTHROPIC_API_KEY` |
 | Privacy | nothing leaves the machine | prompts sent to Anthropic |
 | Install | nothing extra | `pip install -e ".[llm]"` |
@@ -251,19 +251,22 @@ Check the connection before doing anything else:
 ```powershell
 jarvis brain
 # provider: ollama
-# model:    qwen3:8b
+# model:    gpt-oss:20b
 # endpoint: http://localhost:11434
 # connected: yes — 3 model(s) downloaded
-# model 'qwen3:8b' is available — Jarvis is ready.
+# model 'gpt-oss:20b' is available — Jarvis is ready.
 ```
 
-To switch to Claude, set `LLM_PROVIDER=anthropic` and `ANTHROPIC_API_KEY`
-in `.env`. To use a different local model, `ollama pull` it and set
-`LLM_MODEL` — it must support tool calling, which Jarvis relies on.
+To use a different local model, `ollama pull` it and set `LLM_MODEL` in
+`.env` — `LLM_MODEL` overrides `config.yaml`, so it is the one place to
+change it. The model must support tool calling, which Jarvis relies on.
+`gpt-oss:120b` is the larger sibling of the default if the hardware allows.
+To switch to Claude instead, set `LLM_PROVIDER=anthropic` and
+`ANTHROPIC_API_KEY`.
 
 Tuning for local models lives under `llm:` in `config/config.yaml`:
 `timeout` (raise it on slower hardware), `context_window` (`num_ctx` — too
-small silently truncates the plan), `temperature`, and `think` (qwen3
+small silently truncates the plan), `temperature`, and `think` (gpt-oss
 reasons before answering by default; `false` is faster).
 
 ## Run

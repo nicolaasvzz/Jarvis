@@ -28,15 +28,16 @@ ollama --version
 ```
 
 All three should print a version number. Now download the model Jarvis
-uses (about 5 GB, one time):
+uses (about 14 GB, one time):
 
 ```powershell
-ollama pull qwen3:8b
+ollama pull gpt-oss:20b
 ```
 
-> **How much computer do I need?** `qwen3:8b` wants roughly 8 GB of free
-> RAM, and is much faster with a dedicated graphics card. If your PC
-> struggles, `ollama pull qwen3:4b` and set `LLM_MODEL=qwen3:4b` in step 5.
+> **How much computer do I need?** `gpt-oss:20b` wants roughly 16 GB of free
+> RAM, and is much faster with a dedicated graphics card. On a lighter PC,
+> `ollama pull qwen3:8b` (about 5 GB) and set `LLM_MODEL=qwen3:8b` in step 5.
+> With plenty of hardware, `gpt-oss:120b` is the larger sibling.
 
 ## 2. Get Jarvis
 
@@ -75,10 +76,10 @@ You want to see:
 
 ```
 provider: ollama
-model:    qwen3:8b
+model:    gpt-oss:20b
 endpoint: http://localhost:11434
 connected: yes — 1 model(s) downloaded
-model 'qwen3:8b' is available — Jarvis is ready.
+model 'gpt-oss:20b' is available — Jarvis is ready.
 ```
 
 If it says it can't reach Ollama, start it (open the Ollama app, or run
@@ -100,7 +101,7 @@ change:
 
 ```
 LLM_PROVIDER=ollama
-LLM_MODEL=qwen3:8b
+LLM_MODEL=gpt-oss:20b
 ```
 
 *(Only if you'd rather use Anthropic's Claude than a model on your own PC:
@@ -205,7 +206,7 @@ Leave `jarvis phone` running on the PC and you can drive it from anywhere.
 - *"Could not reach Ollama"* means Ollama isn't running — start the Ollama
   app, or run `ollama serve`.
 - *"Ollama does not have the model"* means the download in step 1 didn't
-  finish — run `ollama pull qwen3:8b` again.
+  finish — run `ollama pull gpt-oss:20b` again.
 - Tasks that take a long time are normal on a slower PC the first time a
   model is used (the weights load into memory). If they time out, raise
   `llm.timeout` in `config\config.yaml`.

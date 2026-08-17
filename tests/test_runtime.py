@@ -76,7 +76,7 @@ async def test_default_runtime_uses_a_local_brain_with_no_api_key() -> None:
     try:
         assert isinstance(runtime.brain, OllamaBrain)
         assert runtime.config.llm.provider == "ollama"
-        assert runtime.config.llm.model == "qwen3:8b"
+        assert runtime.config.llm.model == "gpt-oss:20b"
         # The Planner and Orchestrator hold the very same Brain instance.
         assert runtime.planner._brain is runtime.brain
         assert runtime.orchestrator._brain is runtime.brain
@@ -105,13 +105,13 @@ class TestCliBrainCommand:
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
         async def models(_self: OllamaBrain) -> list[str]:
-            return ["llama3.1:8b", "qwen3:8b"]
+            return ["llama3.1:8b", "gpt-oss:20b"]
 
         monkeypatch.setattr(OllamaBrain, "list_models", models)
         assert main(["brain"]) == 0
         output = capsys.readouterr().out
         assert "provider: ollama" in output
-        assert "model:    qwen3:8b" in output
+        assert "model:    gpt-oss:20b" in output
         assert "endpoint: http://localhost:11434" in output
         assert "is available" in output
 
@@ -123,7 +123,7 @@ class TestCliBrainCommand:
 
         monkeypatch.setattr(OllamaBrain, "list_models", models)
         assert main(["brain"]) == 1
-        assert "ollama pull qwen3:8b" in capsys.readouterr().err
+        assert "ollama pull gpt-oss:20b" in capsys.readouterr().err
 
     def test_unreachable_server_exits_nonzero(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]

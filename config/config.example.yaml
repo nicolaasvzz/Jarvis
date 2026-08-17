@@ -20,7 +20,7 @@ llm:
   # Both can also be set with the short LLM_PROVIDER / LLM_MODEL
   # environment variables, which override this file.
   provider: ollama
-  model: qwen3:8b       # omit to get the provider's default model
+  model: gpt-oss:20b    # omit to get the provider's default model
   max_tokens: 16000
 
   # -- ollama only --
@@ -28,7 +28,7 @@ llm:
   timeout: 180          # seconds; a local model is slower than a hosted API
   context_window: 8192  # num_ctx — too small silently truncates the prompt
   # temperature: 0.2    # lower makes the planner's JSON more reliable
-  # think: false        # qwen3 reasons by default; false answers faster
+  # think: false        # gpt-oss reasons by default; false answers faster
 
   # -- anthropic only --
   effort: high          # low | medium | high | xhigh | max

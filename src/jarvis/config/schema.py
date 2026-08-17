@@ -26,7 +26,7 @@ _APP_NAME = "jarvis"
 # switching providers is a one-line change and never leaves a model name
 # pointing at the wrong service.
 DEFAULT_MODELS = {
-    "ollama": "qwen3:8b",
+    "ollama": "gpt-oss:20b",
     "anthropic": "claude-opus-4-8",
 }
 
@@ -79,8 +79,8 @@ class LLMConfig(_Section):
     # Left unset, the model's own defaults apply. Lower values make the
     # planner's JSON output more reliable on small local models.
     temperature: float | None = Field(default=None, ge=0.0, le=2.0)
-    # Turn a hybrid reasoning model's thinking on or off (qwen3 supports
-    # both). Unset means "whatever the model does by default".
+    # Turn a reasoning model's thinking on or off (gpt-oss and qwen3 both
+    # support it). Unset means "whatever the model does by default".
     think: bool | None = None
 
     @model_validator(mode="after")

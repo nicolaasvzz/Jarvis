@@ -48,7 +48,7 @@ def _reply(
     if tool_calls is not None:
         message["tool_calls"] = tool_calls
     return {
-        "model": "qwen3:8b",
+        "model": "gpt-oss:20b",
         "message": message,
         "done": True,
         "done_reason": done_reason,
@@ -92,15 +92,15 @@ async def _complete(brain: OllamaBrain, **kwargs: Any) -> Any:
 
 
 class TestConfiguration:
-    def test_defaults_point_at_local_qwen(self) -> None:
+    def test_defaults_point_at_a_local_model(self) -> None:
         config = LLMConfig()
         assert config.provider == "ollama"
-        assert config.model == "qwen3:8b"
+        assert config.model == "gpt-oss:20b"
         assert config.base_url == "http://localhost:11434"
 
     def test_model_default_follows_the_provider(self) -> None:
         assert LLMConfig(provider="anthropic").model == "claude-opus-4-8"
-        assert LLMConfig(provider="ollama").model == "qwen3:8b"
+        assert LLMConfig(provider="ollama").model == "gpt-oss:20b"
 
     def test_explicit_model_is_kept(self) -> None:
         assert LLMConfig(provider="ollama", model="llama3.1:8b").model == "llama3.1:8b"
@@ -134,7 +134,7 @@ class TestRequest:
     async def test_configured_model_is_the_one_asked_for(self) -> None:
         recorder = Recorder()
         await _complete(_brain(recorder))
-        assert recorder.payload["model"] == "qwen3:8b"
+        assert recorder.payload["model"] == "gpt-oss:20b"
 
     async def test_system_prompt_and_history_are_passed_through(self) -> None:
         recorder = Recorder()
@@ -314,7 +314,7 @@ class TestResponseParsing:
         assert response.refused is False
 
     async def test_missing_message_is_a_brain_error(self) -> None:
-        recorder = Recorder({"model": "qwen3:8b", "done": True})
+        recorder = Recorder({"model": "gpt-oss:20b", "done": True})
         with pytest.raises(BrainError, match="no message content"):
             await _complete(_brain(recorder))
 
@@ -341,9 +341,9 @@ class TestErrorHandling:
 
     async def test_missing_model_tells_you_to_pull_it(self) -> None:
         recorder = Recorder(
-            {"error": "model 'qwen3:8b' not found, try pulling it first"}, 404
+            {"error": "model 'gpt-oss:20b' not found, try pulling it first"}, 404
         )
-        with pytest.raises(BrainError, match="ollama pull qwen3:8b"):
+        with pytest.raises(BrainError, match="ollama pull gpt-oss:20b"):
             await _complete(_brain(recorder))
 
     async def test_model_without_tool_support_is_explained(self) -> None:
@@ -370,11 +370,11 @@ class TestErrorHandling:
 class TestListModels:
     async def test_lists_downloaded_models(self) -> None:
         recorder = Recorder(
-            {"models": [{"name": "qwen3:8b"}, {"name": "llama3.1:8b"}]}
+            {"models": [{"name": "gpt-oss:20b"}, {"name": "llama3.1:8b"}]}
         )
         brain = _brain(recorder)
         try:
-            assert await brain.list_models() == ["llama3.1:8b", "qwen3:8b"]
+            assert await brain.list_models() == ["gpt-oss:20b", "llama3.1:8b"]
         finally:
             await brain.aclose()
         assert str(recorder.requests[-1].url) == "http://localhost:11434/api/tags"

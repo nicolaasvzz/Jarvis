@@ -218,7 +218,7 @@ async def _check_brain(args: argparse.Namespace) -> int:
         await brain.aclose()
 
     print(f"connected: yes — {len(models)} model(s) downloaded")
-    # "qwen3" in config means "qwen3:latest" to Ollama.
+    # "gpt-oss" in config means "gpt-oss:latest" to Ollama.
     wanted = {config.llm.model}
     if ":" not in config.llm.model:
         wanted.add(f"{config.llm.model}:latest")
