@@ -65,25 +65,29 @@
         if ($LASTEXITCODE -ne 0) { Stop-With 'Clone failed — check the GitHub sign-in prompt, or your internet connection.'; return }
     }
 
-    # An existing clone can be on an older branch that has no scripts/ yet, or
-    # be a clone whose checkout never finished. Get it onto the right branch
-    # before handing off, since the script that normally does the updating is
-    # the very thing that would be missing.
+    # An existing clone can be on an older branch that has no scripts/ yet, on
+    # a detached HEAD, or left half-checked-out. Rather than trying to repair
+    # whatever state it is in — the script that normally does the updating is
+    # the very file that would be missing — move it aside, clone fresh, and
+    # carry the two files worth keeping across.
     $Script = Join-Path $Dir 'scripts\jarvis.ps1'
     if (-not (Test-Path $Script)) {
-        Write-Host "Updating $Dir to $Branch ..." -ForegroundColor Cyan
-        git -C $Dir fetch origin $Branch
-        if ($LASTEXITCODE -ne 0) { Stop-With 'Could not reach the repository — check the GitHub sign-in prompt, or your internet connection.'; return }
-        if (@(git -C $Dir status --porcelain).Count -gt 0) {
-            Write-Host 'Stashing local changes first.' -ForegroundColor Gray
-            git -C $Dir stash push -u -m 'jarvis bootstrap'
+        $Old = "$Dir-old-$(Get-Date -Format yyyyMMdd-HHmmss)"
+        Move-Item -LiteralPath $Dir -Destination $Old
+        Write-Host "That clone predates this script; moved it to $Old" -ForegroundColor Gray
+        Write-Host "Cloning Jarvis into $Dir ..." -ForegroundColor Cyan
+        git clone --branch $Branch $Repo $Dir
+        if ($LASTEXITCODE -ne 0) { Stop-With "Clone failed. Your old folder is still at $Old"; return }
+        foreach ($keep in @('.env', 'config\config.yaml')) {
+            $from = Join-Path $Old $keep
+            if (Test-Path $from) {
+                Copy-Item $from (Join-Path $Dir $keep) -Force
+                Write-Host "Kept your $keep" -ForegroundColor Gray
+            }
         }
-        git -C $Dir checkout $Branch
-        if ($LASTEXITCODE -ne 0) { Stop-With "Could not switch $Dir to $Branch. Rename that folder and paste this again to get a fresh clone."; return }
-        git -C $Dir pull --ff-only origin $Branch
     }
     if (-not (Test-Path $Script)) {
-        Stop-With "$Script is still missing. Rename $Dir and paste this again to get a fresh clone."
+        Stop-With "$Script is missing even after a fresh clone. Check what this prints: git -C $Dir log --oneline -1"
         return
     }
 
