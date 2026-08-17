@@ -86,10 +86,10 @@ JARVIS_API_TOKEN=<run: jarvis token>
 Every day, from the folder you cloned into:
 
 ```powershell
-cd C:\path\to\jarvis
-git pull --ff-only            # get the latest code
-.venv\Scripts\activate        # enter the virtual environment
-jarvis phone                  # start it — control from Telegram (Ctrl-C to stop)
+cd ~\jarvis
+git pull --ff-only origin claude/jarvis-startup-skills-commands-ilp298
+.venv\Scripts\activate
+jarvis phone                  # Ctrl-C to stop
 ```
 
 The rest of the commands:

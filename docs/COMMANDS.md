@@ -16,11 +16,22 @@ Copy-paste this whole block. It updates to the latest code, then starts the
 phone bridge.
 
 ```powershell
-cd C:\path\to\jarvis          # wherever you cloned it
-git pull --ff-only            # get the latest code
-.venv\Scripts\activate        # enter the virtual environment
-jarvis phone                  # start it — control from Telegram
+cd ~\jarvis
+git checkout claude/jarvis-startup-skills-commands-ilp298
+git pull --ff-only origin claude/jarvis-startup-skills-commands-ilp298
+.venv\Scripts\activate
+jarvis phone
 ```
+
+`~` is your user folder, so that block is literal — paste it as-is. It only
+assumes you cloned into `C:\Users\<you>\jarvis`, which is what step 2 below
+does. If `cd ~\jarvis` says the path doesn't exist, find the folder:
+
+```powershell
+Get-ChildItem ~ -Recurse -Depth 4 -Directory -Filter "*arvis*" -ErrorAction SilentlyContinue | Select-Object FullName
+```
+
+Then `cd` to what it prints and use that path everywhere below.
 
 Leave that window open; Jarvis is live until you press **Ctrl-C**.
 
@@ -31,18 +42,15 @@ jarvis serve                  # http://127.0.0.1:8765
 jarvis serve --host 0.0.0.0   # also reachable from your phone on the same wifi
 ```
 
-### If `git pull --ff-only` complains
+### If the pull complains
 
 ```powershell
-# No tracking branch set — name the branch explicitly:
-git pull --ff-only origin $(git rev-parse --abbrev-ref HEAD)
+# Local edits in the way — stash them, pull, put them back:
+git stash ; git pull --ff-only origin claude/jarvis-startup-skills-commands-ilp298 ; git stash pop
 
-# You have local edits in the way — stash them, pull, put them back:
-git stash ; git pull --ff-only ; git stash pop
-
-# Check what branch you're on / switch to the one you were told to use:
+# Check where you actually are:
 git branch --show-current
-git checkout claude/jarvis-startup-skills-commands-ilp298
+git log --oneline -5
 ```
 
 ### After a pull that changed dependencies
@@ -58,8 +66,10 @@ pip install -e ".[llm,api,phone]"
 ## 2. One time only: install
 
 ```powershell
+cd ~
 git clone https://github.com/nicolaasvzz/Jarvis. jarvis
-cd jarvis
+cd ~\jarvis
+git checkout claude/jarvis-startup-skills-commands-ilp298
 python -m venv .venv
 .venv\Scripts\activate
 
@@ -75,19 +85,33 @@ copy config\config.example.yaml config\config.yaml
 jarvis token                        # paste the output into .env as JARVIS_API_TOKEN
 ```
 
-Then edit `.env`:
+Open `.env` and fill in the three secrets:
 
-```
-ANTHROPIC_API_KEY=sk-ant-...
-JARVIS_API_TOKEN=<output of: jarvis token>
-TELEGRAM_BOT_TOKEN=123456:ABC...     # from @BotFather, only if using Telegram
+```powershell
+notepad ~\jarvis\.env
 ```
 
-And `config\config.yaml` — point it at the only folder Jarvis may touch:
+```
+ANTHROPIC_API_KEY=sk-ant-...          # console.anthropic.com
+JARVIS_API_TOKEN=...                  # the output of: jarvis token
+TELEGRAM_BOT_TOKEN=123456:ABC...      # from @BotFather, only if using Telegram
+```
+
+Now the workspace — the only folder Jarvis may touch. This creates it and
+prints the exact two lines to paste into the config:
+
+```powershell
+mkdir ~\JarvisWorkspace -Force | Out-Null
+"files:`n  root: " + ((Resolve-Path ~\JarvisWorkspace).Path -replace '\\','/')
+```
+
+```powershell
+notepad ~\jarvis\config\config.yaml
+```
+
+Paste those two lines, and turn Telegram on while you're in there:
 
 ```yaml
-files:
-  root: C:/Users/<you>/JarvisWorkspace
 telegram:
   enabled: true
   owner_chat_id: 123456789      # get it by messaging the bot once, or /whoami
@@ -239,8 +263,19 @@ security:
 Start with `jarvis serve`. Every route except `/health` needs the token,
 either as `Authorization: Bearer <token>` or as `?token=<token>`.
 
+On the PC itself the base URL is exactly `http://127.0.0.1:8765`. To reach it
+from your phone you need the PC's LAN address — this prints it, and you must
+have started the server with `jarvis serve --host 0.0.0.0`:
+
+```powershell
+(Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.InterfaceAlias -notlike "*Loopback*" }).IPAddress
+```
+
+Set both variables once, then every command below runs verbatim:
+
 ```bash
-BASE=http://<pc-ip>:8765 ; TOKEN=<your JARVIS_API_TOKEN>
+BASE=http://127.0.0.1:8765            # or http://<the IP printed above>:8765
+TOKEN=$JARVIS_API_TOKEN               # the same value as in .env
 
 # Health (no auth)
 curl $BASE/health
