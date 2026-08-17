@@ -53,10 +53,11 @@ needed if PowerShell refuses to run local scripts.
 What it does: checks git and Python 3.11+, clones or fast-forwards the repo
 (stashing local edits first), creates `.venv`, installs the packs you asked
 for plus their non-Python parts, creates `.env` and `config/config.yaml`,
-generates `JARVIS_API_TOKEN`, asks for any missing secret with the input
-hidden, creates the workspace folder and writes it into the config, turns on
-the Telegram bridge once a bot token exists, prints the skill inventory, and
-starts Jarvis. It never overwrites a value you already set.
+generates `JARVIS_API_TOKEN`, creates the workspace folder and writes it into
+the config, installs Ollama and pulls the model if the local brain isn't ready,
+turns on the Telegram bridge once a bot token exists, prints the skill
+inventory, and starts Jarvis. No API key is asked for or needed, and it never
+overwrites a value you already set.
 
 The rest of this page is the same work done by hand — useful when something
 goes wrong, or when you want to run one piece on its own.
@@ -111,7 +112,7 @@ git log --oneline -5
 `pyproject.toml` changing is the signal. It's harmless to run anyway:
 
 ```powershell
-pip install -e ".[llm,api,phone]"
+pip install -e ".[api,phone]"
 ```
 
 ---
@@ -126,24 +127,35 @@ git checkout claude/jarvis-startup-skills-commands-ilp298
 python -m venv .venv
 .venv\Scripts\activate
 
-pip install -e ".[llm,api,phone]"   # brain + HTTP API + Telegram/push
+pip install -e ".[api,phone]"       # HTTP API + Telegram/push
 
 copy .env.example .env
 copy config\config.example.yaml config\config.yaml
 jarvis token                        # paste the output into .env as JARVIS_API_TOKEN
 ```
 
-Open `.env` and fill in the three secrets:
+No API key is involved: the model runs on this machine through Ollama.
+Install it and pull the model:
+
+```powershell
+winget install --id Ollama.Ollama --exact --accept-package-agreements --accept-source-agreements
+ollama pull qwen3:8b
+jarvis brain                        # provider, model, and whether it answers
+```
+
+`.env` only holds the two optional secrets:
 
 ```powershell
 notepad ~\jarvis\.env
 ```
 
 ```
-ANTHROPIC_API_KEY=sk-ant-...          # console.anthropic.com
 JARVIS_API_TOKEN=...                  # the output of: jarvis token
 TELEGRAM_BOT_TOKEN=123456:ABC...      # from @BotFather, only if using Telegram
 ```
+
+Running Claude instead of a local model is the only thing that needs a key -
+see [Choosing the model](../README.md#choosing-the-model).
 
 Now the workspace — the only folder Jarvis may touch. This creates it and
 prints the exact two lines to paste into the config:
@@ -168,6 +180,7 @@ telegram:
 Verify:
 
 ```powershell
+jarvis brain                                   # is the model reachable?
 jarvis tools                                   # what's available on this machine
 jarvis run "make a file called hello.txt that says hi"
 ```
@@ -188,7 +201,7 @@ cd ~\jarvis
 ### All of them at once — 33 skills
 
 ```powershell
-pip install -e ".[llm,api,phone,browser,desktop,vision]"
+pip install -e ".[api,phone,browser,desktop,vision]"
 playwright install chromium
 winget install --id UB-Mannheim.TesseractOCR --accept-package-agreements --accept-source-agreements
 ```
@@ -207,10 +220,11 @@ and stop whenever.
 
 **Files + memory — 14 skills. Nothing to install.**
 
-They ship with the core, so `pip install -e ".[llm]"` is all they need:
+They ship with the core, and so does the local model, so a bare install is
+all they need:
 
 ```powershell
-pip install -e ".[llm]"
+pip install -e "."
 jarvis tools | Measure-Object -Line        # expect 14
 ```
 
@@ -265,14 +279,15 @@ add it permanently and open a new PowerShell:
 No winget? Download the installer from
 https://github.com/UB-Mannheim/tesseract/wiki and tick *Add to PATH*.
 
-### The two non-skill packs
+### The packs that are not skills
 
-These add channels rather than skills, so the `jarvis tools` count doesn't
-move:
+These add channels or a different model provider rather than skills, so the
+`jarvis tools` count doesn't move:
 
 ```powershell
 pip install -e ".[phone]"        # Telegram control + ntfy push  → jarvis phone
 pip install -e ".[api]"          # HTTP API + SSE                → jarvis serve
+pip install -e ".[llm]"          # hosted Claude instead of the local model
 pip install -e ".[dev,api,phone]" # pytest, ruff, mypy
 ```
 
@@ -280,8 +295,8 @@ pip install -e ".[dev,api,phone]" # pytest, ruff, mypy
 
 | Pack | Installs | Gives |
 |---|---|---|
-| *(core)* | pydantic, pydantic-settings, platformdirs | 14 file + memory skills |
-| `llm` | anthropic | the brain — required to run anything |
+| *(core)* | pydantic, pydantic-settings, platformdirs, httpx | 14 file + memory skills, and the local Ollama brain |
+| `llm` | anthropic | optional: hosted Claude instead of the local model |
 | `browser` | playwright *(+ `playwright install chromium`)* | 8 browser skills |
 | `desktop` | pyautogui, pygetwindow | 8 desktop skills |
 | `vision` | pillow, pytesseract, mss *(+ Tesseract binary)* | 3 vision skills |
@@ -300,6 +315,7 @@ pip install -e ".[dev,api,phone]" # pytest, ruff, mypy
 | `jarvis serve --host 0.0.0.0 --port 8765` | Same, reachable from the LAN, on a chosen port. |
 | `jarvis run "<request>"` | Run one task from the terminal, streaming progress; prompts `y/N` for dangerous steps. |
 | `jarvis run "<request>" --yes` | Same, auto-approving dangerous actions. Use with care. |
+| `jarvis brain` | Show the configured provider and model, and check it answers. Exits non-zero when it cannot, saying why. |
 | `jarvis tools` | List every tool available here, marking which need confirmation. |
 | `jarvis token` | Generate a strong random value for `JARVIS_API_TOKEN`. |
 | `jarvis --version` | Print the version. |
@@ -504,7 +520,7 @@ jarvis --config D:\jarvis\alt.yaml run "<request>"     # same thing, per-run
 ```powershell
 jarvis tools                       # fewer tools than expected = an extra isn't installed
 git pull --ff-only                 # you may just be behind
-pip install -e ".[llm,api,phone]"  # re-sync dependencies after a pull
+pip install -e ".[api,phone]"      # re-sync dependencies after a pull
 ```
 
 Logs are JSON-lines at `%LOCALAPPDATA%\jarvis\Logs\jarvis.jsonl` — every tool
@@ -517,7 +533,9 @@ jq 'select(.level == "ERROR")' jarvis.jsonl                # all errors
 
 | Message | Meaning |
 |---|---|
-| `Missing required secret 'anthropic_api_key'` | `.env` isn't filled in, or you're running from a different folder. |
+| `NOT reachable: Could not reach Ollama` | The local model server isn't running. Start it with `ollama serve`, or check `llm.base_url`. |
+| `model '...' is NOT downloaded` | Run the `ollama pull` line it prints. |
+| `Missing required secret 'anthropic_api_key'` | Only when `LLM_PROVIDER=anthropic`. On the default local model, no key is needed. |
 | `Cannot start: ...` on `jarvis serve` | No `JARVIS_API_TOKEN` — run `jarvis token` and put it in `.env`. |
 | `The Telegram bridge is not configured` | `telegram.enabled: true` missing in `config.yaml`, or `TELEGRAM_BOT_TOKEN` unset. |
 | `You're not authorised to control this Jarvis` | Set `telegram.owner_chat_id` to the chat id the bot replies with. |

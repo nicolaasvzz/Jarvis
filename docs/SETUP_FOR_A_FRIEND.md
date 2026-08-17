@@ -4,10 +4,10 @@ Jarvis is a personal AI assistant that runs on **your own Windows PC** and
 takes instructions from your phone. It plans tasks before doing them, asks
 before anything dangerous, and tells you what it did.
 
-Everything below runs on *your* machine with *your* own API key — nothing is
-shared with anyone else.
+Everything below runs on *your* machine, including the AI model itself —
+nothing is shared with anyone else, and there is no API key to buy.
 
-Takes about 10 minutes.
+Takes about 10 minutes, plus a download.
 
 ---
 
@@ -16,15 +16,27 @@ Takes about 10 minutes.
 - **Python 3.11 or newer** — https://python.org (during install, tick
   *"Add Python to PATH"*)
 - **Git** — https://git-scm.com
+- **Ollama** — https://ollama.com — this is what actually runs the AI model
+  on your PC. Install it and leave it running.
 
 Check they worked — open PowerShell and run:
 
 ```powershell
 python --version
 git --version
+ollama --version
 ```
 
-Both should print a version number.
+All three should print a version number. Now download the model Jarvis
+uses (about 5 GB, one time):
+
+```powershell
+ollama pull qwen3:8b
+```
+
+> **How much computer do I need?** `qwen3:8b` wants roughly 8 GB of free
+> RAM, and is much faster with a dedicated graphics card. If your PC
+> struggles, `ollama pull qwen3:4b` and set `LLM_MODEL=qwen3:4b` in step 5.
 
 ## 2. Get Jarvis
 
@@ -40,7 +52,7 @@ cd jarvis
 ```powershell
 python -m venv .venv
 .venv\Scripts\activate
-pip install -e ".[llm,phone]"
+pip install -e ".[phone]"
 ```
 
 That gives you the assistant plus phone control. Optional add-ons, install
@@ -53,17 +65,28 @@ playwright install chromium    #   (run this after the browser one)
 pip install -e ".[vision]"     # read the screen (also needs Tesseract OCR)
 ```
 
-## 4. Get your own Anthropic API key
+## 4. Check the AI model is working
 
-1. Sign up at **https://console.anthropic.com**
-2. Create an API key and copy it.
-3. Add a small amount of credit. Each task costs roughly a few cents —
-   **you are paying for your own usage**, so start small and watch the
-   dashboard until you know your pattern.
+```powershell
+jarvis brain
+```
 
-**Keep this key secret — it's tied to your billing.** Never paste it into a
-chat, screenshot, or a public repo. If it leaks, revoke it in the console and
-make a new one.
+You want to see:
+
+```
+provider: ollama
+model:    qwen3:8b
+endpoint: http://localhost:11434
+connected: yes — 1 model(s) downloaded
+model 'qwen3:8b' is available — Jarvis is ready.
+```
+
+If it says it can't reach Ollama, start it (open the Ollama app, or run
+`ollama serve`) and try again. If it says the model isn't downloaded, run
+the `ollama pull` from step 1.
+
+Nothing you type ever leaves your PC: Jarvis talks to Ollama on
+`localhost`, and Ollama runs the model on your own hardware.
 
 ## 5. Configure
 
@@ -72,13 +95,21 @@ copy .env.example .env
 copy config\config.example.yaml config\config.yaml
 ```
 
-Open `.env` in Notepad and fill in your key:
+`.env` already selects the local model, so there is nothing you must
+change:
 
 ```
-ANTHROPIC_API_KEY=sk-ant-...your-key...
+LLM_PROVIDER=ollama
+LLM_MODEL=qwen3:8b
 ```
 
-`.env` is gitignored, so your key never gets committed.
+*(Only if you'd rather use Anthropic's Claude than a model on your own PC:
+run `pip install -e ".[llm]"`, set `LLM_PROVIDER=anthropic`, and put your
+own key from https://console.anthropic.com in `ANTHROPIC_API_KEY`. That
+one is paid per use and sends your requests to Anthropic — the local
+setup above does neither.)*
+
+`.env` is gitignored, so nothing in it ever gets committed.
 
 Now open `config\config.yaml` and **point Jarvis at a test folder first** —
 this is the only directory it's allowed to touch, and it cannot escape it:
@@ -160,13 +191,21 @@ Leave `jarvis phone` running on the PC and you can drive it from anywhere.
   send it commands. With it, strangers are refused.
 - **Don't expose the HTTP API to the internet.** Leave `api.host` at
   `127.0.0.1` (the default) and use the Telegram bridge for remote access.
-- **Your API key is money.** Keep it private; revoke and rotate if unsure.
+- **Keep your Telegram bot token private** — it's the key to the bridge.
+  If it leaks, revoke it with @BotFather and set a new one.
 
 ## If something breaks
 
 - Logs are JSON-lines at `%LOCALAPPDATA%\jarvis\Logs\jarvis.jsonl` — every
   command, decision, and error is in there.
+- `jarvis brain` is the first thing to run: it says whether Jarvis can
+  reach the model at all, and what to do if it can't.
 - `jarvis tools` showing fewer tools than expected usually means an optional
   add-on isn't installed (step 3).
-- `Missing required secret 'anthropic_api_key'` means `.env` isn't filled in
-  or you're running from a different folder.
+- *"Could not reach Ollama"* means Ollama isn't running — start the Ollama
+  app, or run `ollama serve`.
+- *"Ollama does not have the model"* means the download in step 1 didn't
+  finish — run `ollama pull qwen3:8b` again.
+- Tasks that take a long time are normal on a slower PC the first time a
+  model is used (the weights load into memory). If they time out, raise
+  `llm.timeout` in `config\config.yaml`.

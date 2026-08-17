@@ -373,7 +373,7 @@ function Invoke-Jarvis {
 #   .\jarvis.ps1 -Skills browser,vision
 #   powershell -File .\scripts\jarvis.ps1 -Skills "browser,vision"
 # mean the same thing.
-$knownPacks = @('all', 'core', 'browser', 'desktop', 'vision', 'api', 'phone', 'dev')
+$knownPacks = @('all', 'core', 'browser', 'desktop', 'vision', 'api', 'phone', 'dev', 'llm')
 $requested = @()
 foreach ($item in $Skills) {
     foreach ($part in ($item -split '[,;\s]+')) {
@@ -386,8 +386,10 @@ if ($unknown.Count -gt 0) {
     throw "Unknown skill pack(s): $($unknown -join ', '). Valid: $($knownPacks -join ', ')"
 }
 
+# 'llm' is deliberately not in 'all': it installs the anthropic package,
+# which is only for running hosted Claude instead of the local model. The
+# default provider needs nothing beyond the base install.
 $wanted = [System.Collections.Generic.HashSet[string]]::new()
-[void]$wanted.Add('llm')                       # the brain: always needed
 if ($requested -contains 'all') {
     foreach ($e in @('api', 'phone', 'browser', 'desktop', 'vision')) { [void]$wanted.Add($e) }
 }
@@ -400,6 +402,8 @@ else {
     if ($Start -eq 'serve') { [void]$wanted.Add('api') }
 }
 $extras = (@($wanted) | Sort-Object) -join ','
+# With no extras at all the core install is still a working Jarvis.
+$pipTarget = if ($extras) { ".[$extras]" } else { '.' }
 
 # pip rewrites jarvis.exe on every install, so re-running it needlessly is
 # what turns "Jarvis is already running" into a failed setup. Skip the install
@@ -411,11 +415,11 @@ $upToDate = (Test-Path -LiteralPath $stampFile) -and
             ((Get-Content -LiteralPath $stampFile -Raw).Trim() -eq $stamp)
 
 if ($upToDate -and -not $Reinstall) {
-    Write-Step "Packs already installed: $extras"
+    Write-Step ("Already installed: " + $(if ($extras) { $extras } else { 'core only' }))
     Write-Info 'Nothing changed since the last install, so pip is skipped. Force it with -Reinstall.'
 }
 else {
-    Write-Step "Installing packs: $extras"
+    Write-Step ("Installing: " + $(if ($extras) { $extras } else { 'core only' }))
 
     # Stop a Jarvis that is already running from this venv, or pip cannot
     # replace its files. It is this script's own app, and a new one starts at
@@ -442,7 +446,7 @@ else {
     Push-Location $Path
     try {
         Get-NativeExitCode $venvPy @('-m', 'pip', 'install', '--upgrade', '--quiet', 'pip') | Out-Null
-        $pip = Invoke-NativeCapture $venvPy @('-m', 'pip', 'install', '--quiet', '-e', ".[$extras]")
+        $pip = Invoke-NativeCapture $venvPy @('-m', 'pip', 'install', '--quiet', '-e', $pipTarget)
         if ($pip.Code -ne 0) {
             foreach ($line in $pip.Output) { Write-Host "    $line" -ForegroundColor DarkGray }
             # The lock is worth naming: pip has to replace jarvis.exe, which
@@ -450,9 +454,9 @@ else {
             if (($pip.Output -join "`n") -match 'being used by another process|WinError 32|Access is denied') {
                 throw 'pip could not replace files in .venv because Jarvis is still running from it. Close that window (or Ctrl-C it) and run this again.'
             }
-            throw "pip install -e `".[$extras]`" failed with exit code $($pip.Code)."
+            throw "pip install -e `"$pipTarget`" failed with exit code $($pip.Code)."
         }
-        Write-Good "pip install -e `".[$extras]`" done"
+        Write-Good "pip install -e `"$pipTarget`" done"
         Set-Content -LiteralPath $stampFile -Value $stamp
     }
     finally { Pop-Location }
@@ -550,19 +554,6 @@ if (-not (Get-EnvValue $envFile 'JARVIS_API_TOKEN')) {
     Write-Good 'Generated JARVIS_API_TOKEN'
 }
 
-$hasKey = [bool](Get-EnvValue $envFile 'ANTHROPIC_API_KEY')
-if (-not $hasKey) {
-    Write-Info 'Jarvis needs an Anthropic API key (console.anthropic.com). Input is hidden.'
-    Write-Info 'Press Enter to skip - setup finishes, but Jarvis cannot run until it is set.'
-    $key = Read-Secret 'ANTHROPIC_API_KEY'
-    if ($key) {
-        Set-EnvValue $envFile 'ANTHROPIC_API_KEY' $key
-        $hasKey = $true
-        Write-Good 'Saved ANTHROPIC_API_KEY to .env'
-    }
-    else { Write-Warn "No API key set. Add it later: notepad `"$envFile`"" }
-}
-
 # The workspace is the only folder Jarvis may touch.
 if (-not (Get-YamlSectionKey $cfgFile 'files' 'root')) {
     $workspace = Join-Path $HOME 'JarvisWorkspace'
@@ -594,16 +585,78 @@ if ($botToken) {
     }
 }
 
-# ---------------------------------------------------- 6. what's installed --
+# ------------------------------------------------------------ 6. the model --
+
+Write-Step 'The model'
+
+# `jarvis brain` is the authority here: it applies the config defaults, prints
+# which provider and model are configured, and for Ollama checks that the
+# server answers and the model is downloaded. Its exit code is the verdict.
+function Invoke-BrainCheck {
+    $exe = if ($IsWin) { Join-Path $venvBin 'jarvis.exe' } else { Join-Path $venvBin 'jarvis' }
+    if (Test-Path -LiteralPath $exe) { return Invoke-NativeCapture $exe @('brain') }
+    return Invoke-NativeCapture $venvPy @('-c', $jarvisBootstrap, 'brain')
+}
+
+Push-Location $Path
+try {
+    $brain = Invoke-BrainCheck
+    foreach ($line in $brain.Output) { Write-Info $line }
+
+    $provider = ''
+    $model = ''
+    foreach ($line in $brain.Output) {
+        if ($line -match '^\s*provider:\s*(\S+)') { $provider = $Matches[1] }
+        elseif ($line -match '^\s*model:\s*(\S+)') { $model = $Matches[1] }
+    }
+
+    # A local model is a prerequisite like any other: install it, start it,
+    # download the weights. No API key is involved at any point.
+    if ($brain.Code -ne 0 -and $provider -eq 'ollama') {
+        if (-not (Test-Exe 'ollama')) {
+            if (Test-Exe 'winget') {
+                Write-Info 'Installing Ollama...'
+                Get-NativeExitCode winget @(
+                    'install', '--id', 'Ollama.Ollama', '--exact', '--silent',
+                    '--accept-package-agreements', '--accept-source-agreements'
+                ) | Out-Null
+                if ($IsWin) {
+                    $env:Path = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' +
+                    [Environment]::GetEnvironmentVariable('Path', 'User')
+                }
+            }
+            else { Write-Warn 'Install Ollama from https://ollama.com/download, then run this again.' }
+        }
+        if (Test-Exe 'ollama') {
+            # `ollama list` fails when the server is not up.
+            if ((Get-NativeExitCode 'ollama' @('list') -Quiet) -ne 0) {
+                Write-Info 'Starting the Ollama server...'
+                if ($IsWin) { Start-Process -FilePath 'ollama' -ArgumentList 'serve' -WindowStyle Hidden }
+                else { Start-Process -FilePath 'ollama' -ArgumentList 'serve' }
+                Start-Sleep -Seconds 3
+            }
+            if ($model) {
+                Write-Info "Downloading the model $model - first time only, and it is a few GB."
+                Get-NativeExitCode 'ollama' @('pull', $model) | Out-Null
+            }
+            $brain = Invoke-BrainCheck
+            foreach ($line in $brain.Output) { Write-Info $line }
+        }
+    }
+}
+finally { Pop-Location }
+
+$brainReady = ($brain.Code -eq 0)
+if ($brainReady) { Write-Good "$provider is ready" }
+else { Write-Warn 'The model is not usable yet - the lines above say why. Re-check any time with:  jarvis brain' }
+
+# --------------------------------------------------- 7. what's installed --
 
 Write-Step 'Skills available on this machine'
 
-$tools = @()
-if ($hasKey) {
-    $exe = if ($IsWin) { Join-Path $venvBin 'jarvis.exe' } else { Join-Path $venvBin 'jarvis' }
-    if (Test-Path -LiteralPath $exe) { $tools = @(Get-NativeOutput $exe @('tools')) }
-    else { $tools = @(Get-NativeOutput $venvPy @('-c', $jarvisBootstrap, 'tools')) }
-}
+$exe = if ($IsWin) { Join-Path $venvBin 'jarvis.exe' } else { Join-Path $venvBin 'jarvis' }
+if (Test-Path -LiteralPath $exe) { $tools = @(Get-NativeOutput $exe @('tools')) }
+else { $tools = @(Get-NativeOutput $venvPy @('-c', $jarvisBootstrap, 'tools')) }
 if ($tools.Count -gt 0) {
     $names = $tools | ForEach-Object { ($_ -split '\s+')[0] }
     $packs = [ordered]@{
@@ -636,17 +689,17 @@ if ($tools.Count -gt 0) {
     }
 }
 else {
-    Write-Warn 'Could not list skills (an API key is needed even to list them). Run: jarvis tools'
+    Write-Warn 'Could not list the skills. Run this to see the error:  jarvis tools'
 }
 
-# ------------------------------------------------------------ 7. start ----
+# ------------------------------------------------------------ 8. start ----
 
 Write-Step 'Ready'
 Write-Info "Re-run any time - this script is safe to repeat:  .\scripts\jarvis.ps1"
 Write-Info "Everything else you can type is in docs\COMMANDS.md"
 
-if (-not $hasKey) {
-    Write-Warn "Not starting: ANTHROPIC_API_KEY is empty. Add it to $envFile and re-run."
+if (-not $brainReady -and $Start -ne 'none') {
+    Write-Warn 'Not starting: Jarvis has no working model yet. Fix the above, then run this again.'
     exit 1
 }
 

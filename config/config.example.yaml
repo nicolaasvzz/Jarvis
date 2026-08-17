@@ -13,15 +13,31 @@ api:
   port: 8765
 
 llm:
-  provider: anthropic
-  model: claude-opus-4-8
+  # ollama    = a model running on THIS machine. No API key, no account,
+  #             and no conversation ever leaves the computer.
+  # anthropic = the hosted Claude API; that one needs ANTHROPIC_API_KEY
+  #             in .env.
+  # Both can also be set with the short LLM_PROVIDER / LLM_MODEL
+  # environment variables, which override this file.
+  provider: ollama
+  model: qwen3:8b       # omit to get the provider's default model
   max_tokens: 16000
-  effort: high         # low | medium | high | xhigh | max
 
-files:
-  # The ONLY directory Jarvis may read/write/organize. Defaults to
-  # <data_dir>/workspace. Point it at the folder tree you want managed:
-  # root: C:/Users/you/JarvisWorkspace
+  # -- ollama only --
+  base_url: http://localhost:11434
+  timeout: 180          # seconds; a local model is slower than a hosted API
+  context_window: 8192  # num_ctx — too small silently truncates the prompt
+  # temperature: 0.2    # lower makes the planner's JSON more reliable
+  # think: false        # qwen3 reasons by default; false answers faster
+
+  # -- anthropic only --
+  effort: high          # low | medium | high | xhigh | max
+
+# The ONLY directory Jarvis may read/write/organize. Defaults to
+# <data_dir>/workspace. Uncomment and point it at the folder tree you want
+# managed:
+# files:
+#   root: C:/Users/you/JarvisWorkspace
 
 agent:
   max_step_attempts: 2   # retries per failing step

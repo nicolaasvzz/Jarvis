@@ -38,7 +38,7 @@ order in which they are being built.
 |---|---|---|
 | Configuration | `jarvis.config` | Typed settings from defaults → YAML → env vars; secrets kept structurally separate |
 | Logging | `jarvis.logging` | Structured JSON-lines logs + console output, with task context propagation |
-| Brain | `jarvis.brain` | LLM connection (Anthropic); decides what to do next |
+| Brain | `jarvis.brain` | LLM connection (local Ollama by default; Anthropic optional); decides what to do next |
 | Planner | `jarvis.planner` | Breaks requests into steps, estimates risk, tracks progress |
 | Memory | `jarvis.memory` | Persistent conversations, preferences, and task history |
 | Tool Manager | `jarvis.tools` | Tool registry + dispatch; enforces permissions; logs every invocation |
@@ -84,6 +84,9 @@ order in which they are being built.
 | Telegram bridge for phone control | Outbound long-poll only — no LAN, no port-forwarding, no exposed server; works over any internet (even a phone tether), which is exactly the "no wifi on the laptop" case. Gives push + full control in one integration |
 | HTTP behind an `HttpTransport` protocol | The Telegram bridge and push channel are fully unit-testable with a fake transport — no real bot/account/network needed in CI |
 | `owner_chat_id` allowlist for Telegram | A personal bot must obey only its owner; unknown chats are refused (but told their own id, to ease first-run setup) |
+| Local Ollama model as the default Brain | A desktop assistant reads files, screens, and messages; keeping the model on the machine means none of that is sent anywhere, needs no API key, and costs nothing per task. Design rule 1 already made the provider replaceable, so this is a configuration change, not a rewrite |
+| Providers chosen in one factory (`brain.factory`) | Selection lives in exactly one place, and each provider's requirements (an API key, a running server) are enforced only when that provider is picked — so Ollama users are never asked for `ANTHROPIC_API_KEY` |
+| Tool schemas translated inside each Brain | Tools are defined once, in Anthropic's shape, and each provider adapts them to its own wire format (Ollama wants the OpenAI function shape). Native tool calling is preserved on both — no stringifying tools into the prompt |
 
 ## Build order (one feature at a time)
 
@@ -91,7 +94,7 @@ order in which they are being built.
 2. ✅ Core types + EventBus, Security policy, Notifications
 3. ✅ Tool Manager — registry, risk gating, audit logging
 4. ✅ File Manager (sandboxed) + Memory (SQLite)
-5. ✅ Brain (Anthropic) + Planner + agent Orchestrator
+5. ✅ Brain (local Ollama, or Anthropic) + Planner + agent Orchestrator
 6. ✅ API Server + Authentication — the phone's entry point
 7. ✅ Browser Controller (Playwright)
 8. ✅ Desktop Controller + Vision — screen-aware Windows control
