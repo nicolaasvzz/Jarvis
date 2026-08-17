@@ -10,10 +10,17 @@ differences are `source .venv/bin/activate` instead of
 
 ---
 
+## The one-paste way
+
+On a machine that has nothing yet — no Git, no Python, no clone — paste the
+block from [the README](../README.md#start-here) (same content as
+`scripts\bootstrap.ps1`). It installs the prerequisites, clones Jarvis, and
+then runs the script below with every skill pack.
+
 ## The one-file way
 
-`scripts\jarvis.ps1` does sections 1-3 below — update, install, configure,
-start — in a single command that is safe to re-run:
+Once the clone exists, `scripts\jarvis.ps1` does sections 1-3 below — update,
+install, configure, start — in a single command that is safe to re-run:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File ~\jarvis\scripts\jarvis.ps1
