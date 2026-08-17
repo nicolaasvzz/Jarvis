@@ -1,8 +1,8 @@
 # Jarvis — the complete command set
 
 Everything you can type, in one place: starting up (including the update
-pull), every CLI command, every Telegram command, every skill Jarvis has,
-and every HTTP endpoint.
+pull), installing every skill pack, every CLI command, every Telegram
+command, every skill Jarvis has, and every HTTP endpoint.
 
 Commands are PowerShell (Windows, the main target). On macOS/Linux the only
 differences are `source .venv/bin/activate` instead of
@@ -75,11 +75,6 @@ python -m venv .venv
 
 pip install -e ".[llm,api,phone]"   # brain + HTTP API + Telegram/push
 
-# Optional capability packs — install the ones you want:
-pip install -e ".[browser]" ; playwright install chromium
-pip install -e ".[desktop]"
-pip install -e ".[vision]"          # also install Tesseract OCR
-
 copy .env.example .env
 copy config\config.example.yaml config\config.yaml
 jarvis token                        # paste the output into .env as JARVIS_API_TOKEN
@@ -126,7 +121,124 @@ jarvis run "make a file called hello.txt that says hi"
 
 ---
 
-## 3. Every CLI command
+## 3. Install the skills
+
+Skills come in packs. Files and memory are always there; browser, desktop,
+and vision each need their pack installed before Jarvis can use them. Run
+these from `~\jarvis` with the venv active:
+
+```powershell
+cd ~\jarvis
+.venv\Scripts\activate
+```
+
+### All of them at once — 33 skills
+
+```powershell
+pip install -e ".[llm,api,phone,browser,desktop,vision]"
+playwright install chromium
+winget install --id UB-Mannheim.TesseractOCR --accept-package-agreements --accept-source-agreements
+```
+
+Then check it took:
+
+```powershell
+jarvis tools | Measure-Object -Line        # expect 33
+tesseract --version                        # expect a version, not "not recognized"
+```
+
+### Or one pack at a time
+
+Installing a pack never removes another, so you can add them in any order
+and stop whenever.
+
+**Files + memory — 14 skills. Nothing to install.**
+
+They ship with the core, so `pip install -e ".[llm]"` is all they need:
+
+```powershell
+pip install -e ".[llm]"
+jarvis tools | Measure-Object -Line        # expect 14
+```
+
+**Browser — +8 skills (22 total)**
+
+```powershell
+pip install -e ".[browser]"
+playwright install chromium
+```
+
+`playwright install chromium` is not optional — the pip package is only the
+driver, the browser itself is a separate ~150 MB download. Verify:
+
+```powershell
+python -c "import playwright; print('playwright ok')"
+jarvis tools | Select-String browser_      # expect 8 lines
+```
+
+**Desktop — +8 skills (30 total). Windows only.**
+
+```powershell
+pip install -e ".[desktop]"
+python -c "import pyautogui, pygetwindow; print('desktop ok')"
+jarvis tools | Select-String "open_application|click_at|press_hotkey"
+```
+
+`pyautogui` needs a real desktop session — it won't import over a headless
+remote shell, and `jarvis tools` will quietly list nothing from this pack if
+it can't load.
+
+**Vision — +3 skills (33 total)**
+
+Two halves. The pip install alone gets you `capture_screen`; the two OCR
+skills (`read_screen_text`, `locate_text_on_screen`) also need the Tesseract
+*binary*, which is not a Python package:
+
+```powershell
+pip install -e ".[vision]"
+winget search tesseract                    # confirm the package id
+winget install --id UB-Mannheim.TesseractOCR --accept-package-agreements --accept-source-agreements
+tesseract --version
+```
+
+If `tesseract --version` says *not recognized*, it installed but isn't on
+PATH. Jarvis reads it from PATH only (there's no config setting for it), so
+add it permanently and open a new PowerShell:
+
+```powershell
+[Environment]::SetEnvironmentVariable("Path", $env:Path + ";C:\Program Files\Tesseract-OCR", "User")
+```
+
+No winget? Download the installer from
+https://github.com/UB-Mannheim/tesseract/wiki and tick *Add to PATH*.
+
+### The two non-skill packs
+
+These add channels rather than skills, so the `jarvis tools` count doesn't
+move:
+
+```powershell
+pip install -e ".[phone]"        # Telegram control + ntfy push  → jarvis phone
+pip install -e ".[api]"          # HTTP API + SSE                → jarvis serve
+pip install -e ".[dev,api,phone]" # pytest, ruff, mypy
+```
+
+### What a pack is made of
+
+| Pack | Installs | Gives |
+|---|---|---|
+| *(core)* | pydantic, pydantic-settings, platformdirs | 14 file + memory skills |
+| `llm` | anthropic | the brain — required to run anything |
+| `browser` | playwright *(+ `playwright install chromium`)* | 8 browser skills |
+| `desktop` | pyautogui, pygetwindow | 8 desktop skills |
+| `vision` | pillow, pytesseract, mss *(+ Tesseract binary)* | 3 vision skills |
+| `phone` | httpx | Telegram bridge + ntfy push |
+| `api` | fastapi, uvicorn, python-multipart | the HTTP server |
+| `dev` | pytest, pytest-asyncio, httpx, ruff, mypy | the test/lint tooling |
+
+---
+
+## 4. Every CLI command
 
 | Command | What it does |
 |---|---|
@@ -143,7 +255,7 @@ jarvis run "make a file called hello.txt that says hi"
 
 ---
 
-## 4. Every Telegram command
+## 5. Every Telegram command
 
 Start the bridge with `jarvis phone`, then in your Telegram chat with the bot:
 
@@ -165,7 +277,7 @@ tapping one is the same as `/approve` or `/deny`.
 
 ---
 
-## 5. Every skill
+## 6. Every skill
 
 These are the tools Jarvis chooses from while planning. You don't call them
 directly — you describe what you want in plain language and it picks. They're
@@ -200,7 +312,7 @@ Persisted in SQLite, so it survives restarts.
 | `set_preference(key, value)` | Save a preference, e.g. `photos_folder`. |
 | `get_preference(key)` | Look a preference back up. |
 
-### Browser — 8 skills, needs `pip install -e ".[browser]"` + `playwright install chromium`
+### Browser — 8 skills, needs the `browser` pack (§3)
 
 One persistent session, so logins survive between steps.
 
@@ -215,7 +327,7 @@ One persistent session, so logins survive between steps.
 | `browser_extract_links()` | List the links (text + URL) on the page. |
 | `browser_search(query)` | Web search, top results as title + URL. |
 
-### Desktop — 8 skills, needs `pip install -e ".[desktop]"` (Windows)
+### Desktop — 8 skills, needs the `desktop` pack (§3). Windows only.
 
 | Skill | What it does |
 |---|---|
@@ -228,7 +340,7 @@ One persistent session, so logins survive between steps.
 | `type_text(text)` | Type into the focused window. |
 | `press_hotkey(keys)` | Press a shortcut, `+`-separated: `ctrl+s`, `alt+f4`. |
 
-### Vision — 3 skills, needs `pip install -e ".[vision]"` + Tesseract OCR
+### Vision — 3 skills, needs the `vision` pack + Tesseract (§3)
 
 | Skill | What it does |
 |---|---|
@@ -236,7 +348,8 @@ One persistent session, so logins survive between steps.
 | `read_screen_text()` | OCR everything currently on screen. |
 | `locate_text_on_screen(text)` | Find text on screen, return its centre `{x, y}` for `click_at`. |
 
-**33 skills** with every pack installed; **14** with the core install.
+**33 skills** with every pack installed; **14** with the core install. See
+§3 for the install commands.
 
 ### Which skills ask permission
 
@@ -258,7 +371,7 @@ security:
 
 ---
 
-## 6. Every HTTP API command
+## 7. Every HTTP API command
 
 Start with `jarvis serve`. Every route except `/health` needs the token,
 either as `Authorization: Bearer <token>` or as `?token=<token>`.
@@ -306,7 +419,7 @@ bridge, or put the API behind a VPN such as Tailscale.
 
 ---
 
-## 7. Development commands
+## 8. Development commands
 
 ```bash
 pip install -e ".[dev,api,phone]"
@@ -320,7 +433,7 @@ mypy src                   # strict type-check
 
 ---
 
-## 8. Config overrides for one run
+## 9. Config overrides for one run
 
 Environment variables win over `config.yaml`. Prefix `JARVIS_`, nest with `__`:
 
@@ -333,7 +446,7 @@ jarvis --config D:\jarvis\alt.yaml run "<request>"     # same thing, per-run
 
 ---
 
-## 9. When something breaks
+## 10. When something breaks
 
 ```powershell
 jarvis tools                       # fewer tools than expected = an extra isn't installed
