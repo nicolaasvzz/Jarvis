@@ -9,6 +9,7 @@ import yaml
 
 from .broker.base import ExecutionModel
 from .data import DataFeed, make_feed
+from .learning import AdaptiveWeights, LearningConfig
 from .risk import RiskConfig
 from .strategies import Ensemble, build_ensemble
 
@@ -80,6 +81,22 @@ class BotConfig:
             max_drawdown=float(risk.get("max_drawdown", 0.25)),
             allow_short=bool(risk.get("allow_short", True)),
         )
+
+    def build_learning(self, strategy: Ensemble) -> AdaptiveWeights | None:
+        """An online learner over the ensemble's members, or None if disabled."""
+        learn = self.section("learning")
+        if not learn.get("enabled", False):
+            return None
+        # Defaults live on LearningConfig; only override what the YAML sets.
+        defaults = LearningConfig()
+        cfg = LearningConfig(
+            enabled=True,
+            **{
+                field: float(learn.get(field, getattr(defaults, field)))
+                for field in ("eta_trade", "eta_signal", "return_cap", "weight_floor", "shrink")
+            },
+        )
+        return AdaptiveWeights(strategy.member_names, list(strategy.weights), cfg)
 
     def build_execution(self) -> ExecutionModel:
         ex = self.section("execution")

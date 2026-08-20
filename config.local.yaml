@@ -27,3 +27,11 @@ live:
   state_file: live_state.json   # gitignored; survives restarts on your machine
   starting_cash: 100000
   lookback: 300
+
+learning:
+  enabled: true          # adapt ensemble weights from realized outcomes
+  eta_trade: 4.0         # step size when a closed trade scores the entry votes
+  eta_signal: 1.5        # step size when a new daily bar scores yesterday's votes
+  return_cap: 0.10       # clip |return| per lesson so one wild day can't blow up weights
+  weight_floor: 0.05     # no strategy is ever fully silenced
+  shrink: 0.002          # pull toward equal weights each lesson (~43-day memory)

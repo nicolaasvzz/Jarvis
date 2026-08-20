@@ -16,6 +16,16 @@ config and a single CLI.
   breakout) and mean-reversion (Bollinger z-score fade, RSI extremes)
   strategies vote with conviction-weighted scores; a configurable threshold,
   long-only switch, and volatility veto gate the net signal.
+- **Learns from its mistakes.** The ensemble's weights are not fixed. Every
+  closed trade scores the votes that argued for it, and every new daily bar
+  scores each strategy's prior vote against the return that actually followed
+  (multiplicative-weights / Hedge update). Strategies that keep being right
+  gain influence; ones that keep being wrong lose it. A weight floor keeps
+  every strategy voting so it can earn its way back, returns are capped so one
+  wild day can't dominate, and a shrink term bounds how long a lesson is
+  remembered (~43 days by default). Learned weights persist across restarts.
+  Turn it off with `learning.enabled: false`.
+
 - **Bias-controlled backtester.** Signals are computed on bar *t*'s close and
   filled at bar *t+1*'s open with slippage + commission — the bot never sees
   a price before it trades on it. Stops are checked intrabar against
@@ -79,7 +89,9 @@ offline:
   badges and running P&L; order history
 - **Equity** — equity curve and drawdown charts with 1D/1W/1M/ALL ranges and
   hover inspection
-- **Trades** — every closed trade
+- **Trades** — every closed trade, surviving restarts
+- **Strategy Learning** — each strategy's current weight, how often its votes
+  have been right, and the most recent lesson the bot absorbed
 - **Controls** — start / halt / abort, the active risk parameters, watched
   symbols, and a live system log showing each strategy's vote per trade
 

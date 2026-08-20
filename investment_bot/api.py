@@ -139,6 +139,7 @@ class BotService:
             trades = list(portfolio.trades)
             positions = [self._format_position(p) for p in portfolio.positions.values()]
             curve = portfolio.equity_series()
+            learning = self.trader.learning_summary()
 
         midnight = pd.Timestamp.now().normalize()
         baseline = equity
@@ -151,6 +152,9 @@ class BotService:
 
         todays = [t for t in trades if t.exit_time >= midnight]
         recent = [self._format_trade(t, i) for i, t in enumerate(reversed(todays[-20:]))]
+        # Every closed trade, newest first — the dashboard's history panels use
+        # this; `recent_trades` stays today-only for the "trades today" counter.
+        history = [self._format_trade(t, i) for i, t in enumerate(reversed(trades[-200:]))]
 
         extras: dict = {"max_drawdown": None, "sharpe": None, "best_pair": None}
         if len(curve) >= 2:
@@ -172,6 +176,9 @@ class BotService:
             "winRate": win_rate,
             "positions": positions,
             "recent_trades": recent,
+            "all_trades": history,
+            "trades_today": len(todays),
+            "learning": learning,
             **extras,
         }
 
@@ -203,7 +210,7 @@ class BotService:
             "id": f"{trade.symbol}-{trade.exit_time:%Y%m%d%H%M%S}-{index}",
             "asset": trade.symbol,
             "type": "LONG" if trade.direction > 0 else "SHORT",
-            "time": f"{trade.exit_time:%H:%M}",
+            "time": f"{trade.exit_time:%b %d %H:%M}",
             "profit": _money(trade.pnl),
             "isWin": trade.pnl > 0,
         }
@@ -293,7 +300,7 @@ def serve(config: BotConfig, broker: Broker, host: str = "127.0.0.1", port: int 
     service = BotService(config, broker)
     server = ThreadingHTTPServer((host, port), make_handler(service))
     display_host = "localhost" if host in ("0.0.0.0", "127.0.0.1") else host
-    print(f"\n  Dashboard →  http://{display_host}:{port}\n")
+    print(f"\n  Dashboard:  http://{display_host}:{port}\n")
     print(f"  API listening on http://{host}:{port} (Ctrl-C to stop)")
     try:
         server.serve_forever()

@@ -3,6 +3,11 @@
 Each member votes with score = direction * conviction; votes are combined by
 configurable weights and the net score must clear a threshold to trade. A
 volatility-regime filter can veto entries when the market is too wild.
+
+Weights are per-member and mutable at runtime: `apply_weights` lets an online
+learner (see `investment_bot.learning`) shift influence toward members whose
+votes have been right, and `signal_and_votes` exposes the per-member votes so
+outcomes can be attributed back to the members that argued for them.
 """
 from __future__ import annotations
 
@@ -40,6 +45,22 @@ class Ensemble(Strategy):
     def warmup(self) -> int:
         return max(m.warmup for m in self.members)
 
+    @property
+    def member_names(self) -> list[str]:
+        return [m.name for m in self.members]
+
+    @property
+    def weight_map(self) -> dict[str, float]:
+        return {m.name: w for m, w in zip(self.members, self.weights)}
+
+    def apply_weights(self, mapping: dict[str, float]) -> None:
+        """Replace weights by member name (missing names keep their weight)."""
+        updated = [float(mapping.get(m.name, w)) for m, w in zip(self.members, self.weights)]
+        total = sum(updated)
+        if total <= 0:
+            raise ValueError("weights must sum to a positive number")
+        self.weights = [w / total for w in updated]
+
     def member_signals(self, history: pd.DataFrame) -> dict[str, Signal]:
         return {
             m.name: (m.signal(history) if m.ready(history) else FLAT)
@@ -47,22 +68,25 @@ class Ensemble(Strategy):
         }
 
     def signal(self, history: pd.DataFrame) -> Signal:
+        return self.signal_and_votes(history)[0]
+
+    def signal_and_votes(self, history: pd.DataFrame) -> tuple[Signal, dict[str, float]]:
+        """The combined signal plus each member's raw vote (direction*conviction)."""
         signals = self.member_signals(history)
-        net = float(
-            sum(w * s.score for w, s in zip(self.weights, signals.values()))
-        )
+        votes = {name: s.score for name, s in signals.items()}
+        net = float(sum(w * s.score for w, s in zip(self.weights, signals.values())))
 
         if self.max_volatility is not None and len(history) > 25:
             vol = ind.realized_volatility(history["close"], 20).iloc[-1]
             if not np.isnan(vol) and vol > self.max_volatility:
-                return Signal(0, 0.0, f"vol veto ({vol:.0%} > {self.max_volatility:.0%})")
+                return Signal(0, 0.0, f"vol veto ({vol:.0%} > {self.max_volatility:.0%})"), votes
 
         if abs(net) < self.threshold:
-            return Signal(0, 0.0, f"net {net:+.2f} below threshold")
+            return Signal(0, 0.0, f"net {net:+.2f} below threshold"), votes
         direction = 1 if net > 0 else -1
         if self.long_only and direction < 0:
-            return Signal(0, 0.0, f"short vetoed (long-only), net {net:+.2f}")
+            return Signal(0, 0.0, f"short vetoed (long-only), net {net:+.2f}"), votes
         voters = ", ".join(
             f"{name}:{s.score:+.2f}" for name, s in signals.items() if s.direction != 0
         )
-        return Signal(direction, min(abs(net), 1.0), f"net {net:+.2f} [{voters}]")
+        return Signal(direction, min(abs(net), 1.0), f"net {net:+.2f} [{voters}]"), votes

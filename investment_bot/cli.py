@@ -62,18 +62,27 @@ def cmd_backtest(args: argparse.Namespace) -> None:
     console.print(f"[bold]Loading data[/bold] ({days} days)...")
     data = _load_data(config, days, symbols)
 
+    strategy = config.build_strategy()
+    learner = config.build_learning(strategy)
     engine = BacktestEngine(
-        strategy=config.build_strategy(),
+        strategy=strategy,
         risk=config.build_risk(),
         execution=config.build_execution(),
         starting_cash=settings["starting_cash"],
         lookback=settings["lookback"],
+        learner=learner,
     )
     console.print(
         f"[bold]Backtesting[/bold] {len(data)} symbols: {', '.join(sorted(data))}"
     )
     result = engine.run(data)
     print_terminal_report(result, console)
+    if learner is not None:
+        weights = ", ".join(f"{n} {w:.0%}" for n, w in learner.weights.items())
+        console.print(
+            f"[bold]Learned weights[/bold] ({learner.trades_seen} trade / "
+            f"{learner.bars_seen} bar lessons): {weights}"
+        )
     if args.html:
         path = write_html_report(result, args.html)
         console.print(f"HTML report written to [bold]{path}[/bold]")

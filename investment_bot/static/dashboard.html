@@ -210,6 +210,12 @@ section{margin-bottom:1.5rem}
       </div>
     </section>
 
+    <section class="card" id="learncard" style="display:none">
+      <div class="label"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3a7 7 0 0 1 7 7c0 2.4-1.2 4.1-2.6 5.4-.8.8-1.4 1.9-1.4 3.1v.5H9v-.5c0-1.2-.6-2.3-1.4-3.1C6.2 14.1 5 12.4 5 10a7 7 0 0 1 7-7zM9 21h6"/></svg>Strategy Learning</div>
+      <div id="learnrows" style="margin-top:.6rem"></div>
+      <p id="learnrecent" style="font-size:.75rem;color:rgba(255,255,255,.45);margin-top:.6rem"></p>
+    </section>
+
     <section class="grid g2">
       <div>
         <h3 class="sec"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>Live Open Positions</h3>
@@ -325,7 +331,7 @@ function renderStats(d){
   $('balance').textContent = money(d.balance);
   const p=$('pnl'); p.textContent=(d.pnl_today>=0?'+':'')+money(d.pnl_today);
   p.className='stat '+(d.pnl_today>=0?'pos':'neg');
-  $('ntrades').textContent=d.recent_trades.length;
+  $('ntrades').textContent=(d.trades_today!=null?d.trades_today:d.recent_trades.length);
   $('winrate').textContent=d.winRate;
   $('donutlabel').textContent=d.winRate;
   const wr=parseFloat(d.winRate)||0;
@@ -343,7 +349,29 @@ function renderStats(d){
     : 'Press <strong>Start</strong> in Controls to begin trading.';
 
   renderPositions(d.positions);
-  renderTrades(d.recent_trades);
+  renderTrades(d.all_trades || d.recent_trades);
+  renderLearning(d.learning);
+}
+function renderLearning(L){
+  const card=$('learncard');
+  if(!L || !L.enabled){ card.style.display='none'; return; }
+  card.style.display='';
+  const max=Math.max(...L.members.map(m=>m.weight), .0001);
+  $('learnrows').innerHTML=L.members.map(m=>{
+    const hr = m.hit_rate==null ? 'no lessons yet' : Math.round(m.hit_rate*100)+'% right over '+m.events;
+    const pct=(m.weight*100).toFixed(1)+'%';
+    return '<div style="display:flex;align-items:center;gap:.75rem;padding:.3rem 0">'
+      +'<span style="min-width:110px;font-size:.8rem">'+esc(m.name)+'</span>'
+      +'<span style="flex:1;height:6px;border-radius:3px;background:rgba(255,255,255,.08);overflow:hidden">'
+      +'<span style="display:block;height:100%;width:'+(m.weight/max*100).toFixed(1)+'%;background:var(--pur,#a78bfa)"></span></span>'
+      +'<span style="min-width:170px;text-align:right;font-size:.75rem;color:rgba(255,255,255,.55)">'+pct+' &middot; '+hr+'</span></div>';
+  }).join('');
+  const n=(L.trades_seen||0)+(L.bars_seen||0);
+  let line = n ? (L.trades_seen+' trade + '+L.bars_seen+' bar lessons absorbed.')
+               : 'No lessons yet - weights move as new bars arrive and trades close.';
+  const ev=(L.recent||[]).slice(-1)[0];
+  if(ev && ev.moves) line += ' Last: '+ev.label+' '+(ev.return>=0?'+':'')+(ev.return*100).toFixed(2)+'% '+ev.moves;
+  $('learnrecent').textContent=line;
 }
 function setKV(id,val){ const e=$(id); e.textContent=val||'—'; e.className=val?'':'muted'; }
 

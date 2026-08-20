@@ -24,7 +24,7 @@ from rich.table import Table
 from .broker.base import Broker, Order
 from .config import BotConfig
 from .data import DataFeed
-from .portfolio import Portfolio, Position
+from .portfolio import Portfolio, Position, Trade
 from .risk import RiskEngine
 from .strategies import Ensemble
 
@@ -43,7 +43,12 @@ class LiveTrader:
         self.state_path = Path(settings["state_file"])
         self.lookback = settings["lookback"]
         self.risk_engine = RiskEngine(self.config.build_risk())
+        self.learner = self.config.build_learning(self.strategy)
+        self.signal_memory: dict[str, dict] = {}  # per-symbol votes on the last seen bar
         self.portfolio = self._load_state(settings["starting_cash"])
+        if self.learner:
+            self.strategy.apply_weights(self.learner.weights)
+            self.console.print(f"[dim]learning on - weights: {self._fmt_weights()}[/dim]")
 
     # ---------------- state persistence ----------------
 
@@ -62,11 +67,29 @@ class LiveTrader:
                 stop_price=p.get("stop_price"),
                 take_profit=p.get("take_profit"),
                 last_price=p.get("last_price", p["avg_price"]),
+                entry_votes=p.get("entry_votes"),
             )
         for t, e in state.get("equity_curve", []):
             portfolio.equity_curve.append((pd.Timestamp(t), e))
         self.risk_engine.peak_equity = state.get("peak_equity")
         self.risk_engine.halted = state.get("halted", False)
+        for t in state.get("trades") or []:
+            portfolio.trades.append(
+                Trade(
+                    symbol=t["symbol"],
+                    direction=int(t["direction"]),
+                    qty=float(t["qty"]),
+                    entry_price=float(t["entry_price"]),
+                    exit_price=float(t["exit_price"]),
+                    entry_time=pd.Timestamp(t["entry_time"]),
+                    exit_time=pd.Timestamp(t["exit_time"]),
+                    pnl=float(t["pnl"]),
+                    reason=t.get("reason", ""),
+                )
+            )
+        self.signal_memory = state.get("signal_memory") or {}
+        if self.learner and state.get("learning"):
+            self.learner.restore(state["learning"])
         return portfolio
 
     def _save_state(self) -> None:
@@ -81,12 +104,29 @@ class LiveTrader:
                     "stop_price": p.stop_price,
                     "take_profit": p.take_profit,
                     "last_price": p.last_price,
+                    "entry_votes": p.entry_votes,
                 }
                 for p in self.portfolio.positions.values()
             ],
             "equity_curve": [[str(t), e] for t, e in self.portfolio.equity_curve[-2520:]],
+            "trades": [
+                {
+                    "symbol": t.symbol,
+                    "direction": t.direction,
+                    "qty": t.qty,
+                    "entry_price": t.entry_price,
+                    "exit_price": t.exit_price,
+                    "entry_time": str(t.entry_time),
+                    "exit_time": str(t.exit_time),
+                    "pnl": t.pnl,
+                    "reason": t.reason,
+                }
+                for t in self.portfolio.trades[-500:]
+            ],
             "peak_equity": self.risk_engine.peak_equity,
             "halted": self.risk_engine.halted,
+            "signal_memory": self.signal_memory,
+            "learning": self.learner.to_dict() if self.learner else None,
         }
         self.state_path.write_text(json.dumps(state, indent=2))
 
@@ -144,11 +184,14 @@ class LiveTrader:
             self._save_state()
             return
 
-        # Signals -> orders.
+        # Signals -> orders. Learning first: score the votes each member cast
+        # on the previous bar against the return that actually followed.
         for symbol, history in histories.items():
             if not self.strategy.ready(history):
                 continue
-            sig = self.strategy.signal(history)
+            self._bar_feedback(symbol, history)
+            sig, votes = self.strategy.signal_and_votes(history)
+            self._remember_votes(symbol, history, votes)
             pos = self.portfolio.positions.get(symbol)
             held = pos.direction if pos else 0
             if sig.direction == held:
@@ -160,13 +203,27 @@ class LiveTrader:
                     sig.direction, sig.conviction, prices[symbol], history, self.portfolio
                 )
                 if qty != 0:
-                    self._execute(Order(symbol, qty, f"entry: {sig.reason}"), prices[symbol], now)
+                    self._execute(
+                        Order(symbol, qty, f"entry: {sig.reason}"),
+                        prices[symbol],
+                        now,
+                        entry_votes=votes,
+                    )
 
         self._save_state()
         if self.show_dashboard:
             self._render_dashboard(now)
 
-    def _execute(self, order: Order, ref_price: float, now: pd.Timestamp) -> None:
+    def _execute(
+        self,
+        order: Order,
+        ref_price: float,
+        now: pd.Timestamp,
+        entry_votes: dict[str, float] | None = None,
+    ) -> None:
+        pos_before = self.portfolio.positions.get(order.symbol)
+        votes_at_entry = pos_before.entry_votes if pos_before else None
+        trades_before = len(self.portfolio.trades)
         try:
             fill = self.broker.submit(order, ref_price, now)
         except Exception as exc:
@@ -177,7 +234,11 @@ class LiveTrader:
         self.portfolio.apply_fill(
             fill.symbol, fill.qty, fill.price, fill.commission, now, fill.reason
         )
+        for trade in self.portfolio.trades[trades_before:]:
+            self._trade_feedback(trade, votes_at_entry)
         pos = self.portfolio.positions.get(fill.symbol)
+        if pos is not None and entry_votes and pos.entry_votes is None:
+            pos.entry_votes = dict(entry_votes)
         if pos is not None and pos.stop_price is None:
             try:
                 history = self.feed.latest(fill.symbol, self.lookback)
@@ -207,6 +268,53 @@ class LiveTrader:
             self._execute(Order(symbol, -pos.qty, reason), price, now)
         self.portfolio.mark({}, now)
         self._save_state()
+
+    # ---------------- learning ----------------
+
+    def _bar_feedback(self, symbol: str, history: pd.DataFrame) -> None:
+        """Score the votes cast on the previously seen bar against the new bar."""
+        if not self.learner:
+            return
+        mem = self.signal_memory.get(symbol)
+        bar_time = str(history.index[-1])
+        close = float(history["close"].iloc[-1])
+        if not mem or not mem.get("close") or mem.get("bar_time", "") >= bar_time:
+            return  # same bar as last cycle: nothing new has happened yet
+        ret = close / mem["close"] - 1
+        if self.learner.bar_feedback(mem.get("votes") or {}, ret, label=symbol):
+            self.strategy.apply_weights(self.learner.weights)
+            self.console.print(
+                f"[magenta]LEARN[/magenta] {symbol} new bar {ret:+.2%} vs prior votes"
+                f" -> weights: {self._fmt_weights()}"
+            )
+
+    def _remember_votes(self, symbol: str, history: pd.DataFrame, votes: dict[str, float]) -> None:
+        if not self.learner:
+            return
+        self.signal_memory[symbol] = {
+            "bar_time": str(history.index[-1]),
+            "close": float(history["close"].iloc[-1]),
+            "votes": dict(votes),
+        }
+
+    def _trade_feedback(self, trade, votes: dict[str, float] | None) -> None:
+        """A round trip closed: reward members that called it, punish the rest."""
+        if not self.learner or not votes:
+            return
+        if self.learner.trade_feedback(
+            votes, trade.direction, trade.return_pct, label=trade.symbol
+        ):
+            self.strategy.apply_weights(self.learner.weights)
+            self.console.print(
+                f"[magenta]LEARN[/magenta] {trade.symbol} closed {trade.return_pct:+.2%}"
+                f" ({trade.reason}) -> weights: {self._fmt_weights()}"
+            )
+
+    def _fmt_weights(self) -> str:
+        return ", ".join(f"{n} {w:.0%}" for n, w in self.strategy.weight_map.items())
+
+    def learning_summary(self) -> dict:
+        return self.learner.summary() if self.learner else {"enabled": False}
 
     # ---------------- output ----------------
 

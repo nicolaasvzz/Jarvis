@@ -48,3 +48,15 @@ live:
   state_file: live_state.json
   starting_cash: 100000
   lookback: 300
+
+# Online learning: score each strategy's votes against realized bar returns
+# and closed-trade outcomes, shifting ensemble weight toward whoever has been
+# right (multiplicative-weights update with a floor + shrink so nobody is
+# silenced and nothing overfits too fast). Weights persist in the state file.
+learning:
+  enabled: true
+  eta_trade: 4.0         # step size for closed-trade lessons
+  eta_signal: 1.5        # step size for new-bar lessons
+  return_cap: 0.10       # clip |return| per lesson
+  weight_floor: 0.05     # minimum share any strategy keeps
+  shrink: 0.002          # pull toward equal weights per lesson (~43-day memory)

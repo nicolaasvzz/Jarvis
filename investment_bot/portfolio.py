@@ -15,6 +15,7 @@ class Position:
     stop_price: float | None = None
     take_profit: float | None = None
     last_price: float = 0.0
+    entry_votes: dict[str, float] | None = None  # ensemble member votes at entry
 
     @property
     def direction(self) -> int:
