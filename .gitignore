@@ -25,7 +25,7 @@ config/config.yaml
 *.jsonl
 
 # The file-manager sandbox: whatever Jarvis is actually working on. These are
-# the user's own documents, not source - and this repo has a public remote.
+# the user's own documents, not source — and this repo has a public remote.
 Workspace/
 workspace/
 
