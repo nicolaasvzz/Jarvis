@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 
 import pytest
 
 from jarvis.config.schema import SecurityConfig
 from jarvis.core.errors import PlanningError
-from jarvis.core.models import RiskLevel, Task
+from jarvis.core.models import PlanStep, RiskLevel, StepStatus, Task, ToolResult
 from jarvis.planner import Planner
 from jarvis.security import PermissionPolicy
 from jarvis.tools import ToolRegistry, tool
@@ -131,9 +132,141 @@ async def test_revise_returns_replacement_steps() -> None:
     assert steps[0].tool == "write_file"
 
 
+async def test_revise_shows_the_model_what_completed_steps_returned() -> None:
+    """The replacement needs the real values, not a plausible guess.
+
+    A step described as "open the first search result" carries a URL chosen
+    before the search ran. Unless the revision can see what the search
+    actually returned, it invents another URL and fails identically.
+    """
+    replacement = json.dumps({"steps": []})
+    brain = ScriptedBrain([replacement])
+    planner = _planner(brain)
+    task = Task(request="research and write it up")
+    plan, _ = await _planner(ScriptedBrain([_plan_json()])).plan(task)
+
+    done = plan.steps[0]
+    done.status = StepStatus.COMPLETED
+    done.description = "Search the web"
+    done.result = ToolResult.success(
+        "browser_search",
+        [{"title": "Real Article", "url": "https://example.com/real-article"}],
+        datetime.now(tz=UTC),
+    )
+
+    await planner.revise(task, plan.steps[-1], "HTTP 404", [], [done])
+
+    sent = brain.calls[0]["messages"][0].content
+    assert "completed_steps" in sent
+    assert "https://example.com/real-article" in sent
+
+
 async def test_revise_swallows_planning_errors_and_returns_empty() -> None:
     planner = _planner(ScriptedBrain(["garbage", "garbage"]))
     task = Task(request="r")
     step_plan, _ = await _planner(ScriptedBrain([_plan_json()])).plan(task)
     steps = await planner.revise(task, step_plan.steps[0], "err", [])
     assert steps == []
+
+
+async def test_plain_arguments_run_without_a_resolution_call() -> None:
+    """No placeholder, no extra model round-trip."""
+    brain = ScriptedBrain([])
+    planner = _planner(brain)
+    task = Task(request="r")
+    step = PlanStep(description="write", tool="write_file", arguments={"path": "a.txt"})
+    assert await planner.resolve_arguments(task, step, []) == {"path": "a.txt"}
+    assert brain.calls == []
+
+
+async def test_placeholder_arguments_are_rewritten_from_real_output() -> None:
+    """The whole point: content is composed after the sources are read.
+
+    Written at plan time, a guide's citations are invented - the plan is
+    authored before the research runs. Resolving here grounds them in the
+    URLs that were actually fetched.
+    """
+    resolved = json.dumps(
+        {
+            "arguments": {
+                "path": "guide.txt",
+                "content": "Guide. Source: https://real.example/a",
+            }
+        }
+    )
+    brain = ScriptedBrain([resolved])
+    planner = _planner(brain)
+    task = Task(request="research and write a guide")
+
+    done = PlanStep(description="research", tool="browser_research")
+    done.result = ToolResult.success(
+        "browser_research",
+        [{"url": "https://real.example/a", "title": "Real", "text": "body"}],
+        datetime.now(tz=UTC),
+    )
+    step = PlanStep(
+        description="write the guide citing the sources read",
+        tool="write_file",
+        arguments={"path": "guide.txt", "content": "{{from_previous}}"},
+    )
+
+    out = await planner.resolve_arguments(task, step, [done])
+    assert out["content"] == "Guide. Source: https://real.example/a"
+    assert "https://real.example/a" in brain.calls[0]["messages"][0].content
+
+
+async def test_resolution_falls_back_to_the_original_arguments() -> None:
+    """A failed resolution must not strand the step with no arguments."""
+    planner = _planner(ScriptedBrain(["garbage", "garbage"]))
+    task = Task(request="r")
+    step = PlanStep(
+        description="write", tool="write_file",
+        arguments={"path": "a.txt", "content": "{{from_previous}}"},
+    )
+    assert await planner.resolve_arguments(task, step, []) == step.arguments
+
+
+async def test_context_stays_bounded_as_steps_accumulate() -> None:
+    """A long task must not get slower with every step.
+
+    Passing every result in full grows the prompt without bound; on a model
+    doing a couple of tokens a second that ends in a timeout, not an answer.
+    """
+    from jarvis.planner.planner import _recent_context
+
+    steps = []
+    for i in range(12):
+        step = PlanStep(description=f"slice {i}", tool="read_file_slice")
+        step.result = ToolResult.success(
+            "read_file_slice", "y" * 5000, datetime.now(tz=UTC)
+        )
+        steps.append(step)
+
+    entries = _recent_context(steps, budget=8000)
+    assert len(entries) == 12                      # every step still mentioned
+    body = json.dumps(entries)
+    assert len(body) < 20_000                      # but the prompt stays small
+    # The newest results survive in full; the oldest are the ones dropped.
+    assert str(entries[-1]["result"]).startswith("y" * 4000)
+    assert "omitted" in str(entries[0]["result"])
+
+
+async def test_unresolved_placeholder_is_rejected_not_passed_on() -> None:
+    """A placeholder that survives resolution must not reach the tool.
+
+    Passed through, "{{from_previous}}" arrives at read_file_slice as a
+    literal path and fails with a confusing "Not a file" - the real problem
+    being that nothing was resolved at all.
+    """
+    still_unresolved = json.dumps(
+        {"arguments": {"path": "{{from_previous}}/page2.html", "start": 0}}
+    )
+    planner = _planner(ScriptedBrain([still_unresolved]))
+    task = Task(request="r")
+    step = PlanStep(
+        description="read the archived page",
+        tool="read_file_slice",
+        arguments={"path": "{{from_previous}}", "start": 0},
+    )
+    with pytest.raises(PlanningError, match="placeholder was left unfilled"):
+        await planner.resolve_arguments(task, step, [])

@@ -153,6 +153,14 @@ class Orchestrator:
         while (step := plan.next_pending()) is not None:
             step.status = StepStatus.RUNNING
             step.attempts += 1
+            # Arguments marked "{{from_previous}}" were unknowable when the
+            # plan was written; fill them in now that the earlier steps have
+            # actually produced something.
+            step.arguments = await self._planner.resolve_arguments(
+                task,
+                step,
+                [s for s in plan.steps if s.status == StepStatus.COMPLETED],
+            )
             result = await self._tools.execute(
                 step.tool or "",
                 step.arguments,
@@ -188,8 +196,18 @@ class Orchestrator:
                 remaining = [
                     s for s in plan.steps if s.status == StepStatus.PENDING
                 ]
+                # The finished steps carry the values the replacement needs -
+                # the URLs a search returned, the path a file landed at. Left
+                # out, the model invents them and fails the same way again.
+                completed = [
+                    s for s in plan.steps if s.status == StepStatus.COMPLETED
+                ]
                 replacement = await self._planner.revise(
-                    task, step, result.error or "unknown error", remaining
+                    task,
+                    step,
+                    result.error or "unknown error",
+                    remaining,
+                    completed,
                 )
                 if replacement:
                     for pending in remaining:

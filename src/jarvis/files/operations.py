@@ -63,6 +63,32 @@ class FileManager:
             )
         return data.decode("utf-8", errors="replace")
 
+    def read_slice(self, path: str, start: int = 0, length: int = 6000) -> dict[str, object]:
+        """Read one window of a text file, with the cursor to continue from.
+
+        Archived research runs to hundreds of thousands of characters -
+        far more than the model can hold at once. This hands back a slice
+        that fits and says where the next one starts, so a long source can
+        be worked through in passes instead of being truncated away.
+        """
+        target = self._resolve(path)
+        if not target.is_file():
+            raise ToolError(f"Not a file: {path}", recoverable=False)
+        if length <= 0:
+            raise ToolError("length must be positive.")
+        text = target.read_text(encoding="utf-8", errors="replace")
+        start = max(0, start)
+        chunk = text[start : start + length]
+        next_start = start + len(chunk)
+        return {
+            "path": self._rel(target),
+            "text": chunk,
+            "start": start,
+            "next_start": next_start,
+            "total_chars": len(text),
+            "more": next_start < len(text),
+        }
+
     def write_text(self, path: str, content: str) -> str:
         target = self._resolve(path)
         target.parent.mkdir(parents=True, exist_ok=True)

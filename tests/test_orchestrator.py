@@ -35,6 +35,7 @@ class _ExplodingBrain:
         system: str,
         messages: list[BrainMessage],
         tools: list[dict[str, object]] | None = None,
+        json_mode: bool = False,
     ) -> BrainResponse:
         raise BrainError(self._message)
 

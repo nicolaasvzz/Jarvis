@@ -79,9 +79,14 @@ class LLMConfig(_Section):
     # Left unset, the model's own defaults apply. Lower values make the
     # planner's JSON output more reliable on small local models.
     temperature: float | None = Field(default=None, ge=0.0, le=2.0)
-    # Turn a reasoning model's thinking on or off (gpt-oss and qwen3 both
-    # support it). Unset means "whatever the model does by default".
-    think: bool | None = None
+    # A reasoning model's thinking: true/false to switch it on or off, or
+    # "low"/"medium"/"high" to set the effort (gpt-oss supports the levels;
+    # qwen3 takes the booleans). Unset means "whatever the model does by
+    # default", which for gpt-oss is verbose enough to spend a whole
+    # generation budget thinking and return nothing - see config.yaml.
+    # Note false is not the same as "low": switching gpt-oss's analysis
+    # channel off entirely makes it answer with an empty string.
+    think: bool | Literal["low", "medium", "high"] | None = None
 
     @model_validator(mode="after")
     def _default_model_for_provider(self) -> LLMConfig:

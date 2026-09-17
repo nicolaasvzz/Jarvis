@@ -106,3 +106,40 @@ class TestFileTools:
         result = await task
         assert not result.ok
         assert fm.read_text("secret.txt") == "data"  # file survived denial
+
+
+class TestReadSlice:
+    """Working through a file too big to hold in the model's context."""
+
+    def test_slices_walk_the_whole_file(self, tmp_path: Path) -> None:
+        manager = FileManager(tmp_path / "root")
+        manager.write_text("big.txt", "abcdefghij" * 1000)   # 10_000 chars
+
+        seen, start, passes = "", 0, 0
+        while True:
+            window = manager.read_slice("big.txt", start, 3000)
+            seen += str(window["text"])
+            passes += 1
+            if not window["more"]:
+                break
+            start = int(str(window["next_start"]))
+
+        assert passes == 4                      # 3000 + 3000 + 3000 + 1000
+        assert len(seen) == 10_000              # nothing lost, nothing truncated
+        assert seen == "abcdefghij" * 1000
+
+    def test_slice_reports_total_and_position(self, tmp_path: Path) -> None:
+        manager = FileManager(tmp_path / "root")
+        manager.write_text("a.txt", "0123456789")
+        window = manager.read_slice("a.txt", 4, 3)
+        assert window["text"] == "456"
+        assert window["next_start"] == 7
+        assert window["total_chars"] == 10
+        assert window["more"] is True
+
+    def test_slice_past_the_end_is_empty_and_final(self, tmp_path: Path) -> None:
+        manager = FileManager(tmp_path / "root")
+        manager.write_text("a.txt", "short")
+        window = manager.read_slice("a.txt", 99, 100)
+        assert window["text"] == ""
+        assert window["more"] is False

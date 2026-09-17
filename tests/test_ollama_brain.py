@@ -168,6 +168,28 @@ class TestRequest:
         await _complete(_brain(recorder))
         assert "temperature" not in recorder.payload["options"]
         assert "think" not in recorder.payload
+        assert "format" not in recorder.payload
+
+    async def test_json_mode_constrains_decoding_to_json(self) -> None:
+        """Planning asks for JSON, so Ollama must enforce it while decoding.
+
+        Prompting alone is not enough: a long plan is precisely where the
+        model drops a comma, and the reply is unparseable a retry later.
+        """
+        recorder = Recorder()
+        await _complete(_brain(recorder), json_mode=True)
+        assert recorder.payload["format"] == "json"
+
+    async def test_json_mode_leaves_thinking_alone(self) -> None:
+        """JSON mode must not switch reasoning off as well.
+
+        Measured on gpt-oss:20b: format=json alone returns a full reply,
+        while format=json plus think=false returns an empty one - a harmony
+        model needs its analysis channel to reach a final answer.
+        """
+        recorder = Recorder()
+        await _complete(_brain(recorder), json_mode=True)
+        assert "think" not in recorder.payload
 
     async def test_optional_knobs_are_sent_when_set(self) -> None:
         recorder = Recorder()

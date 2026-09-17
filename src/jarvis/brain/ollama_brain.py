@@ -162,6 +162,7 @@ class OllamaBrain:
         system: str,
         messages: list[BrainMessage],
         tools: list[dict[str, Any]] | None = None,
+        json_mode: bool = False,
     ) -> BrainResponse:
         options: dict[str, Any] = {
             "num_predict": self._config.max_tokens,
@@ -183,6 +184,15 @@ class OllamaBrain:
             payload["think"] = self._config.think
         if tools:
             payload["tools"] = _to_ollama_tools(tools)
+        if json_mode:
+            # Ollama constrains decoding to a JSON grammar, so the reply
+            # cannot come back with a missing comma or an unclosed brace.
+            payload["format"] = "json"
+            # Do NOT also disable thinking here. Measured on gpt-oss:20b with
+            # this planning prompt: format=json alone returns 3968 chars of
+            # content, while format=json plus think=false returns an entirely
+            # empty reply (eval_count 112, done_reason "stop"). A harmony
+            # model needs its analysis channel to reach a final answer at all.
 
         _log.info(
             "calling model",
@@ -203,6 +213,17 @@ class OllamaBrain:
 
         tool_calls = _parse_tool_calls(message)
         content = message.get("content")
+        if not content and not tool_calls:
+            # An empty reply is a failure however it happened - budget spent
+            # entirely on `thinking`, or a model that answers nothing under
+            # the settings in play. Name it here, because the caller only
+            # sees the downstream symptom ("no JSON object found").
+            thought = len(message.get("thinking") or "")
+            raise BrainError(
+                f"{self._config.model!r} returned an empty reply "
+                f"({thought} chars of internal reasoning, no answer). "
+                "Raise llm.max_tokens if this repeats."
+            )
         result = BrainResponse(
             text=_strip_thinking(content if isinstance(content, str) else ""),
             tool_calls=tool_calls,

@@ -109,6 +109,23 @@ async def test_push_channel_posts_to_ntfy_topic() -> None:
     assert call["headers"]["Tags"] == "white_check_mark"
 
 
+async def test_push_headers_are_ascii_encodable() -> None:
+    """HTTP headers are ASCII only.
+
+    The fake transport never encodes anything, so a non-ASCII header value
+    sails through these tests and only fails against a real server - which
+    is how a "Jarvis · type" title silently broke every push.
+    """
+    transport = PushTransport()
+    channel = PushChannel(PushConfig(enabled=True, topic="t"), transport)
+    for kind in ("task.started", "task.completed", "task.failed", "unknown.type"):
+        await channel.send(Notification(type=kind, message="ok"))
+    for call in transport.calls:
+        for name, value in call["headers"].items():
+            value.encode("ascii")  # raises UnicodeEncodeError if not ASCII
+            assert name.isascii()
+
+
 async def test_push_channel_uses_high_priority_for_failures() -> None:
     transport = PushTransport()
     channel = PushChannel(

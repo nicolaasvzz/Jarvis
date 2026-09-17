@@ -39,6 +39,12 @@ class Brain(Protocol):
     implementation is responsible for translating them into whatever shape
     its provider expects, so callers never need to know which model is
     behind the protocol.
+
+    ``json_mode`` asks for a reply that is a single JSON object. Providers
+    that can constrain decoding should do so - asking politely in the prompt
+    is not enough, because a long plan is exactly where a model drops a
+    comma. Implementations that cannot enforce it may ignore the flag; the
+    caller still has to parse defensively.
     """
 
     async def complete(
@@ -47,4 +53,5 @@ class Brain(Protocol):
         system: str,
         messages: list[BrainMessage],
         tools: list[dict[str, Any]] | None = None,
+        json_mode: bool = False,
     ) -> BrainResponse: ...

@@ -126,6 +126,7 @@ def _serve(args: argparse.Namespace) -> int:
         live_channel=runtime.live_channel,
         files=runtime.files,
         authenticator=TokenAuthenticator(token),
+        registry=runtime.registry,
         log_file=runtime.log_file,
     )
     host = args.host or runtime.config.api.host

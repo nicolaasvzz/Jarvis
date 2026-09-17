@@ -51,6 +51,7 @@ def make_app(tmp_path: Path, brain: ScriptedBrain):
         live_channel=live,
         files=fm,
         authenticator=TokenAuthenticator(SecretStr(TOKEN)),
+        registry=registry,
         log_file=None,
     )
     return app, orchestrator, policy, fm

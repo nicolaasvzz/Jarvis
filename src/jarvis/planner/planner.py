@@ -42,6 +42,13 @@ Rules:
   steps list and explain what is missing in "response".
 - Steps run strictly in order; a step may rely on files or state produced by
   earlier steps.
+- You are writing the plan BEFORE anything runs, so you cannot know what a
+  search will return or what a page will say. When an argument depends on an
+  earlier step's output, do not invent a plausible value - put the string
+  "{{from_previous}}" there and describe what belongs in it in the step's
+  description. It is filled in later from the real output. Inventing a URL,
+  or writing a document's text before reading the sources it cites, produces
+  confident nonsense.
 
 Available tools:
 """
@@ -50,6 +57,9 @@ _REVISION_SYSTEM = """\
 You are the planning module of Jarvis, a personal desktop assistant.
 A step of the current plan failed. Propose replacement steps for the failed
 step and the remaining unfinished work, taking the error into account.
+"completed_steps" holds what the finished steps actually returned. Take
+concrete values - URLs, file paths, ids - from there rather than inventing
+plausible-looking ones: a made-up URL fails exactly the way the last one did.
 Answer with JSON only, using this schema:
 {
   "steps": [ {"description": ..., "tool": ..., "arguments": {...}} ]
@@ -62,6 +72,75 @@ Available tools:
 
 def _tools_block(registry: ToolRegistry) -> str:
     return json.dumps(registry.schemas(), indent=2)
+
+
+_RESOLUTION_SYSTEM = """You are the planning module of Jarvis, a personal desktop assistant.
+One step of the plan is about to run, and its arguments contain the
+placeholder "{{from_previous}}" because their real value was not knowable
+when the plan was written. "completed_steps" holds what the earlier steps
+actually returned. Produce the arguments for this step for real.
+
+Answer with JSON only:
+{
+  "arguments": { <the complete argument object for this step> }
+}
+
+Rules:
+- Every argument the tool needs must be present, placeholder or not.
+- Use only values that appear in completed_steps. Never invent a URL, and
+  never cite a page that is not there - if you are writing a document, its
+  sources are exactly the ones actually read.
+- If a piece of content has to be composed (a guide, a summary, a report),
+  write it out in full here, grounded in what the earlier steps returned.
+"""
+
+
+def _needs_resolution(arguments: dict[str, Any]) -> bool:
+    """True when any argument still carries a plan-time placeholder."""
+    return "{{" in json.dumps(arguments, default=str)
+
+
+def _recent_context(
+    completed: list[PlanStep], budget: int = 8000
+) -> list[dict[str, Any]]:
+    """The most recent step results, newest first, within a total budget.
+
+    Passing every result in full is what makes a long task get slower with
+    each step: the prompt grows without bound, and on a model running at a
+    couple of tokens a second that ends in a timeout rather than an answer.
+    The newest results are the ones a step actually needs, so spend the
+    budget there and summarise the rest to a single line.
+    """
+    entries: list[dict[str, Any]] = []
+    spent = 0
+    for step in reversed(completed):
+        text = _short_output(step.result.output if step.result else None, 4000)
+        size = len(text) if isinstance(text, str) else 0
+        if entries and spent + size > budget:
+            entries.append(
+                {
+                    "description": step.description,
+                    "tool": step.tool,
+                    "result": "(earlier step, omitted to keep the prompt small)",
+                }
+            )
+            continue
+        spent += size
+        entries.append(
+            {"description": step.description, "tool": step.tool, "result": text}
+        )
+    entries.reverse()
+    return entries
+
+
+def _short_output(output: Any, limit: int = 2000) -> Any:
+    """Trim one tool result to something that fits beside the rest of the prompt."""
+    if output is None:
+        return None
+    text = output if isinstance(output, str) else json.dumps(output, default=str)
+    if len(text) <= limit:
+        return text
+    return text[:limit] + " ...(truncated)"
 
 
 def _extract_json(text: str) -> dict[str, Any]:
@@ -118,17 +197,75 @@ class Planner:
         )
         return plan, str(direct_response) if direct_response else None
 
+    async def resolve_arguments(
+        self,
+        task: Task,
+        step: PlanStep,
+        completed: list[PlanStep],
+    ) -> dict[str, Any]:
+        """Fill a step's "{{from_previous}}" arguments from real output.
+
+        Plan arguments are chosen before anything runs, so a value that
+        depends on an earlier step can only be guessed. This asks for it
+        again once the earlier steps have actually produced something.
+        """
+        if not _needs_resolution(step.arguments):
+            return step.arguments
+
+        system = _RESOLUTION_SYSTEM + _tools_block(self._registry)
+        summary = {
+            "request": task.request,
+            "step": {
+                "description": step.description,
+                "tool": step.tool,
+                "arguments": step.arguments,
+            },
+            "completed_steps": _recent_context(completed),
+        }
+        messages = [BrainMessage(role="user", content=json.dumps(summary, indent=2))]
+        try:
+            parsed = await self._complete_json(system, messages)
+        except PlanningError as exc:
+            _log.warning("argument resolution failed", extra={"error": str(exc)})
+            return step.arguments
+        resolved = parsed.get("arguments")
+        if not isinstance(resolved, dict):
+            return step.arguments
+        if _needs_resolution(resolved):
+            # The reply carried the placeholder straight through, so nothing
+            # was actually resolved. Passing it on sends "{{from_previous}}"
+            # to the tool as a literal path; say so instead.
+            _log.warning(
+                "resolution returned an unresolved placeholder",
+                extra={"tool": step.tool, "arguments": resolved},
+            )
+            raise PlanningError(
+                f"Could not work out the arguments for {step.tool!r} from the "
+                "earlier results; the placeholder was left unfilled."
+            )
+        _log.info(
+            "arguments resolved from earlier results",
+            extra={"tool": step.tool, "keys": sorted(resolved)},
+        )
+        return resolved
+
     async def revise(
         self,
         task: Task,
         failed_step: PlanStep,
         error: str,
         remaining: list[PlanStep],
+        completed: list[PlanStep] | None = None,
     ) -> list[PlanStep]:
         """Ask for replacement steps after a failure; may return []."""
         system = _REVISION_SYSTEM + _tools_block(self._registry)
         summary = {
             "request": task.request,
+            # What the finished steps actually returned. Without it the model
+            # re-guesses values it could simply have read here, so a step like
+            # "open the first search result" gets an invented URL and fails
+            # the same way the original did.
+            "completed_steps": _recent_context(completed or []),
             "failed_step": {
                 "description": failed_step.description,
                 "tool": failed_step.tool,
@@ -152,7 +289,9 @@ class Planner:
         self, system: str, messages: list[BrainMessage]
     ) -> dict[str, Any]:
         """Get a JSON object from the Brain, retrying once on bad output."""
-        response = await self._brain.complete(system=system, messages=messages)
+        response = await self._brain.complete(
+            system=system, messages=messages, json_mode=True
+        )
         if response.refused:
             raise PlanningError("The model declined to plan this request.")
         try:
@@ -170,7 +309,9 @@ class Planner:
                     ),
                 ),
             ]
-            retry = await self._brain.complete(system=system, messages=retry_messages)
+            retry = await self._brain.complete(
+                system=system, messages=retry_messages, json_mode=True
+            )
             try:
                 return _extract_json(retry.text)
             except (ValueError, json.JSONDecodeError) as retry_exc:

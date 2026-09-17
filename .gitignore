@@ -24,6 +24,11 @@ config/config.yaml
 *.log
 *.jsonl
 
+# The file-manager sandbox: whatever Jarvis is actually working on. These are
+# the user's own documents, not source - and this repo has a public remote.
+Workspace/
+workspace/
+
 # OS / editor noise
 .DS_Store
 Thumbs.db

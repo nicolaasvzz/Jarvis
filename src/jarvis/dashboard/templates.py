@@ -1,0 +1,312 @@
+"""Single-page HTML dashboard for Jarvis."""
+
+DASHBOARD_HTML = r"""\
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>J.A.R.V.I.S.</title>
+<style>
+:root {
+  --bg:#060610;--cyan:#00f0ff;--cyan20:rgba(0,240,255,.2);--cyan40:rgba(0,240,255,.4);
+  --purple:#8b5cf6;--amber:#f59e0b;--green:#10b981;--pink:#ec4899;--blue:#3b82f6;
+  --text:#c8d6e5;--dim:#576574;--panel:rgba(8,14,28,.92);--border:rgba(0,240,255,.1);
+}
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;background:var(--bg);color:var(--text);
+  font-family:'Consolas','Monaco','Courier New',monospace;font-size:13px;overflow:hidden}
+body::after{content:'';position:fixed;inset:0;background:repeating-linear-gradient(0deg,
+  rgba(0,0,0,.03) 0px,rgba(0,0,0,.03) 1px,transparent 1px,transparent 3px);
+  pointer-events:none;z-index:9999}
+body::before{content:'';position:fixed;inset:0;
+  background:radial-gradient(ellipse at center,transparent 40%,rgba(0,0,0,.6) 100%);
+  pointer-events:none;z-index:9998}
+
+.login-overlay{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
+  background:var(--bg);z-index:10000}
+.login-box{text-align:center;padding:40px 48px;border:1px solid var(--border);
+  border-radius:8px;background:var(--panel)}
+.login-title{font-size:32px;color:var(--cyan);
+  text-shadow:0 0 20px var(--cyan),0 0 40px rgba(0,240,255,.3);letter-spacing:12px;margin-bottom:8px}
+.login-sub{color:var(--dim);margin-bottom:24px;font-size:12px}
+.login-input{width:280px;padding:10px 14px;background:rgba(0,0,0,.3);
+  border:1px solid var(--border);border-radius:4px;color:var(--text);
+  font-family:inherit;font-size:13px;outline:none;margin-bottom:16px}
+.login-input:focus{border-color:var(--cyan)}
+.login-btn{display:block;width:280px;padding:10px;background:transparent;
+  border:1px solid var(--cyan);color:var(--cyan);font-family:inherit;
+  font-size:13px;cursor:pointer;letter-spacing:2px}
+.login-btn:hover{background:rgba(0,240,255,.1)}
+
+#neural-net{position:fixed;inset:0;z-index:0}
+.conn-dot{position:fixed;top:12px;right:12px;width:8px;height:8px;border-radius:50%;
+  background:#ef4444;z-index:100;transition:background .3s}
+.conn-dot.ok{background:var(--green);box-shadow:0 0 8px var(--green)}
+
+.orb-wrap{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);
+  width:260px;height:260px;z-index:10}
+.orb-ring{position:absolute;inset:0;border:1px solid var(--cyan20);border-radius:50%}
+.r1{animation:spin 25s linear infinite}
+.r2{inset:12px;border-color:rgba(0,240,255,.12);animation:spin 18s linear infinite reverse;border-style:dashed}
+.r3{inset:24px;border-color:rgba(0,240,255,.08);animation:spin 12s linear infinite}
+.orb-core{position:absolute;inset:40px;border-radius:50%;
+  background:radial-gradient(circle,rgba(0,240,255,.08) 0%,transparent 70%);
+  box-shadow:0 0 80px rgba(0,240,255,.15),inset 0 0 60px rgba(0,240,255,.05);
+  animation:pulse 5s ease-in-out infinite}
+.orb-text{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+  font-size:22px;font-weight:bold;color:var(--cyan);
+  text-shadow:0 0 15px var(--cyan),0 0 30px rgba(0,240,255,.4);
+  letter-spacing:6px;white-space:nowrap;animation:glow 4s ease-in-out infinite}
+
+.nn-label{position:fixed;transform:translate(-50%,-50%);z-index:5;text-align:center;pointer-events:none}
+.nn-title{display:block;font-size:11px;font-weight:bold;letter-spacing:3px;
+  color:var(--c,var(--cyan));text-shadow:0 0 10px var(--c,var(--cyan))}
+.nn-sub{display:block;font-size:9px;color:var(--dim);margin-top:2px}
+
+.panel{position:fixed;width:270px;background:var(--panel);border:1px solid var(--border);
+  border-radius:4px;z-index:20;backdrop-filter:blur(10px)}
+.panel::before{content:'';position:absolute;top:0;left:0;right:0;height:1px;
+  background:linear-gradient(90deg,transparent,var(--cyan40),transparent)}
+.ph{padding:10px 14px 6px;font-size:11px;font-weight:bold;letter-spacing:2px;
+  color:var(--cyan);border-bottom:1px solid var(--border)}
+.pb{padding:8px 14px 12px;max-height:280px;overflow-y:auto}
+.p-status{left:24px;top:24px}.p-tasks{right:24px;top:24px}
+.p-activity{left:24px;bottom:72px}.p-approvals{right:24px;bottom:72px}
+
+.item{display:flex;align-items:flex-start;gap:8px;padding:5px 0;
+  border-bottom:1px solid rgba(0,240,255,.04);font-size:12px}
+.item:last-child{border-bottom:none}
+.dot{width:6px;height:6px;border-radius:50%;margin-top:4px;flex-shrink:0}
+.dot-cyan{background:var(--cyan);box-shadow:0 0 6px var(--cyan)}
+.dot-green{background:var(--green);box-shadow:0 0 6px var(--green)}
+.dot-pink{background:var(--pink);box-shadow:0 0 6px var(--pink)}
+.dot-amber{background:var(--amber);box-shadow:0 0 6px var(--amber)}
+.dot-purple{background:var(--purple);box-shadow:0 0 6px var(--purple)}
+.item-text{flex:1;line-height:1.4}
+.item-label{color:var(--dim);font-size:10px}
+.item-val{color:var(--cyan)}
+.empty{color:var(--dim);font-size:11px;padding:8px 0}
+.status-tag{font-size:10px;padding:1px 6px;border-radius:2px;letter-spacing:1px;flex-shrink:0}
+.tag-running{background:rgba(0,240,255,.15);color:var(--cyan)}
+.tag-completed{background:rgba(16,185,129,.15);color:var(--green)}
+.tag-failed{background:rgba(236,72,153,.15);color:var(--pink)}
+.tag-pending{background:rgba(245,158,11,.15);color:var(--amber)}
+
+.appr-btns{display:flex;gap:6px;margin-top:4px}
+.appr-btn{padding:2px 10px;border:1px solid;background:transparent;
+  font-family:inherit;font-size:10px;cursor:pointer;border-radius:2px}
+.appr-allow{border-color:var(--green);color:var(--green)}
+.appr-allow:hover{background:rgba(16,185,129,.15)}
+.appr-deny{border-color:var(--pink);color:var(--pink)}
+.appr-deny:hover{background:rgba(236,72,153,.15)}
+
+.cmd-bar{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);
+  display:flex;align-items:center;gap:8px;width:420px;padding:8px 14px;
+  background:var(--panel);border:1px solid var(--border);border-radius:4px;z-index:20}
+.cmd-prompt{color:var(--cyan);font-weight:bold}
+#cmd{flex:1;background:transparent;border:none;color:var(--text);
+  font-family:inherit;font-size:13px;outline:none}
+#cmd::placeholder{color:var(--dim)}
+#cmd-btn{background:transparent;border:1px solid var(--cyan);color:var(--cyan);
+  padding:4px 12px;font-family:inherit;font-size:11px;cursor:pointer;letter-spacing:1px}
+#cmd-btn:hover{background:rgba(0,240,255,.1)}
+
+@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+@keyframes pulse{0%,100%{opacity:.6}50%{opacity:1}}
+@keyframes glow{0%,100%{text-shadow:0 0 15px var(--cyan),0 0 30px rgba(0,240,255,.4)}
+  50%{text-shadow:0 0 25px var(--cyan),0 0 50px rgba(0,240,255,.6)}}
+
+::-webkit-scrollbar{width:4px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--cyan20);border-radius:2px}
+</style>
+</head>
+<body>
+
+<div id="login" class="login-overlay">
+  <div class="login-box">
+    <div class="login-title">J.A.R.V.I.S.</div>
+    <div class="login-sub">Authentication Required</div>
+    <input id="login-token" class="login-input" type="password" placeholder="API Token" />
+    <button id="login-btn" class="login-btn">CONNECT</button>
+  </div>
+</div>
+
+<div id="dash" style="display:none">
+  <canvas id="neural-net"></canvas>
+  <div id="conn" class="conn-dot"></div>
+
+  <div class="orb-wrap">
+    <div class="orb-ring r1"></div>
+    <div class="orb-ring r2"></div>
+    <div class="orb-ring r3"></div>
+    <div class="orb-core"></div>
+    <div class="orb-text">J.A.R.V.I.S.</div>
+  </div>
+
+  <div class="nn-label" style="top:10%;left:50%;--c:var(--cyan)">
+    <span class="nn-title">BRAIN</span><span class="nn-sub" id="nn-brain">Connecting...</span>
+  </div>
+  <div class="nn-label" style="top:38%;left:26%;--c:var(--amber)">
+    <span class="nn-title">MEMORY</span><span class="nn-sub" id="nn-memory">SQLite store</span>
+  </div>
+  <div class="nn-label" style="top:38%;left:74%;--c:var(--blue)">
+    <span class="nn-title">VISION</span><span class="nn-sub">Screen OCR</span>
+  </div>
+  <div class="nn-label" style="top:72%;left:32%;--c:var(--green)">
+    <span class="nn-title">PLANNER</span><span class="nn-sub">Plan generation</span>
+  </div>
+  <div class="nn-label" style="top:72%;left:68%;--c:var(--pink)">
+    <span class="nn-title">TOOLS</span><span class="nn-sub" id="nn-tools">0 registered</span>
+  </div>
+
+  <div class="panel p-status">
+    <div class="ph">SYSTEM STATUS</div>
+    <div class="pb" id="s-body"><div class="empty">Loading...</div></div>
+  </div>
+  <div class="panel p-tasks">
+    <div class="ph">ACTIVE TASKS</div>
+    <div class="pb" id="t-body"><div class="empty">No tasks</div></div>
+  </div>
+  <div class="panel p-activity">
+    <div class="ph">RECENT ACTIVITY</div>
+    <div class="pb" id="a-body"><div class="empty">No activity</div></div>
+  </div>
+  <div class="panel p-approvals">
+    <div class="ph">PENDING APPROVALS</div>
+    <div class="pb" id="ap-body"><div class="empty">None</div></div>
+  </div>
+
+  <div class="cmd-bar">
+    <span class="cmd-prompt">&gt;</span>
+    <input id="cmd" type="text" placeholder="Enter command..." />
+    <button id="cmd-btn">EXECUTE</button>
+  </div>
+</div>
+
+<script>
+(function(){
+'use strict';
+var params=new URLSearchParams(location.search);
+var token=params.get('token')||localStorage.getItem('jarvis_token');
+var BASE=location.origin;
+var $=function(id){return document.getElementById(id)};
+var login=$('login'),dash=$('dash'),conn=$('conn'),canvas=$('neural-net'),ctx=canvas.getContext('2d');
+
+$('login-btn').onclick=function(){var t=$('login-token').value.trim();
+  if(t){token=t;localStorage.setItem('jarvis_token',t);location.search='?token='+encodeURIComponent(t)}};
+$('login-token').onkeydown=function(e){if(e.key==='Enter')$('login-btn').click()};
+if(!token){login.style.display='flex';return}
+login.style.display='none';dash.style.display='block';
+
+function api(path){return fetch(BASE+path,{headers:{'Authorization':'Bearer '+token}})
+  .then(function(r){if(!r.ok)throw new Error(r.status);return r.json()})}
+function apiPost(path,body){return fetch(BASE+path,{method:'POST',
+  headers:{'Authorization':'Bearer '+token,'Content-Type':'application/json'},
+  body:JSON.stringify(body)}).then(function(r){if(!r.ok)throw new Error(r.status);return r.json()})}
+function esc(s){var d=document.createElement('div');d.textContent=s;return d.innerHTML}
+
+function dotClass(s){return s==='running'?'dot-cyan':s==='completed'?'dot-green':
+  s==='failed'?'dot-pink':s==='planning'?'dot-purple':'dot-amber'}
+function tagClass(s){return s==='running'?'tag-running':s==='completed'?'tag-completed':
+  s==='failed'?'tag-failed':'tag-pending'}
+function timeAgo(dt){var s=Math.floor((Date.now()-new Date(dt).getTime())/1000);
+  if(s<60)return s+'s ago';if(s<3600)return Math.floor(s/60)+'m ago';
+  if(s<86400)return Math.floor(s/3600)+'h ago';return Math.floor(s/86400)+'d ago'}
+
+var particles=[];
+function resize(){canvas.width=innerWidth;canvas.height=innerHeight}
+function mkP(){var x=Math.random()*canvas.width,y=Math.random()*canvas.height;
+  var z=y/canvas.height;var c;
+  if(z<.2)c='#8b5cf6';else if(z<.4)c=x<canvas.width/2?'#f59e0b':'#3b82f6';
+  else if(z<.6)c='#00f0ff';else if(z<.8)c=x<canvas.width/2?'#10b981':'#ec4899';
+  else c='#10b981';
+  return{x:x,y:y,vx:(Math.random()-.5)*.4,vy:(Math.random()-.5)*.4,
+    color:c,size:Math.random()*2+.5,phase:Math.random()*Math.PI*2}}
+
+function initNN(){resize();window.onresize=resize;
+  for(var i=0;i<70;i++)particles.push(mkP())}
+
+function drawNN(){ctx.clearRect(0,0,canvas.width,canvas.height);
+  var i,j,a,b,dx,dy,d;
+  for(i=0;i<particles.length;i++){for(j=i+1;j<particles.length;j++){
+    a=particles[i];b=particles[j];dx=a.x-b.x;dy=a.y-b.y;d=Math.sqrt(dx*dx+dy*dy);
+    if(d<110){ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);
+      ctx.strokeStyle='rgba(0,240,255,'+(0.15*(1-d/110))+')';ctx.lineWidth=.5;ctx.stroke()}}}
+  for(i=0;i<particles.length;i++){a=particles[i];a.phase+=.02;
+    var glow=.6+.4*Math.sin(a.phase);
+    ctx.beginPath();ctx.arc(a.x,a.y,a.size*glow,0,Math.PI*2);
+    ctx.fillStyle=a.color;ctx.shadowColor=a.color;ctx.shadowBlur=8;ctx.fill();ctx.shadowBlur=0;
+    a.x+=a.vx;a.y+=a.vy;
+    if(a.x<-10)a.x=canvas.width+10;if(a.x>canvas.width+10)a.x=-10;
+    if(a.y<-10)a.y=canvas.height+10;if(a.y>canvas.height+10)a.y=-10}
+  requestAnimationFrame(drawNN)}
+
+initNN();requestAnimationFrame(drawNN);
+
+function fetchSystem(){api('/system').then(function(d){
+  conn.classList.add('ok');
+  $('nn-brain').textContent=d.brain.provider+' / '+d.brain.model;
+  $('nn-tools').textContent=d.tools.length+' registered';
+  $('s-body').innerHTML='<div class="item"><div class="dot dot-green"></div><div class="item-text"><span class="item-label">Brain</span><br><span class="item-val">'+esc(d.brain.provider)+' / '+esc(d.brain.model)+'</span></div></div>'
+    +'<div class="item"><div class="dot dot-cyan"></div><div class="item-text"><span class="item-label">Status</span><br><span class="item-val">'+(d.brain.connected?'Connected':'Disconnected')+'</span></div></div>'
+    +'<div class="item"><div class="dot dot-purple"></div><div class="item-text"><span class="item-label">Tools</span><br><span class="item-val">'+d.tools.length+' available</span></div></div>'
+    +'<div class="item"><div class="dot dot-amber"></div><div class="item-text"><span class="item-label">Active Tasks</span><br><span class="item-val">'+d.active_tasks+'</span></div></div>'
+    +'<div class="item"><div class="dot dot-cyan"></div><div class="item-text"><span class="item-label">Total Tasks</span><br><span class="item-val">'+d.total_tasks+'</span></div></div>'
+}).catch(function(){conn.classList.remove('ok')})}
+
+function fetchTasks(){api('/tasks').then(function(tasks){
+  if(!tasks.length){$('t-body').innerHTML='<div class="empty">No tasks yet</div>';return}
+  $('t-body').innerHTML=tasks.slice(0,8).map(function(t){
+    var txt=esc(t.request.slice(0,50))+(t.request.length>50?'...':'');
+    return'<div class="item"><div class="dot '+dotClass(t.status)+'"></div>'
+      +'<div class="item-text">'+txt+'</div>'
+      +'<span class="status-tag '+tagClass(t.status)+'">'+t.status.toUpperCase()+'</span></div>'
+  }).join('')
+}).catch(function(){})}
+
+function fetchActivity(){api('/notifications').then(function(notes){
+  if(!notes.length){$('a-body').innerHTML='<div class="empty">No activity yet</div>';return}
+  $('a-body').innerHTML=notes.slice(0,8).map(function(n){
+    var dc=n.type==='error'?'dot-pink':n.type==='approval'?'dot-amber':'dot-cyan';
+    return'<div class="item"><div class="dot '+dc+'"></div>'
+      +'<div class="item-text">'+esc(n.message.slice(0,60))+'<br><span class="item-label">'+timeAgo(n.created_at)+'</span></div></div>'
+  }).join('')
+}).catch(function(){})}
+
+function fetchApprovals(){api('/approvals').then(function(apps){
+  if(!apps.length){$('ap-body').innerHTML='<div class="empty">None pending</div>';return}
+  $('ap-body').innerHTML=apps.map(function(a){
+    return'<div class="item" style="flex-direction:column">'
+      +'<div style="display:flex;gap:8px;align-items:flex-start"><div class="dot dot-amber"></div>'
+      +'<div class="item-text"><span class="item-val">'+esc(a.tool)+'</span><br>'+esc(a.reason.slice(0,60))+'</div></div>'
+      +'<div class="appr-btns" style="margin-left:14px">'
+      +'<button class="appr-btn appr-allow" onclick="decide(\''+a.id+'\',\'allow\')">ALLOW</button>'
+      +'<button class="appr-btn appr-deny" onclick="decide(\''+a.id+'\',\'deny\')">DENY</button>'
+      +'</div></div>'
+  }).join('')
+}).catch(function(){})}
+
+window.decide=function(id,decision){apiPost('/approvals/'+id,{decision:decision})
+  .then(function(){fetchApprovals()}).catch(function(){})};
+
+var evtSource;
+function connectEvents(){if(evtSource)evtSource.close();
+  evtSource=new EventSource(BASE+'/events?token='+encodeURIComponent(token));
+  evtSource.onmessage=function(){fetchTasks();fetchActivity();fetchApprovals()};
+  evtSource.onerror=function(){setTimeout(connectEvents,5000)}}
+
+$('cmd').onkeydown=function(e){if(e.key==='Enter')sendCmd()};
+$('cmd-btn').onclick=sendCmd;
+function sendCmd(){var input=$('cmd');var text=input.value.trim();if(!text)return;input.value='';
+  apiPost('/tasks',{request:text}).then(function(){fetchTasks()}).catch(function(){})}
+
+fetchSystem();fetchTasks();fetchActivity();fetchApprovals();connectEvents();
+setInterval(fetchSystem,15000);setInterval(fetchTasks,5000);
+setInterval(fetchActivity,5000);setInterval(fetchApprovals,5000);
+})();
+</script>
+</body>
+</html>
+"""

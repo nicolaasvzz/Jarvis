@@ -25,9 +25,15 @@ class ScriptedBrain:
         system: str,
         messages: list[BrainMessage],
         tools: list[dict[str, Any]] | None = None,
+        json_mode: bool = False,
     ) -> BrainResponse:
         self.calls.append(
-            {"system": system, "messages": messages, "tools": tools}
+            {
+                "system": system,
+                "messages": messages,
+                "tools": tools,
+                "json_mode": json_mode,
+            }
         )
         if not self._responses:
             return BrainResponse(text="(no scripted response left)")

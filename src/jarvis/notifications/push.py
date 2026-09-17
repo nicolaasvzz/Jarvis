@@ -52,7 +52,9 @@ class PushChannel:
     async def send(self, notification: Notification) -> None:
         priority, tag = _STYLES.get(notification.type, ("default", "bell"))
         headers = {
-            "Title": f"Jarvis · {notification.type}",
+            # HTTP headers are ASCII only, so no typographic punctuation here:
+            # a stray "·" fails the whole send before it leaves the machine.
+            "Title": f"Jarvis: {notification.type}",
             "Priority": priority,
             "Tags": tag,
         }

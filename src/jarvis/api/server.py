@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, HTTPException, Query, UploadFile
-from fastapi.responses import StreamingResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from jarvis.agent.orchestrator import Orchestrator
@@ -34,11 +34,13 @@ from jarvis.api.schemas import (
     UploadOut,
 )
 from jarvis.core.models import ApprovalDecision
+from jarvis.dashboard.templates import DASHBOARD_HTML
 from jarvis.files.operations import FileManager
 from jarvis.logging import get_logger
 from jarvis.notifications import InMemoryChannel, NotificationService
 from jarvis.security.auth import AuthError, TokenAuthenticator
 from jarvis.security.permissions import PermissionPolicy
+from jarvis.tools.registry import ToolRegistry
 
 _log = get_logger(__name__)
 
@@ -53,6 +55,7 @@ def create_app(
     live_channel: InMemoryChannel,
     files: FileManager,
     authenticator: TokenAuthenticator,
+    registry: ToolRegistry,
     log_file: Path | None = None,
 ) -> FastAPI:
     """Build the FastAPI app around already-wired components."""
@@ -77,6 +80,31 @@ def create_app(
     @app.get("/health")
     def health() -> dict[str, str]:
         return {"status": "ok"}
+
+    # -- dashboard ------------------------------------------------------
+    @app.get("/", response_class=HTMLResponse)
+    def dashboard() -> HTMLResponse:
+        return HTMLResponse(content=DASHBOARD_HTML)
+
+    # -- system ---------------------------------------------------------
+    @app.get("/system", dependencies=[auth])
+    def system_info() -> dict[str, object]:
+        brain = orchestrator._brain
+        provider = type(brain).__name__.replace("Brain", "").lower()
+        model = getattr(brain, "model", "unknown")
+        return {
+            "brain": {
+                "provider": provider,
+                "model": model,
+                "connected": True,
+            },
+            "tools": sorted(registry.names()),
+            "active_tasks": sum(
+                1 for t in orchestrator.all_tasks() if not t.is_terminal
+            ),
+            "total_tasks": len(orchestrator.all_tasks()),
+            "workspace": str(files.root),
+        }
 
     # -- tasks ----------------------------------------------------------
     @app.post("/tasks", response_model=TaskOut, dependencies=[auth], status_code=201)

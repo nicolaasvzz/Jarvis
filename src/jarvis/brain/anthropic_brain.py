@@ -82,7 +82,11 @@ class AnthropicBrain:
         system: str,
         messages: list[BrainMessage],
         tools: list[dict[str, Any]] | None = None,
+        json_mode: bool = False,
     ) -> BrainResponse:
+        # json_mode is accepted for protocol compatibility. This provider has
+        # no decode-time JSON constraint, and the caller parses defensively
+        # either way, so there is nothing to translate here.
         request: dict[str, Any] = {
             "model": self._config.model,
             "max_tokens": self._config.max_tokens,

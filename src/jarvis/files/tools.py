@@ -19,6 +19,16 @@ def build_file_tools(manager: FileManager) -> list[Tool]:
         """Read and return the text contents of a file."""
         return manager.read_text(path)
 
+    def read_file_slice(path: str, start: int = 0, length: int = 6000) -> dict[str, object]:
+        """Read part of a large text file, from character `start`.
+
+        Returns the text plus "next_start" and "more". Use this instead of
+        read_file for anything long (archived web pages, transcripts):
+        call it repeatedly, passing the previous "next_start", until
+        "more" is false.
+        """
+        return manager.read_slice(path, start, length)
+
     def write_file(path: str, content: str) -> str:
         """Create or overwrite a text file. Returns the written path."""
         return manager.write_text(path, content)
@@ -57,6 +67,11 @@ def build_file_tools(manager: FileManager) -> list[Tool]:
 
     return [
         Tool(name="read_file", description=read_file.__doc__ or "", func=read_file),
+        Tool(
+            name="read_file_slice",
+            description=read_file_slice.__doc__ or "",
+            func=read_file_slice,
+        ),
         Tool(name="write_file", description=write_file.__doc__ or "", func=write_file),
         Tool(
             name="list_directory",

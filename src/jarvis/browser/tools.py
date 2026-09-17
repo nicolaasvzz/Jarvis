@@ -44,6 +44,22 @@ def build_browser_tools(controller: BrowserController) -> list[Tool]:
         """Search the web and return the top results (title + URL)."""
         return await controller.search(query)
 
+    async def browser_research(
+        query: str, pages: int = 2, save_to: str = "research"
+    ) -> list[dict[str, str]]:
+        """Search the web, then open and archive the top pages.
+
+        Every page is saved in full under `save_to` - use as many pages as
+        the job deserves, the archive is disk, not context. Returns one entry
+        per page actually read: its real url, title, chars, the saved path,
+        and a short excerpt. Read the full text later with read_file_slice,
+        then delete_path the folder once the final answer is written.
+
+        Prefer this over browser_search followed by browser_open: the URLs
+        come from the search itself, so none has to be known in advance.
+        """
+        return await controller.research(query, pages, save_to)
+
     functions: list[Callable[..., Any]] = [
         browser_open,
         browser_read_page,
@@ -53,6 +69,7 @@ def build_browser_tools(controller: BrowserController) -> list[Tool]:
         browser_download,
         browser_extract_links,
         browser_search,
+        browser_research,
     ]
     return [
         Tool(name=f.__name__, description=f.__doc__ or "", func=f) for f in functions
