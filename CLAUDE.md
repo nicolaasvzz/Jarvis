@@ -6,6 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - [README.md](README.md) — what Jarvis does, install, phone setup, HTTP API surface.
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — module map, design rules, decision log.
+- [docs/COMMANDS.md](docs/COMMANDS.md) — the full runnable command reference.
 
 This file covers only what those two don't: the commands, and the invariants that
 span several files.
@@ -77,6 +78,13 @@ Any module may use `jarvis.config` and `jarvis.logging`. Otherwise depend on the
 *interface* of modules beneath you in the architecture diagram, never their
 internals — `Brain` is a Protocol for exactly this reason.
 
+**8. Provider selection lives only in `brain/factory.py`.**
+`build_brain()` is the one place that picks an implementation, and its provider
+imports are deliberately local so selecting Ollama never imports `anthropic` and
+never asks for an API key. The default provider is a **local Ollama model**
+(`gpt-oss:20b`), not Anthropic. Everything downstream sees only the `Brain`
+protocol — don't import a concrete brain anywhere else.
+
 ## Layout gotchas
 
 - **`src/` layout + worktrees = silent cross-checkout testing.** The editable
@@ -113,3 +121,10 @@ provides `ScriptedBrain`, which replays canned `BrainResponse`s in order and rec
 the calls it received. The Telegram bridge and push channel are testable the same
 way via the `HttpTransport` protocol — no bot, account, or network in CI. New
 integrations should follow that shape: define the protocol, fake it in tests.
+
+**One test talks to a real server.** `TestAgainstARealOllama` skips itself when no
+Ollama is listening, but on a machine where one *is* listening it makes a live
+model call under `llm.timeout` (180s). On a 4GB-VRAM card a cold `gpt-oss:20b`
+load can blow that budget, so this test fails on the first run of a suite and
+passes on the second once the model is resident. A failure here alone is a cold
+start, not a regression — re-run it before investigating.
