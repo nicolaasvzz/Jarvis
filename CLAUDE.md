@@ -90,10 +90,10 @@ protocol — don't import a concrete brain anywhere else.
 - **`src/` layout + worktrees = silent cross-checkout testing.** The editable
   install resolves `jarvis` to whichever checkout `pip install -e` was last run in
   — in practice the main one at `C:\Users\nicol\jarvis`, which sits on its own
-  branch with its own uncommitted changes. Running `pytest` from a worktree
-  therefore executes *this* worktree's tests against *that* checkout's source, and
-  the mismatched failures look like real bugs. Always run
-  `PYTHONPATH=src python -m pytest` in a worktree, and confirm with:
+  branch and may be ahead of or behind the branch you are editing. Running
+  `pytest` from a worktree therefore executes *this* worktree's tests against
+  *that* checkout's source, and the mismatched failures look like real bugs.
+  Always run `PYTHONPATH=src python -m pytest` in a worktree, and confirm with:
 
   ```bash
   PYTHONPATH=src python -c "import jarvis; print(jarvis.__file__)"
