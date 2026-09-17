@@ -85,12 +85,22 @@ class TestDesktopController:
 
 
 def _png_with_text(text: str) -> bytes:
-    """Render text onto a white image (default PIL font) as PNG bytes."""
-    from PIL import Image, ImageDraw
+    """Render text onto a white image as PNG bytes.
 
+    The font size matters. At PIL's default size Tesseract reads
+    "HELLO WORLD" as the single token "HELLOWORLD" - the gap is too narrow
+    to segment - which fails locate_text for a reason that has nothing to do
+    with the code under test.
+    """
+    from PIL import Image, ImageDraw, ImageFont
+
+    try:
+        font = ImageFont.load_default(size=28)  # Pillow >= 10.1
+    except TypeError:  # pragma: no cover - older Pillow, unsized default
+        font = ImageFont.load_default()
     image = Image.new("RGB", (400, 120), "white")
     draw = ImageDraw.Draw(image)
-    draw.text((20, 40), text, fill="black")
+    draw.text((20, 40), text, fill="black", font=font)
     buffer = io.BytesIO()
     image.save(buffer, format="PNG")
     return buffer.getvalue()
@@ -124,9 +134,11 @@ class TestVision:
 
     def test_ocr_reads_and_locates_text(self, tmp_path: Path) -> None:
         pytest.importorskip("pytesseract")
-        import shutil
+        from jarvis.vision.service import find_tesseract
 
-        if shutil.which("tesseract") is None:
+        # Same lookup the service uses, so an installed-but-not-yet-on-PATH
+        # Tesseract exercises this test instead of silently skipping it.
+        if find_tesseract() is None:
             pytest.skip("tesseract binary not installed")
         files = FileManager(tmp_path / "root")
         service = VisionService(StaticGrabber(_png_with_text("HELLO WORLD")), files)

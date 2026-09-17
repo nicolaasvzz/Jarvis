@@ -6,6 +6,9 @@ Tesseract binary) are imported lazily and belong to the ``vision`` extra.
 
 from __future__ import annotations
 
+import os
+import shutil
+from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
 from jarvis.core.errors import ToolError
@@ -15,6 +18,35 @@ from jarvis.logging import get_logger
 _log = get_logger(__name__)
 
 _SCREENSHOT_DIR = "screenshots"
+
+
+def find_tesseract() -> str | None:
+    """Locate the Tesseract binary: PATH first, then the standard installs.
+
+    The Windows installer adds its folder to the *user* PATH, and only
+    processes started afterwards inherit that. A Jarvis launched from a shell
+    that was already open therefore fails to find a binary that is plainly
+    sitting on disk, so look where it actually lives before giving up.
+    """
+    on_path = shutil.which("tesseract")
+    if on_path:
+        return on_path
+    # Windows upper-cases every key in os.environ, so these are the real names.
+    roots = [
+        os.environ.get("PROGRAMFILES"),
+        os.environ.get("PROGRAMFILES(X86)"),
+        os.environ.get("LOCALAPPDATA"),
+    ]
+    candidates = []
+    for root in roots:
+        if not root:
+            continue
+        candidates.append(Path(root) / "Tesseract-OCR" / "tesseract.exe")
+        candidates.append(Path(root) / "Programs" / "Tesseract-OCR" / "tesseract.exe")
+    for candidate in candidates:
+        if candidate.is_file():
+            return str(candidate)
+    return None
 
 
 @runtime_checkable
@@ -40,7 +72,10 @@ class MssGrabber:
         with mss.mss() as screen:
             monitor = screen.monitors[1] if len(screen.monitors) > 1 else screen.monitors[0]
             shot = screen.grab(monitor)
-            png: bytes = mss.tools.to_png(shot.rgb, shot.size)
+            # to_png returns None only when handed an output path to write to.
+            png = mss.tools.to_png(shot.rgb, shot.size)
+            if png is None:  # pragma: no cover - unreachable without output=
+                raise ToolError("Screen capture produced no image data.")
             return png
 
 
@@ -116,8 +151,6 @@ class VisionService:
     def _ocr() -> Any:
         try:
             import pytesseract
-
-            return pytesseract
         except ImportError as exc:  # pragma: no cover - environment dependent
             raise ToolError(
                 "pytesseract (and the Tesseract binary) are required. "
@@ -125,3 +158,19 @@ class VisionService:
                 "and install Tesseract OCR.",
                 recoverable=False,
             ) from exc
+
+        # pytesseract shells out to `tesseract` on PATH by default; point it
+        # at the real binary when PATH has not caught up yet.
+        if shutil.which(pytesseract.pytesseract.tesseract_cmd) is None:
+            found = find_tesseract()
+            if found is None:
+                raise ToolError(
+                    "The Tesseract OCR binary was not found. Install it from "
+                    "https://github.com/UB-Mannheim/tesseract/wiki, then open a "
+                    "new terminal. capture_screen works without it; reading "
+                    "text from the screen does not.",
+                    recoverable=False,
+                )
+            pytesseract.pytesseract.tesseract_cmd = found
+            _log.info("resolved tesseract binary", extra={"path": found})
+        return pytesseract
