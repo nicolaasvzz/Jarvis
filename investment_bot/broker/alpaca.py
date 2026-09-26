@@ -58,13 +58,18 @@ class AlpacaBroker(Broker):
     def submit(self, order: Order, ref_price: float, timestamp: pd.Timestamp) -> Fill | None:
         import requests
 
+        is_crypto = "/" in order.symbol
         side = "buy" if order.qty > 0 else "sell"
         payload = {
             "symbol": order.symbol,
-            "qty": str(abs(int(order.qty))),
+            # Crypto trades in fractional units; equities here trade in whole
+            # shares. Only equities get truncated to an integer.
+            "qty": str(abs(order.qty)) if is_crypto else str(abs(int(order.qty))),
             "side": side,
             "type": "market",
-            "time_in_force": "day",
+            # Crypto has no trading session to close a "day" order against;
+            # Alpaca requires gtc/ioc for crypto symbols.
+            "time_in_force": "gtc" if is_crypto else "day",
         }
         resp = requests.post(
             f"{self.base_url}/v2/orders", json=payload, headers=self._headers(), timeout=30
