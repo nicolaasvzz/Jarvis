@@ -112,7 +112,7 @@ brain anywhere else.
 
 - **`src/` layout + worktrees = silent cross-checkout testing.** The editable
   install resolves `jarvis` to whichever checkout `pip install -e` was last run in
-  — in practice the main one at `C:\Users\nicol\jarvis`, which sits on its own
+  — in practice the main one (the repository root), which sits on its own
   branch and may be ahead of or behind the branch you are editing. Running
   `pytest` from a worktree therefore executes *this* worktree's tests against
   *that* checkout's source, and the mismatched failures look like real bugs.

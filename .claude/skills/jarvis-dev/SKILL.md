@@ -19,7 +19,7 @@ Read [CLAUDE.md](../../../CLAUDE.md) for the invariants these workflows assume.
 
 This repo is worked on through several git worktrees under
 `.claude/worktrees/`, and `pip install -e` binds the name `jarvis` to exactly
-one checkout — usually the main one at `C:\Users\nicol\jarvis`, which sits on
+one checkout — usually the main one (the repository root), which sits on
 its own branch with its own uncommitted work. So `pytest` from a worktree runs
 *your* tests against *that* checkout's source. The failures look real, name
 functions you can see, and have nothing to do with your change.
