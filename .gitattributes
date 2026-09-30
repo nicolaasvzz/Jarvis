@@ -1,0 +1,5 @@
+* text=auto
+
+# Must stay LF or they break on Linux/macOS/Docker, even if cloned on Windows.
+*.sh text eol=lf
+Dockerfile text eol=lf

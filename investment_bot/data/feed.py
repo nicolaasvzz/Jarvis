@@ -89,19 +89,24 @@ class YahooFeed(DataFeed):
         self.cache_ttl_seconds = cache_ttl_hours * 3600
 
     def history(self, symbol: str, days: int) -> pd.DataFrame:
-        cache_file = self.cache_dir / f"{symbol.upper()}.parquet"
+        # CSV rather than Parquet: pandas reads/writes it with no extra
+        # dependency, so the cache works on a plain `pip install`.
+        cache_file = self.cache_dir / f"{symbol.upper()}.csv"
         if cache_file.exists():
             age = time.time() - cache_file.stat().st_mtime
             if age < self.cache_ttl_seconds:
-                cached = pd.read_parquet(cache_file)
-                if len(cached) >= days:
-                    return self._validate(cached, symbol).tail(days)
+                try:
+                    cached = pd.read_csv(cache_file, index_col=0, parse_dates=True)
+                    if len(cached) >= days:
+                        return self._validate(cached, symbol).tail(days)
+                except (ValueError, OSError):
+                    pass  # unreadable or stale-format cache: fall through and refetch
 
         df = self._fetch(symbol, days)
         try:
-            df.to_parquet(cache_file)
-        except (ImportError, OSError):
-            pass  # parquet engine or disk unavailable — caching is best-effort
+            df.to_csv(cache_file)
+        except OSError:
+            pass  # disk unavailable — caching is best-effort
         return self._validate(df, symbol).tail(days)
 
     def _fetch(self, symbol: str, days: int) -> pd.DataFrame:

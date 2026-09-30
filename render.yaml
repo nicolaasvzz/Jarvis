@@ -5,7 +5,7 @@ services:
   - type: web
     name: investment-bot-api
     runtime: docker
-    branch: claude/automated-trading-bot-ngec1d
+    branch: main
     plan: starter # free tier sleeps when idle, which pauses the trading loop
     healthCheckPath: /health
     disk:

@@ -1,0 +1,30 @@
+# Keep the image build context tiny and free of secrets/local state.
+.git
+.github
+.venv
+venv
+__pycache__
+*.py[cod]
+*.egg-info
+.pytest_cache
+build
+dist
+
+# Not part of the Python API image
+TradeBot
+tests
+smoke_test_btc.py
+run-local.ps1
+run-local.sh
+
+# Secrets and local state must never be baked into an image
+.env
+.env.*
+!.env.example
+config.yaml
+live_state.json
+data_cache
+report.html
+
+# Dev tooling, not needed in the API image
+tools

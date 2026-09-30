@@ -1,14 +1,34 @@
 # Investment Bot 🤖📈
 
+[![CI](https://github.com/nicolaasvzz/Investment_Bot/actions/workflows/ci.yml/badge.svg)](https://github.com/nicolaasvzz/Investment_Bot/actions/workflows/ci.yml)
+
 A multi-strategy automated trading bot with an event-driven backtester,
 portfolio-level risk management, parameter optimization with walk-forward
 validation, and a live paper/real trading loop — all driven from one YAML
-config and a single CLI.
+config and a single CLI. Comes in two parts: the full-featured **Python bot**
+(this README) and a **C# / .NET rewrite** in [`TradeBot/`](#c-tradebot-net-rewrite).
 
 > ⚠️ **Not financial advice.** Backtests systematically overstate live
 > results. This project defaults to simulated data and simulated money, and
 > that is where you should stay until you have long, boring proof otherwise.
 > Never trade money you can't afford to lose.
+
+## Get it
+
+```bash
+git clone https://github.com/nicolaasvzz/Investment_Bot.git
+cd Investment_Bot
+```
+
+…or use **Code → Download ZIP** on the GitHub page. You need Python 3.10+
+(and the [.NET 10 SDK](https://dotnet.microsoft.com/download) only if you want
+the C# bot). No API keys are needed to try it — it defaults to simulated data
+and simulated money.
+
+**Using and editing it.** You're free to download, read and run this code.
+Changing or redistributing it needs the owner's permission — see
+[LICENSE](LICENSE) and [CONTRIBUTING.md](CONTRIBUTING.md). Ask in an issue
+first; once approved, changes come in through a reviewed pull request.
 
 ## What's inside
 
@@ -114,7 +134,7 @@ account) gives you a permanent one.
 ## Manual usage
 
 ```bash
-pip install -r requirements.txt
+pip install -r requirements.txt     # or `pip install .` for an `investment-bot` command
 
 # Backtest the default ensemble on synthetic data (no network, no keys):
 python -m investment_bot backtest
@@ -205,7 +225,10 @@ investment_bot/
 ├── backtest/        # event-driven engine, metrics, grid/walk-forward optimizer
 ├── live.py          # persistent live/paper loop with rich dashboard
 ├── report.py        # terminal + self-contained HTML/SVG reports
-└── cli.py           # backtest / optimize / trade / strategies
+└── cli.py           # backtest / optimize / trade / strategies / serve
+
+tests/               # pytest suite
+TradeBot/            # C# / .NET 10 worker service (Alpaca paper client + smoke test)
 ```
 
 The same `Strategy` and `RiskEngine` code paths drive both the backtester
@@ -241,6 +264,28 @@ REGISTRY["my_edge"] = MyEdge
 
 It's now available in ensemble configs and `optimize --strategy my_edge`.
 
+## C# TradeBot (.NET rewrite)
+
+[`TradeBot/`](TradeBot) is a .NET 10 worker service that is taking over the
+always-on part of the bot. Today it is a heartbeat `BackgroundService` plus a
+connectivity smoke test against Alpaca's **paper** API — the strategies, risk
+engine and backtester still live in the Python package above.
+
+```bash
+cd TradeBot
+dotnet run                          # always-on worker, Ctrl-C to stop
+
+# Bring your OWN Alpaca paper keys; user-secrets keeps them outside the repo.
+dotnet user-secrets set "Alpaca:ApiKey" "<your paper key id>"
+dotnet user-secrets set "Alpaca:SecretKey" "<your paper secret>"
+
+dotnet run -- smoke-test --dry-run  # shows what it would do; sends nothing
+dotnet run -- smoke-test            # asks to confirm, then buys and closes
+                                    # ~$10 of BTC/USD on the paper account
+```
+
+The client refuses to run against anything except Alpaca's paper endpoint.
+
 ## Going live (read this first)
 
 The `trade` command uses the simulated paper broker unless you opt into
@@ -256,7 +301,19 @@ steps between you and real money — keep them in that order:
 ## Development
 
 ```bash
-pip install -r requirements.txt pytest
-python -m pytest tests/ -q     # 49 tests: indicators, ledger, risk,
-                               # strategies, engine, optimizer
+pip install -e ".[dev]"
+python -m pytest tests -q      # indicators, ledger, risk, strategies, engine,
+                               # optimizer, learning, live state, data cache
 ```
+
+CI runs the tests on Python 3.10 and 3.13 and builds the C# project on every
+push and pull request (see [CONTRIBUTING.md](CONTRIBUTING.md)).
+
+### Performance
+
+Backtest speed is dominated by pandas overhead in the per-bar indicator maths.
+The hot paths (RSI, MACD, Donchian, and ATR in the engine) avoid rebuilding
+pandas objects each bar, which halves backtest time without changing a single
+trade — optimizations are checked by hashing every trade and the whole equity
+curve before and after. The Yahoo feed caches downloads on disk (CSV, no extra
+dependencies), so repeat runs don't hit the network.
