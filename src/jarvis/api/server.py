@@ -20,8 +20,9 @@ from pathlib import Path
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, HTTPException, Query, UploadFile
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fastapi.staticfiles import StaticFiles
 
 from jarvis.agent.orchestrator import Orchestrator
 from jarvis.api.schemas import (
@@ -33,7 +34,9 @@ from jarvis.api.schemas import (
     TaskOut,
     UploadOut,
 )
+from jarvis.config.schema import DashboardConfig
 from jarvis.core.models import ApprovalDecision
+from jarvis.dashboard.hub import DashboardHub
 from jarvis.dashboard.templates import DASHBOARD_HTML
 from jarvis.files.operations import FileManager
 from jarvis.logging import get_logger
@@ -41,6 +44,7 @@ from jarvis.notifications import InMemoryChannel, NotificationService
 from jarvis.security.auth import AuthError, TokenAuthenticator
 from jarvis.security.permissions import PermissionPolicy
 from jarvis.tools.registry import ToolRegistry
+from jarvis.voice.service import VoiceService
 
 _log = get_logger(__name__)
 
@@ -57,8 +61,16 @@ def create_app(
     authenticator: TokenAuthenticator,
     registry: ToolRegistry,
     log_file: Path | None = None,
+    hub: DashboardHub | None = None,
+    dashboard: DashboardConfig | None = None,
+    voice: VoiceService | None = None,
 ) -> FastAPI:
-    """Build the FastAPI app around already-wired components."""
+    """Build the FastAPI app around already-wired components.
+
+    The dashboard is mounted only when a ``hub`` is supplied, so the API can
+    still be run headless — on a server, or by tests — without dragging in
+    the web assets.
+    """
     app = FastAPI(title="Jarvis", version="0.1.0")
     bearer = HTTPBearer(auto_error=False)
 
@@ -81,9 +93,9 @@ def create_app(
     def health() -> dict[str, str]:
         return {"status": "ok"}
 
-    # -- dashboard ------------------------------------------------------
-    @app.get("/", response_class=HTMLResponse)
-    def dashboard() -> HTMLResponse:
+    # -- single-page HUD -------------------------------------------------
+    @app.get("/hud", response_class=HTMLResponse, include_in_schema=False)
+    def hud_page() -> HTMLResponse:
         return HTMLResponse(content=DASHBOARD_HTML)
 
     # -- system ---------------------------------------------------------
@@ -210,5 +222,32 @@ def create_app(
             except json.JSONDecodeError:
                 continue
         return entries
+
+    # -- dashboard ----------------------------------------------------------
+    if hub is not None:
+        from jarvis.dashboard.routes import WEB_ROOT, build_router
+
+        app.include_router(
+            build_router(
+                hub=hub,
+                orchestrator=orchestrator,
+                files=files,
+                config=dashboard or DashboardConfig(),
+                voice=voice,
+                require_auth=require_auth,
+            )
+        )
+        if WEB_ROOT.is_dir():
+            app.mount(
+                "/dash/static",
+                StaticFiles(directory=WEB_ROOT),
+                name="dashboard-static",
+            )
+
+
+    @app.get("/", include_in_schema=False)
+    def home() -> RedirectResponse:
+        """Send a bare visit to a dashboard rather than a bare 404."""
+        return RedirectResponse(url="/dash/" if hub is not None else "/hud")
 
     return app

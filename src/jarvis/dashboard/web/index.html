@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>JARVIS — Core</title>
+  <link rel="stylesheet" href="/dash/static/css/hud.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='11' fill='none' stroke='%2322d3ee' stroke-width='3'/><circle cx='16' cy='16' r='4' fill='%2322d3ee'/></svg>">
+</head>
+<body>
+
+<div id="stage"><canvas id="core"></canvas></div>
+
+<div class="hud">
+
+  <header class="topbar">
+    <span class="brand">JARVIS</span>
+    <nav class="nav">
+      <a href="/dash/">Core</a>
+      <a href="/dash/files">Files</a>
+      <a href="/dash/office">Office</a>
+    </nav>
+    <div class="status-strip">
+      <span data-workspace></span>
+      <span data-agents-summary></span>
+      <span data-connection><span class="dot"></span>Connecting</span>
+    </div>
+  </header>
+
+  <div class="col col-left">
+    <section class="panel">
+      <h2>System Status</h2>
+      <div class="body" id="stats">
+        <div class="empty">Reading sensors…</div>
+      </div>
+    </section>
+
+    <section class="panel grow">
+      <h2>Active Tasks <span class="count" id="task-count"></span></h2>
+      <div class="body" id="tasks">
+        <div class="empty">Nothing running.</div>
+      </div>
+    </section>
+  </div>
+
+  <div class="col col-centre">
+    <div class="readout">
+      <div class="line" id="state-line">Standing by</div>
+      <div class="detail" id="state-detail"></div>
+    </div>
+  </div>
+
+  <div class="col col-right">
+    <section class="panel" id="approvals-panel" style="display:none">
+      <h2>Approval Needed <span class="count" id="approval-count"></span></h2>
+      <div class="body" id="approvals"></div>
+    </section>
+
+    <section class="panel grow">
+      <h2>Recent Activity</h2>
+      <div class="body"><div class="feed" id="feed">
+        <div class="empty">Waiting for Jarvis to do something.</div>
+      </div></div>
+    </section>
+
+    <section class="panel">
+      <h2>Quick Access</h2>
+      <div class="quick">
+        <a href="/dash/files">
+          <svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+          File Constellation
+        </a>
+        <a href="/dash/office">
+          <svg viewBox="0 0 24 24"><path d="M3 21V8l9-5 9 5v13"/><path d="M9 21v-6h6v6"/></svg>
+          Agent Office
+        </a>
+        <a href="/docs" target="_blank" rel="noopener">
+          <svg viewBox="0 0 24 24"><path d="M4 5h16v14H4z"/><path d="M8 9h8M8 13h5"/></svg>
+          API Reference
+        </a>
+        <a href="#" id="mute-toggle">
+          <svg viewBox="0 0 24 24"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/></svg>
+          <span id="mute-label">Voice: on</span>
+        </a>
+      </div>
+    </section>
+  </div>
+
+  <div class="console">
+    <div class="transcript" id="transcript"></div>
+    <div class="console-inner">
+      <input id="prompt" type="text" autocomplete="off" spellcheck="false"
+             placeholder="Tell Jarvis what to do…">
+      <button class="mic" id="mic" title="Listen (click to arm the microphone)">
+        <svg viewBox="0 0 24 24">
+          <rect x="9" y="3" width="6" height="11" rx="3"/>
+          <path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>
+        </svg>
+      </button>
+    </div>
+  </div>
+
+</div>
+
+<div id="toasts"></div>
+
+<div id="gate" style="display:none">
+  <div class="card">
+    <h1>JARVIS</h1>
+    <p>Paste the API token to connect. It is the <code>JARVIS_API_TOKEN</code>
+       you set in <code>.env</code> — generate one with <code>jarvis token</code>.</p>
+    <input type="password" placeholder="API token" autocomplete="off">
+    <button>Connect</button>
+    <div class="err"></div>
+  </div>
+</div>
+
+<script type="module" src="/dash/static/js/page-core.js"></script>
+</body>
+</html>

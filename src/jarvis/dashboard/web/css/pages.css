@@ -1,0 +1,154 @@
+/*
+ * Extras for the Files and Office pages.
+ *
+ * Both are canvas-first: a full-bleed visualisation with HUD panels floating
+ * over it. Only the bits that hud.css does not already cover live here.
+ */
+
+/* -- shared --------------------------------------------------------------- */
+
+#stage canvas { cursor: grab; }
+#stage canvas.dragging { cursor: grabbing; }
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+
+.legend span { display: flex; align-items: center; gap: 6px; }
+
+.legend .key {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  box-shadow: 0 0 7px currentColor;
+}
+
+.key.read { background: var(--accent); color: var(--accent); }
+.key.write { background: var(--green); color: var(--green); }
+.key.delete { background: var(--red); color: var(--red); }
+.key.dir { background: var(--violet); color: var(--violet); }
+.key.idle { background: var(--text-faint); color: var(--text-faint); box-shadow: none; }
+
+.hint {
+  margin-top: 10px;
+  font-size: 10.5px;
+  color: var(--text-faint);
+  line-height: 1.6;
+}
+
+/* -- file rows ------------------------------------------------------------- */
+
+.row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--line-soft);
+  font-size: 12.5px;
+}
+
+.row:last-child { border-bottom: none; }
+
+.row .name {
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.row .val {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-faint);
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+
+/* -- focus card ------------------------------------------------------------ */
+
+.focus-path {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--accent);
+  word-break: break-all;
+  margin-bottom: 8px;
+}
+
+/* -- office ---------------------------------------------------------------- */
+
+.agent-chip {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 9px;
+  align-items: center;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.agent-chip:last-child { border-bottom: none; }
+
+.agent-chip .swatch {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  box-shadow: 0 0 8px currentColor;
+}
+
+.agent-chip .who {
+  font-size: 12.5px;
+  color: var(--text);
+  min-width: 0;
+}
+
+.agent-chip .doing {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-faint);
+  letter-spacing: 0.05em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-chip .where {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  padding: 2px 7px;
+  border: 1px solid var(--line-soft);
+  border-radius: 4px;
+  flex: none;
+}
+
+.agent-chip.idle .who,
+.agent-chip.idle .where { color: var(--text-faint); }
+
+.room-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 5px 0;
+  font-size: 12.5px;
+}
+
+.room-row .tally {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.room-row .pipdot {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}

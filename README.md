@@ -6,10 +6,11 @@ before it acts**, and controls the computer safely — asking for your
 confirmation before dangerous actions and notifying you as work progresses.
 
 ```
-phone ──HTTP+token──▶ API Server ──▶ Brain (local Qwen) ──▶ Planner
-                                          │
-                                    Tool Manager ──▶ permission policy
-                                          │          (confirm dangerous)
+phone ──HTTP+token──▶ API Server ──▶ Brain (local model) ──▶ Planner
+browser ──▶ Dashboard ──┘                 │                 │
+     ▲                                    │        dependency-graph plan
+     └── live events ── Event Bus ── Agent Pool ──▶ Tool Manager ──▶ policy
+                                    (N agents)           │      (confirm dangerous)
                      files · memory · browser · desktop · vision
 ```
 
@@ -146,10 +147,21 @@ Everything else you can type — every command, skill, and API route — is in
 ## What it can do
 
 - **Understand natural language** and answer questions directly, or break a
-  request into an ordered, risk-tagged plan before touching anything.
-- **Execute one step at a time**, observing each result; failing steps are
-  retried, then replanned ("try another approach"), then reported — never
-  crashed on.
+  request into a risk-tagged plan before touching anything.
+- **Work on several things at once.** The plan is a dependency graph, not a
+  queue: steps that genuinely depend on each other stay in order, while
+  independent ones (reading four files, searching two folders) are handed to
+  different agents and run together.
+- **Observe every result**; failing steps are retried, then replanned ("try
+  another approach"), then reported — never crashed on.
+- **A live dashboard** (`[dash]` extra) at `http://127.0.0.1:8765/dash/` —
+  a particle core that reacts to what Jarvis is doing, a constellation of
+  your files that lights up as they are touched, and a pixel office where
+  each agent walks between rooms and sits down to work. See
+  [The dashboard](#the-dashboard).
+- **A voice** (`[voice]` / `[listen]` extras): Jarvis answers in a British
+  neural voice, and listens for a wake word. Speech recognition runs
+  **locally** — recordings never leave the machine.
 - **Files** (always available): read, write, list, move, copy, search,
   organize folders, zip/unzip — all inside a sandboxed workspace directory
   it cannot escape; deletion requires your approval.
@@ -205,6 +217,9 @@ python -m venv .venv
 # Core + API server (the local model needs nothing extra):
 pip install -e ".[api]"
 
+# The web dashboard, and a voice to go with it:
+pip install -e ".[dash,voice,listen]"
+
 # Phone control + push notifications (Telegram / ntfy):
 pip install -e ".[phone]"
 
@@ -216,6 +231,11 @@ pip install -e ".[vision]"    # also install Tesseract OCR for screen reading
 # Only if you want to use Claude instead of a local model:
 pip install -e ".[llm]"
 ```
+
+The voice extras are free and need no account: `voice` uses Microsoft's
+neural voices over plain HTTPS, `listen` runs Whisper on your own machine.
+`voice-offline` adds the built-in Windows voices for when there is no
+internet.
 
 Configure:
 
@@ -299,12 +319,92 @@ jarvis tools
 # One-off task from the terminal (approvals prompt with y/N):
 jarvis run "organize the files in my workspace by extension"
 
-# Control it from your phone via Telegram (recommended — no wifi/LAN needed):
-jarvis phone
+# Everything at once — API, dashboard and Telegram bridge in one process —
+# and open the dashboard in your browser:
+jarvis dash
 
-# Or start the local HTTP API for a custom app / curl on the same network:
+# The same without opening a browser:
 jarvis serve            # add --host 0.0.0.0 to accept LAN connections
+                        # add --no-dash for the API only
+
+# Just the Telegram bridge:
+jarvis phone
 ```
+
+`serve` and `dash` run the API, the dashboard and the phone bridge on one
+event loop **on purpose**: live agent state exists only in memory, so a
+dashboard in a second process would build its own Jarvis and show you an
+emptier one than the one actually doing the work.
+
+## The dashboard
+
+`jarvis dash` opens `http://127.0.0.1:8765/dash/`. Three views onto the same
+live event stream:
+
+- **Core** — a particle sphere that idles cyan, turns amber while Jarvis is
+  thinking, pulses in time with its own voice while speaking, and flares red
+  on failure. Around it: CPU/memory/battery, running tasks with per-step
+  progress, the live activity feed, and approval buttons for dangerous
+  actions. Type at the bottom, or talk to it.
+- **Files** — your workspace as a radial constellation. When Jarvis reads,
+  writes or deletes a file, a pulse travels from the centre out along the
+  folder chain and the node flares: cyan for a read, green for a write, red
+  for a delete. Scroll to zoom, click a node to inspect it.
+- **Office** — the agent pool as pixel characters. Each agent walks to the
+  room its current tool belongs to (files → Archives, browser → Web Wing,
+  memory → Library, screen → Observatory), sits at a free desk, and shows a
+  three-dot typing indicator while the tool runs. Independent steps put
+  several agents to work side by side.
+
+The dashboard uses the same API token as everything else. `jarvis dash` puts
+it in the URL for you; after that it is remembered in the browser.
+
+## Voice
+
+```yaml
+voice:
+  enabled: true
+  provider: edge              # free neural voices, no API key
+  voice: en-GB-RyanNeural     # ThomasNeural = clipped, SoniaNeural = female
+  wake_word: jarvis
+  wake_word_required: true    # false = every utterance is a command
+  stt_provider: whisper       # runs locally; audio never leaves the machine
+  stt_model: small.en         # base.en is faster, medium.en needs more VRAM
+```
+
+Click the microphone once to arm it and it stays listening. It only sends a
+clip when you have actually said something and then stopped, and only acts
+on it if it began with the wake word — so ambient conversation is ignored.
+Matching is deliberately forgiving of how recognisers mishear the name
+("Travis", "Jervis") while still rejecting near-misses like "Marvin" and
+"Harris".
+
+Jarvis speaks the events listed in `voice.speak_events` (by default: task
+finished, task failed, approval needed). Mute it from the Quick Access
+panel without changing config.
+
+> **On the GPU.** Transcription uses the GPU when it can, but CUDA's runtime
+> libraries (cuBLAS, cuDNN) install separately from the graphics driver and
+> are often missing — and the gap only shows up on the first transcription,
+> not when the model loads. Jarvis notices, falls back to the CPU, logs it,
+> and carries on; `small.en` on CPU is perfectly usable. For the GPU path,
+> install the CUDA 12 runtime, or `pip install nvidia-cublas-cu12
+> nvidia-cudnn-cu12`.
+
+## Agents
+
+```yaml
+agent:
+  parallel: true
+  pool_size: 4      # up to 20
+```
+
+The Planner marks which steps depend on which; anything unblocked at the
+same moment runs at the same time, up to `pool_size`. Steps that say nothing
+about ordering are chained, because sequencing is the safe assumption — a
+step that quietly needed an earlier one and ran too early gives a wrong
+answer, whereas one needlessly serialised is merely slower. Dependencies may
+only point at earlier steps, which makes a deadlock structurally impossible.
 
 Every command, every skill, and every API route in one page:
 [docs/COMMANDS.md](docs/COMMANDS.md).
@@ -405,7 +505,7 @@ curl "$BASE/logs?limit=50" -H "Authorization: Bearer $TOKEN"
 
 ```bash
 pip install -e ".[dev,api,phone]"
-pytest          # 170 tests — the whole loop, both providers, all on fakes
+pytest          # the whole loop, both providers, pool, dashboard, voice — all on fakes
 ruff check .    # lint
 mypy src        # strict type-check
 ```
@@ -441,22 +541,24 @@ jq 'select(.level == "ERROR")' jarvis.jsonl                # all errors
 
 ```
 src/jarvis/
-├── core/           domain models (Task, Plan, ToolResult), event bus, errors
+├── core/           domain models (Task, Plan, ToolResult), event bus, redaction
 ├── config/         typed settings (YAML+env) and env-only secrets
 ├── logging/        structured JSON-lines logging with task context
 ├── security/       token auth + safe/confirm permission policy
 ├── brain/          Brain protocol + Ollama (local) and Anthropic providers
-├── planner/        request → validated JSON plan; revision on failure
-├── agent/          the plan → execute → observe orchestrator
+├── planner/        request → validated dependency graph; revision on failure
+├── agent/          orchestrator (policy) + agent pool (concurrency) + roster
 ├── tools/          Tool abstraction, registry, gated ToolManager
 ├── files/          sandboxed file manager + 10 file tools
 ├── memory/         SQLite persistence + 4 memory tools
 ├── browser/        Playwright controller + 8 browser tools
 ├── desktop/        Windows controller (backend-swappable) + 8 tools
 ├── vision/         screenshots + OCR locate + 3 tools
+├── voice/          neural TTS, local Whisper STT, wake-word matching
+├── dashboard/      event hub + routes + the web HUD (no build step)
 ├── notifications/  event → notification service; log/live/push channels
 ├── phone/          Telegram remote-control bridge + HTTP transport
-├── api/            FastAPI server for the phone
+├── api/            FastAPI server for the phone and the dashboard
 └── app/            runtime wiring + the `jarvis` CLI
 ```
 

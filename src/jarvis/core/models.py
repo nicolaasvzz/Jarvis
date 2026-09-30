@@ -87,7 +87,13 @@ class ToolResult(BaseModel):
 
 
 class PlanStep(BaseModel):
-    """A single unit of work inside a :class:`Plan`."""
+    """A single unit of work inside a :class:`Plan`.
+
+    ``depends_on`` holds the ids of steps that must finish first. An empty
+    list means the step can start immediately, which is what lets several
+    agents work on one plan at once. The Planner chains steps by default, so
+    a plan only fans out where it explicitly says the work is independent.
+    """
 
     id: str = Field(default_factory=lambda: new_id("step"))
     description: str
@@ -98,10 +104,23 @@ class PlanStep(BaseModel):
     result: ToolResult | None = None
     error: str | None = None
     attempts: int = 0
+    depends_on: list[str] = Field(default_factory=list)
+    #: Which agent from the pool picked this step up. Observability only —
+    #: execution never depends on it.
+    agent_id: str | None = None
+
+
+_BLOCKING_STEP_STATUSES = frozenset({StepStatus.FAILED, StepStatus.SKIPPED})
 
 
 class Plan(BaseModel):
-    """An ordered list of steps produced for a task before execution begins."""
+    """The steps produced for a task, and the order they may run in.
+
+    Steps form a dependency graph rather than a flat list. A plan whose steps
+    each depend on the previous one executes exactly as a sequential list
+    would; a plan with independent branches lets the agent pool run those
+    branches side by side.
+    """
 
     id: str = Field(default_factory=lambda: new_id("plan"))
     task_id: str
@@ -115,6 +134,38 @@ class Plan(BaseModel):
             (s for s in self.steps if s.status == StepStatus.PENDING),
             None,
         )
+
+    def step(self, step_id: str) -> PlanStep | None:
+        return next((s for s in self.steps if s.id == step_id), None)
+
+    def ready_steps(self) -> list[PlanStep]:
+        """Pending steps whose dependencies have all completed.
+
+        Ids that match no step in this plan are ignored rather than treated
+        as unsatisfied — a hallucinated dependency should not deadlock the
+        plan. The Planner strips them before execution anyway.
+        """
+        by_id = {s.id: s for s in self.steps}
+        ready: list[PlanStep] = []
+        for step in self.steps:
+            if step.status != StepStatus.PENDING:
+                continue
+            deps = (by_id[d] for d in step.depends_on if d in by_id)
+            if all(d.status == StepStatus.COMPLETED for d in deps):
+                ready.append(step)
+        return ready
+
+    def blocked_steps(self) -> list[PlanStep]:
+        """Pending steps that can never run because a dependency did not."""
+        by_id = {s.id: s for s in self.steps}
+        blocked: list[PlanStep] = []
+        for step in self.steps:
+            if step.status != StepStatus.PENDING:
+                continue
+            deps = (by_id[d] for d in step.depends_on if d in by_id)
+            if any(d.status in _BLOCKING_STEP_STATUSES for d in deps):
+                blocked.append(step)
+        return blocked
 
 
 class Task(BaseModel):

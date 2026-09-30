@@ -20,6 +20,7 @@ from jarvis.brain import build_brain
 from jarvis.brain.base import Brain
 from jarvis.config import AppConfig, Secrets, load_config, load_secrets
 from jarvis.core.events import EventBus
+from jarvis.dashboard import DashboardHub
 from jarvis.files import FileManager, build_file_tools
 from jarvis.logging import get_logger, setup_logging
 from jarvis.memory import MemoryStore
@@ -35,6 +36,7 @@ from jarvis.phone import HttpxTransport, TelegramBridge
 from jarvis.planner import Planner
 from jarvis.security import PermissionPolicy
 from jarvis.tools import ToolManager, ToolRegistry
+from jarvis.voice import VoiceService
 
 _log = get_logger(__name__)
 
@@ -58,6 +60,8 @@ class JarvisRuntime:
     orchestrator: Orchestrator
     log_file: Path
     telegram: TelegramBridge | None = None
+    voice: VoiceService | None = None
+    dashboard: DashboardHub | None = None
 
     async def close(self) -> None:
         """Release external resources (browser, database, subscriptions)."""
@@ -67,6 +71,8 @@ class JarvisRuntime:
         transport = getattr(self, "_phone_transport", None)
         if transport is not None:
             await transport.aclose()
+        if self.dashboard is not None:
+            self.dashboard.close()
         # Providers that hold a connection pool (Ollama) expose aclose();
         # the protocol itself does not require one.
         brain_close = getattr(self.brain, "aclose", None)
@@ -156,6 +162,26 @@ def build_runtime(
 
     notifications = NotificationService(bus, channels)
 
+    # Speech is optional in both directions; the service reports what it can
+    # actually do so the dashboard can configure itself honestly.
+    voice = VoiceService(config.voice) if config.voice.enabled else None
+    if voice is not None:
+        _log.info(
+            "voice ready",
+            extra={"speak": voice.can_speak, "listen": voice.can_listen},
+        )
+
+    dashboard: DashboardHub | None = None
+    if config.dashboard.enabled:
+        dashboard = DashboardHub(
+            config=config.dashboard,
+            orchestrator=orchestrator,
+            policy=policy,
+            files=files,
+            voice=voice,
+        )
+        dashboard.attach(bus)
+
     runtime = JarvisRuntime(
         config=config,
         secrets=secrets,
@@ -172,6 +198,8 @@ def build_runtime(
         orchestrator=orchestrator,
         log_file=log_file,
         telegram=telegram,
+        voice=voice,
+        dashboard=dashboard,
     )
     # Kept for close(); not part of the public dataclass fields.
     runtime._browser_controller = browser_controller  # type: ignore[attr-defined]

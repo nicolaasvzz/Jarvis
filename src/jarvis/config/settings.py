@@ -36,6 +36,7 @@ from jarvis.config.schema import (
     AgentConfig,
     ApiServerConfig,
     BrowserConfig,
+    DashboardConfig,
     FilesConfig,
     LLMConfig,
     LoggingConfig,
@@ -43,6 +44,7 @@ from jarvis.config.schema import (
     PushConfig,
     SecurityConfig,
     TelegramConfig,
+    VoiceConfig,
 )
 
 CONFIG_FILE_ENV_VAR = "JARVIS_CONFIG_FILE"
@@ -137,6 +139,8 @@ class AppConfig(BaseSettings):
     agent: AgentConfig = Field(default_factory=AgentConfig)
     push: PushConfig = Field(default_factory=PushConfig)
     telegram: TelegramConfig = Field(default_factory=TelegramConfig)
+    dashboard: DashboardConfig = Field(default_factory=DashboardConfig)
+    voice: VoiceConfig = Field(default_factory=VoiceConfig)
 
     @model_validator(mode="before")
     @classmethod

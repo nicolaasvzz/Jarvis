@@ -9,8 +9,15 @@ Error-handling philosophy (mirrors the project rules):
 * only when no revision is possible does the task fail — and even then it
   fails with a recorded error and a notification, never a crash.
 
-Every state change is published on the event bus (so the phone sees live
-progress) and the finished task is persisted to Memory.
+Execution itself is delegated to the :class:`~jarvis.agent.pool.AgentPool`,
+which runs every currently-unblocked step at once across several agents.
+This module keeps the judgement — retry, revise, give up — because that is
+the part that needs the Planner and the task's history. A plan with no
+parallel branches puts one step in flight at a time, so the behaviour of a
+sequential plan is unchanged.
+
+Every state change is published on the event bus (so the phone and the
+dashboard see live progress) and the finished task is persisted to Memory.
 """
 
 from __future__ import annotations
@@ -18,14 +25,18 @@ from __future__ import annotations
 import asyncio
 import contextlib
 
+from jarvis.agent.pool import AgentPool, StepOutcome
 from jarvis.brain.base import Brain, BrainMessage
 from jarvis.config.schema import AgentConfig
 from jarvis.core.errors import BrainError, PlanningError
 from jarvis.core.events import EventBus, EventType
 from jarvis.core.models import (
+    Plan,
+    PlanStep,
     StepStatus,
     Task,
     TaskStatus,
+    ToolResult,
 )
 from jarvis.logging import get_logger, log_context
 from jarvis.memory.store import MemoryStore
@@ -60,8 +71,14 @@ class Orchestrator:
         self._memory = memory
         self._bus = bus
         self._config = config
+        self._pool = AgentPool(tools=tools, bus=bus, config=config)
         self._tasks: dict[str, Task] = {}
         self._running: dict[str, asyncio.Task[None]] = {}
+
+    @property
+    def pool(self) -> AgentPool:
+        """The agents doing the work — read by the dashboard."""
+        return self._pool
 
     # -- public API -------------------------------------------------------
     async def submit(self, request: str) -> Task:
@@ -143,31 +160,37 @@ class Orchestrator:
             return
 
         task.touch(TaskStatus.RUNNING)
+        width = min(self._pool.width, len(plan.steps))
         await self._bus.emit(
             EventType.TASK_STARTED,
             f"Starting: {plan.goal} ({len(plan.steps)} steps)",
             task_id=task.id,
+            steps=len(plan.steps),
+            agents=width,
         )
 
+        failure = await self._execute_plan(task, plan)
+        if failure is not None:
+            await self._fail(task, failure)
+            return
+
+        task.result = await self._summarise(task)
+        task.touch(TaskStatus.COMPLETED)
+        self._finish(task)
+        await self._bus.emit(EventType.TASK_COMPLETED, task.result, task_id=task.id)
+
+    async def _execute_plan(self, task: Task, plan: Plan) -> str | None:
+        """Run the plan through the pool. Returns an error, or ``None``.
+
+        The handler below is the whole failure policy: retry the step, ask
+        the Planner for a different approach, or give up. The pool calls it
+        once per finished step and obeys whatever it returns.
+        """
         revisions_left = self._config.max_plan_revisions
-        while (step := plan.next_pending()) is not None:
-            step.status = StepStatus.RUNNING
-            step.attempts += 1
-            # Arguments marked "{{from_previous}}" were unknowable when the
-            # plan was written; fill them in now that the earlier steps have
-            # actually produced something.
-            step.arguments = await self._planner.resolve_arguments(
-                task,
-                step,
-                [s for s in plan.steps if s.status == StepStatus.COMPLETED],
-            )
-            result = await self._tools.execute(
-                step.tool or "",
-                step.arguments,
-                task_id=task.id,
-                step_id=step.id,
-            )
-            step.result = result
+        failure: str | None = None
+
+        async def handle(step: PlanStep, result: ToolResult) -> StepOutcome:
+            nonlocal revisions_left, failure
 
             if result.ok:
                 step.status = StepStatus.COMPLETED
@@ -176,8 +199,9 @@ class Orchestrator:
                     f"Done: {step.description}",
                     task_id=task.id,
                     step_id=step.id,
+                    agent_id=step.agent_id,
                 )
-                continue
+                return StepOutcome.CONTINUE
 
             step.error = result.error
             if step.attempts < self._config.max_step_attempts:
@@ -187,15 +211,17 @@ class Orchestrator:
                     f"Retrying: {step.description} ({result.error})",
                     task_id=task.id,
                     step_id=step.id,
+                    agent_id=step.agent_id,
                 )
-                continue
+                return StepOutcome.RETRY
 
             step.status = StepStatus.FAILED
             if revisions_left > 0:
                 revisions_left -= 1
-                remaining = [
-                    s for s in plan.steps if s.status == StepStatus.PENDING
-                ]
+                # Only work that has not started is up for replacement;
+                # steps already running belong to independent branches and
+                # are left to finish.
+                remaining = [s for s in plan.steps if s.status == StepStatus.PENDING]
                 # The finished steps carry the values the replacement needs -
                 # the URLs a search returned, the path a file landed at. Left
                 # out, the model invents them and fails the same way again.
@@ -217,20 +243,28 @@ class Orchestrator:
                         EventType.TASK_PROGRESS,
                         f"Trying another approach ({len(replacement)} new steps).",
                         task_id=task.id,
+                        steps=len(replacement),
                     )
-                    continue
+                    return StepOutcome.CONTINUE
 
-            await self._fail(
-                task,
+            failure = (
                 f"Step failed after {step.attempts} attempts: "
-                f"{step.description} — {result.error}",
+                f"{step.description} — {result.error}"
             )
-            return
+            return StepOutcome.ABORT
 
-        task.result = await self._summarise(task)
-        task.touch(TaskStatus.COMPLETED)
-        self._finish(task)
-        await self._bus.emit(EventType.TASK_COMPLETED, task.result, task_id=task.id)
+        async def prepare(step: PlanStep) -> None:
+            # Arguments marked "{{from_previous}}" were unknowable when the
+            # plan was written; fill them in now that the steps this one
+            # depends on have actually produced something.
+            step.arguments = await self._planner.resolve_arguments(
+                task,
+                step,
+                [s for s in plan.steps if s.status == StepStatus.COMPLETED],
+            )
+
+        await self._pool.execute(task, plan, handle=handle, prepare=prepare)
+        return failure
 
     # -- helpers ------------------------------------------------------------
     def _history_context(self) -> str:

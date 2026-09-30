@@ -19,6 +19,7 @@ from jarvis.config.schema import (
     AgentConfig,
     ApiServerConfig,
     BrowserConfig,
+    DashboardConfig,
     FilesConfig,
     LLMConfig,
     LoggingConfig,
@@ -26,6 +27,7 @@ from jarvis.config.schema import (
     PushConfig,
     SecurityConfig,
     TelegramConfig,
+    VoiceConfig,
 )
 from jarvis.config.secrets import Secrets, load_secrets
 from jarvis.config.settings import AppConfig, load_config, resolve_config_file
@@ -35,6 +37,7 @@ __all__ = [
     "ApiServerConfig",
     "AppConfig",
     "BrowserConfig",
+    "DashboardConfig",
     "FilesConfig",
     "LLMConfig",
     "LoggingConfig",
@@ -43,6 +46,7 @@ __all__ = [
     "Secrets",
     "SecurityConfig",
     "TelegramConfig",
+    "VoiceConfig",
     "load_config",
     "load_secrets",
     "resolve_config_file",
