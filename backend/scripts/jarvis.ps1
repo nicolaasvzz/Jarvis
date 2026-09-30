@@ -727,7 +727,7 @@ else {
 
 Write-Step 'Ready'
 Write-Info "Re-run any time - this script is safe to repeat:  .\backend\scripts\jarvis.ps1"
-Write-Info "Everything else you can type is in docs\COMMANDS.md"
+Write-Info "Everything else you can type is in $(Join-Path $Backend 'docs\COMMANDS.md')"
 
 if (-not $brainReady -and $Start -ne 'none') {
     Write-Warn 'Not starting: Jarvis has no working model yet. Fix the above, then run this again.'

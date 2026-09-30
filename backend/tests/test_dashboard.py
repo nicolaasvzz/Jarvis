@@ -38,9 +38,13 @@ def fake_frontend(root: Path) -> Path:
     for page in ("index.html", "files.html", "office.html", "hud.html"):
         (root / page).parent.mkdir(parents=True, exist_ok=True)
         (root / page).write_text(f"<title>{page}</title>", encoding="utf-8")
-    for asset in ("css/hud.css", "js/hud.js", "config.js"):
+    for asset in ("css/hud.css", "js/lib/hud.js"):
         (root / asset).parent.mkdir(parents=True, exist_ok=True)
         (root / asset).write_text(f"/* {asset} */", encoding="utf-8")
+    (root / "config.js").write_text(
+        'window.HUD_CONFIG = { server: "http://elsewhere:8765", appName: "EDITH" };',
+        encoding="utf-8",
+    )
     return root
 
 
@@ -226,12 +230,15 @@ class TestRoutes:
 
     async def test_served_pages_talk_back_to_this_server(self, tmp_path: Path) -> None:
         # The frontend's own config.js names a server for standalone use;
-        # pages served from here must ignore that and use this origin.
+        # pages served from here must use this origin instead — while
+        # keeping everything else the project configured.
         app, *_ = build(tmp_path)
         async with client_for(app) as client:
             response = await client.get("/dash/config.js")
         assert response.status_code == 200
-        assert 'server: ""' in response.text
+        assert 'appName: "EDITH"' in response.text
+        # The override comes last, so it wins over the file's own server.
+        assert response.text.rstrip().endswith('{ server: "" });')
 
     async def test_without_a_frontend_the_api_still_runs(self, tmp_path: Path) -> None:
         app, *_ = build(tmp_path, frontend=False)
@@ -332,7 +339,7 @@ class TestRoutes:
         app, *_ = build(tmp_path)
         async with client_for(app) as client:
             css = await client.get("/dash/css/hud.css")
-            js = await client.get("/dash/js/hud.js")
+            js = await client.get("/dash/js/lib/hud.js")
         assert css.status_code == 200
         assert js.status_code == 200
         # A module script served as anything else is refused by browsers.

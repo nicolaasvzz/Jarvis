@@ -15,7 +15,7 @@ Takes about 10 minutes.
 ## The quick way
 
 Open **PowerShell** and paste the block from the
-[README's "Start here" section](../README.md#start-here-windows-one-paste).
+[README's "Start here" section](../../README.md#start-here-windows-one-paste).
 It installs everything, asks for your Gemini key (step 1 below explains how
 to get one), and opens the dashboard. If that worked, skip to
 [step 6](#6-try-it). The steps below are the same thing done by hand.

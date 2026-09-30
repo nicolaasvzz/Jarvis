@@ -1,0 +1,182 @@
+/*
+ * Settings, and the connection to the backend: which server, which token,
+ * and which URL each piece of data lives at.
+ *
+ * Everything project-specific about this frontend is resolved here, from the
+ * defaults below merged with window.HUD_CONFIG (config.js). Pages never
+ * hard-code a URL or a name — they ask for a route by name — so pointing the
+ * UI at a different backend, or renaming it, is a config.js edit.
+ *
+ * Which backend to talk to, highest precedence first:
+ *
+ *   1. ?server=http://host:port in the address bar (remembered afterwards)
+ *   2. the server last entered on the connect screen, in this browser
+ *   3. HUD_CONFIG.server, from config.js
+ *   4. this page's own origin
+ *
+ * When the Jarvis backend serves these files itself it appends
+ * `server: ""` (same origin) to config.js, so its own pages always talk back
+ * to it.
+ *
+ * A classic script rather than a module, so the single-page HUD (plain
+ * script) and the dashboard pages (modules) share one implementation.
+ */
+(function () {
+  "use strict";
+
+  var DEFAULTS = {
+    server: "",
+    appName: "JARVIS",
+    // Prefix for everything this UI keeps in localStorage (token, server,
+    // mute), so two projects on one origin do not share a login.
+    storagePrefix: "jarvis.",
+    // Replaces the connect screen's explanation of where the token comes
+    // from, when set. Plain text.
+    tokenHint: "",
+    // The backend API this UI calls, by name. See API.md for what each
+    // must return. "{id}" is filled in by route(name, {id: ...}).
+    routes: {
+      snapshot: "/dash/api/snapshot",
+      stream: "/dash/api/stream",
+      tree: "/dash/api/tree",
+      stats: "/dash/api/stats",
+      command: "/dash/api/command",
+      listen: "/dash/api/listen",
+      speak: "/dash/api/speak",
+      approval: "/approvals/{id}",
+      system: "/system",
+      tasks: "/tasks",
+      notifications: "/notifications",
+      approvals: "/approvals",
+      events: "/events",
+      docs: "/docs",
+    },
+  };
+
+  var custom = window.HUD_CONFIG || {};
+  var settings = {};
+  Object.keys(DEFAULTS).forEach(function (key) {
+    settings[key] = key in custom ? custom[key] : DEFAULTS[key];
+  });
+  settings.routes = {};
+  var customRoutes = custom.routes || {};
+  Object.keys(DEFAULTS.routes).concat(Object.keys(customRoutes)).forEach(function (name) {
+    settings.routes[name] = name in customRoutes ? customRoutes[name] : DEFAULTS.routes[name];
+  });
+
+  // localStorage can be missing or throw (private windows, blocked site
+  // data). Fall back to memory so the page still works for this visit.
+  var memory = {};
+  function load(key) {
+    key = settings.storagePrefix + key;
+    try {
+      return window.localStorage.getItem(key) || "";
+    } catch (_) {
+      return memory[key] || "";
+    }
+  }
+  function save(key, value) {
+    key = settings.storagePrefix + key;
+    memory[key] = value;
+    try {
+      if (value) window.localStorage.setItem(key, value);
+      else window.localStorage.removeItem(key);
+    } catch (_) {
+      /* memory already holds it */
+    }
+  }
+
+  function tidy(value) {
+    return String(value || "").trim().replace(/\/+$/, "");
+  }
+
+  // A server or token handed over in the URL (`jarvis dash` does this) wins
+  // once, then is stored and scrubbed from the address bar so the token does
+  // not linger in browser history.
+  var here = new URL(window.location.href);
+  var scrubbed = false;
+  if (here.searchParams.has("server")) {
+    save("server", tidy(here.searchParams.get("server")));
+    here.searchParams.delete("server");
+    scrubbed = true;
+  }
+  if (here.searchParams.has("token")) {
+    save("token", String(here.searchParams.get("token")).trim());
+    here.searchParams.delete("token");
+    scrubbed = true;
+  }
+  if (scrubbed) window.history.replaceState({}, "", here.toString());
+
+  var Connection = {
+    settings: settings,
+    load: load,
+    save: save,
+
+    /** The backend's base URL, or "" for this page's own origin. */
+    server: function () {
+      return tidy(load("server")) || tidy(settings.server);
+    },
+    setServer: function (value) {
+      save("server", tidy(value));
+    },
+    /** Human-readable form of server(), for messages. */
+    describe: function () {
+      return this.server() || window.location.origin;
+    },
+
+    token: function () {
+      return load("token");
+    },
+    setToken: function (value) {
+      save("token", String(value || "").trim());
+    },
+    clearToken: function () {
+      save("token", "");
+    },
+
+    /** The path for a named route, e.g. route("approval", {id: "a1"}). */
+    route: function (name, params) {
+      var path = settings.routes[name];
+      if (!path) throw new Error("Unknown route: " + name);
+      return path.replace(/\{(\w+)\}/g, function (_, key) {
+        return encodeURIComponent(params && key in params ? params[key] : "");
+      });
+    },
+    /** An absolute URL for an API path such as "/tasks". */
+    url: function (path) {
+      return this.server() + path;
+    },
+    /** url(route(name, params)) — the usual way to address the backend. */
+    endpoint: function (name, params) {
+      return this.url(this.route(name, params));
+    },
+  };
+
+  /* -- branding --------------------------------------------------------- */
+
+  // Elements marked data-app-name show the configured name; "dotted" spells
+  // it J.A.R.V.I.S.-style. Titles are "<name> — <page>".
+  function applyBranding() {
+    var name = String(settings.appName || DEFAULTS.appName);
+    document.querySelectorAll("[data-app-name]").forEach(function (el) {
+      el.textContent =
+        el.getAttribute("data-app-name") === "dotted"
+          ? name.toUpperCase().split("").join(".") + "."
+          : name;
+    });
+    var page = document.documentElement.getAttribute("data-page");
+    document.title = page ? name + " — " + page : name;
+    if (settings.tokenHint) {
+      document.querySelectorAll("[data-token-hint]").forEach(function (el) {
+        el.textContent = settings.tokenHint;
+      });
+    }
+  }
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", applyBranding);
+  } else {
+    applyBranding();
+  }
+
+  window.HudConnection = Connection;
+})();

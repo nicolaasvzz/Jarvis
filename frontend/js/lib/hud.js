@@ -7,12 +7,14 @@
  * it sounds: Jarvis runs for days, laptops sleep, and a HUD that silently
  * stopped updating is worse than one that says it is offline.
  *
- * Which backend to talk to, and the token, come from js/connection.js, which
- * every page loads first.
+ * Which backend to talk to, the token, and every route come from
+ * js/lib/connection.js, which every page loads first. Pages ask for data by
+ * route name — Hud.getJSON(Hud.route("snapshot")) — never by literal path.
  */
 
 export const Hud = (() => {
-  const Connection = window.JarvisConnection;
+  const Connection = window.HudConnection;
+  const appName = () => Connection.settings.appName;
 
   /* -- fetch ------------------------------------------------------------- */
 
@@ -32,7 +34,7 @@ export const Hud = (() => {
     } catch (_) {
       // The browser gives no detail for a refused connection or a CORS
       // rejection; name the server so the fix is obvious.
-      throw new Error(`Could not reach Jarvis at ${Connection.describe()}.`);
+      throw new Error(`Could not reach ${appName()} at ${Connection.describe()}.`);
     }
     if (response.status === 401) {
       Connection.clearToken();
@@ -86,7 +88,7 @@ export const Hud = (() => {
       if (server) Connection.setServer(server.value);
       Connection.setToken(input.value);
       try {
-        await getJSON("/dash/api/snapshot");
+        await getJSON(Connection.route("snapshot"));
         hideGate();
         onReady();
       } catch (err) {
@@ -119,7 +121,7 @@ export const Hud = (() => {
     if (source) source.close();
     // EventSource cannot send headers, so the token rides in the query.
     source = new EventSource(
-      Connection.url(`/dash/api/stream?token=${encodeURIComponent(Connection.token())}`)
+      `${Connection.endpoint("stream")}?token=${encodeURIComponent(Connection.token())}`
     );
 
     source.onopen = () => {
@@ -170,7 +172,7 @@ export const Hud = (() => {
       return;
     }
     try {
-      await getJSON("/dash/api/snapshot");
+      await getJSON(Connection.route("snapshot"));
     } catch (err) {
       // Unreachable is as likely as unauthorised when the frontend is opened
       // on its own, so both lead back to the connect screen.
@@ -247,8 +249,8 @@ export const Hud = (() => {
     });
     // Links into the backend itself (API docs) follow whichever server this
     // page is connected to.
-    document.querySelectorAll("[data-api-link]").forEach((link) => {
-      link.href = Connection.url(link.dataset.apiLink);
+    document.querySelectorAll("[data-route-link]").forEach((link) => {
+      link.href = Connection.endpoint(link.dataset.routeLink);
     });
   }
 
@@ -267,6 +269,10 @@ export const Hud = (() => {
     tone,
     setStatus,
     url: (path) => Connection.url(path),
+    route: (name, params) => Connection.route(name, params),
+    endpoint: (name, params) => Connection.endpoint(name, params),
+    load: (key) => Connection.load(key),
+    save: (key, value) => Connection.save(key, value),
     get token() {
       return Connection.token();
     },

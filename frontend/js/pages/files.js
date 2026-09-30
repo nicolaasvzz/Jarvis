@@ -13,7 +13,7 @@
  * folder rather than a dot merely blinking somewhere.
  */
 
-import { Hud } from "./hud.js";
+import { Hud } from "../lib/hud.js";
 
 const el = (id) => document.getElementById(id);
 const TAU = Math.PI * 2;
@@ -38,7 +38,7 @@ let ratio = 1;
 /* -- boot ------------------------------------------------------------------ */
 
 Hud.start(async () => {
-  const snapshot = await Hud.getJSON("/dash/api/snapshot");
+  const snapshot = await Hud.getJSON(Hud.route("snapshot"));
   document.querySelector("[data-workspace]").textContent = shorten(snapshot.workspace);
 
   await loadTree();
@@ -57,7 +57,7 @@ Hud.start(async () => {
 });
 
 async function loadTree() {
-  const tree = await Hud.getJSON("/dash/api/tree");
+  const tree = await Hud.getJSON(Hud.route("tree"));
   layout(tree);
   el("node-count").textContent = `${nodes.length} nodes${tree.truncated ? " (capped)" : ""}`;
   renderSummary(tree);

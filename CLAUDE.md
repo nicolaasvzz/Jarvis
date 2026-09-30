@@ -6,9 +6,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - [README.md](README.md) — what Jarvis is, the repo's two halves, quick start.
 - [backend/README.md](backend/README.md) — install, model choice, config, phone, HTTP API.
-- [frontend/README.md](frontend/README.md) — the web UI, and running it on its own.
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — module map, design rules, decision log.
-- [docs/COMMANDS.md](docs/COMMANDS.md) — the full runnable command reference.
+- [frontend/README.md](frontend/README.md) — the web UI, running it on its own, reusing it.
+- [frontend/API.md](frontend/API.md) — the backend routes the UI depends on (keep it true).
+- [backend/docs/ARCHITECTURE.md](backend/docs/ARCHITECTURE.md) — module map, design rules, decision log.
+- [backend/docs/COMMANDS.md](backend/docs/COMMANDS.md) — the full runnable command reference.
 
 This file covers only what those don't: the commands, and the invariants that
 span several files.
@@ -19,7 +20,7 @@ span several files.
   `pyproject.toml`, `.env`, `config/`, and the install scripts. **Every Python
   command below runs from `backend/`**, which is also where `jarvis` finds
   `.env` and `config/config.yaml` at runtime.
-- **`frontend/`** — static HTML/JS/CSS, no build step. The backend serves it at
+- **`frontend/`** — static HTML/JS/CSS, no build step, reusable by other projects. The backend serves it at
   `/dash/` when it sits beside `backend/` (`dashboard/frontend.py::find_frontend`);
   otherwise the backend runs headless and a separately-hosted copy connects over
   HTTP (CORS: localhost always, other origins via `api.cors_origins`).
@@ -28,9 +29,13 @@ Keep them separable — each is handed to people on its own:
 
 - The backend must start and pass its tests **without** `frontend/`. Tests that
   need pages build a fake frontend in `tmp_path` (`tests/test_dashboard.py::fake_frontend`).
-- Frontend code reaches the backend only through `js/connection.js`
-  (`JarvisConnection.url(path)`, `Hud.url` in modules). A bare `fetch("/dash/api/...")`
-  works when the backend serves the page and silently breaks every standalone copy.
+- Frontend code reaches the backend only through named routes in
+  `js/lib/connection.js` (`HudConnection.endpoint("snapshot")`, `Hud.route(...)` in
+  modules). A literal `fetch("/dash/api/...")` works when the backend serves the page
+  and silently breaks every standalone copy and every other project using the UI.
+- Changing what a dashboard route returns means updating `frontend/API.md` too —
+  it is the contract other backends implement.
+- `docs/` lives in `backend/docs/`, so the backend folder is complete on its own.
 
 ## Commands
 

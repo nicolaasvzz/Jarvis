@@ -12,8 +12,8 @@
  * image, so twenty agents stay tellable apart.
  */
 
-import { Hud } from "./hud.js";
-import { World, ROOM_BOXES, TILE, COLS, ROWS, FLOOR, WALL, DESK } from "./office-world.js";
+import { Hud } from "../lib/hud.js";
+import { World, ROOM_BOXES, TILE, COLS, ROWS, FLOOR, WALL, DESK } from "../components/office-world.js";
 
 const el = (id) => document.getElementById(id);
 const TAU = Math.PI * 2;
@@ -35,7 +35,7 @@ let hovered = null;
 /* -- boot ------------------------------------------------------------------ */
 
 Hud.start(async () => {
-  const snapshot = await Hud.getJSON("/dash/api/snapshot");
+  const snapshot = await Hud.getJSON(Hud.route("snapshot"));
   rooms = snapshot.rooms || [];
   roomsById = new Map(rooms.map((room) => [room.id, room]));
 

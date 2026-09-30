@@ -22,9 +22,8 @@ paid alternative.
 
 | Folder | What it is | Give it to someone who… |
 |---|---|---|
-| [`backend/`](backend/) | The assistant itself (Python): planner, agents, tools, the HTTP API, phone bridge, voice | …wants their own Jarvis, with or without a web UI |
-| [`frontend/`](frontend/) | The web dashboard (plain HTML/JS, no build step): live core, file constellation, agent office, classic HUD | …wants a UI for a Jarvis that is already running somewhere |
-| [`docs/`](docs/) | Every command, a friend-setup guide, the architecture | …wants to read more |
+| [`backend/`](backend/) | The assistant itself (Python): planner, agents, tools, the HTTP API, phone bridge, voice — plus its docs in [`backend/docs/`](backend/docs/) | …wants their own Jarvis, with or without a web UI |
+| [`frontend/`](frontend/) | The web dashboard (plain HTML/JS, no build step): live core, file constellation, agent office, classic HUD | …wants a UI for a Jarvis running somewhere, or a dashboard for **their own project** — see [frontend/API.md](frontend/API.md) |
 
 The two halves only talk over HTTP, so each works without the other:
 
@@ -246,8 +245,8 @@ such as Tailscale for remote access).
 
 ## More
 
-- [docs/COMMANDS.md](docs/COMMANDS.md) — every command, skill, and API route
-- [docs/SETUP_FOR_A_FRIEND.md](docs/SETUP_FOR_A_FRIEND.md) — a step-by-step
+- [backend/docs/COMMANDS.md](backend/docs/COMMANDS.md) — every command, skill, and API route
+- [backend/docs/SETUP_FOR_A_FRIEND.md](backend/docs/SETUP_FOR_A_FRIEND.md) — a step-by-step
   guide to send to someone setting up their own Jarvis
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — design rules and decisions
-- [backend/README.md](backend/README.md) · [frontend/README.md](frontend/README.md)
+- [backend/docs/ARCHITECTURE.md](backend/docs/ARCHITECTURE.md) — design rules and decisions
+- [backend/README.md](backend/README.md) · [frontend/README.md](frontend/README.md) · [frontend/API.md](frontend/API.md)

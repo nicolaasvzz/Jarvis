@@ -7,15 +7,15 @@
  * to patch the DOM in place. At this scale that is both simpler and faster.
  */
 
-import { Hud } from "./hud.js";
-import { Core } from "./core-visual.js";
-import { Voice } from "./voice.js";
+import { Hud } from "../lib/hud.js";
+import { Core } from "../components/core-visual.js";
+import { Voice } from "../components/voice.js";
 
 const el = (id) => document.getElementById(id);
 
 let core = null;
 let voice = null;
-let muted = localStorage.getItem("jarvis.muted") === "1";
+let muted = Hud.load("muted") === "1";
 let statsTimer = null;
 
 const state = {
@@ -30,7 +30,7 @@ const state = {
 
 Hud.start(async () => {
 
-  const snapshot = await Hud.getJSON("/dash/api/snapshot");
+  const snapshot = await Hud.getJSON(Hud.route("snapshot"));
   core = new Core(el("core"), {
     accent: snapshot.settings.accent,
     particles: snapshot.settings.particles,
@@ -94,7 +94,7 @@ function onFrame(frame) {
 
 async function refreshCollections() {
   try {
-    const snapshot = await Hud.getJSON("/dash/api/snapshot");
+    const snapshot = await Hud.getJSON(Hud.route("snapshot"));
     state.tasks = snapshot.tasks || [];
     state.approvals = snapshot.approvals || [];
     state.agents = snapshot.agents || [];
@@ -109,7 +109,7 @@ async function refreshCollections() {
 
 async function refreshAgents() {
   try {
-    const snapshot = await Hud.getJSON("/dash/api/snapshot");
+    const snapshot = await Hud.getJSON(Hud.route("snapshot"));
     state.agents = snapshot.agents || [];
     renderAgentSummary();
   } catch (_) {
@@ -221,7 +221,7 @@ function renderApprovals() {
       const id = card.getAttribute("data-approval");
       card.querySelectorAll("button").forEach((b) => (b.disabled = true));
       try {
-        await Hud.postJSON(`/approvals/${encodeURIComponent(id)}`, {
+        await Hud.postJSON(Hud.route("approval", { id }), {
           decision: button.getAttribute("data-decide"),
         });
         refreshCollections();
@@ -268,7 +268,7 @@ function renderAgentSummary() {
 function pollStats(intervalSeconds) {
   const run = async () => {
     try {
-      renderStats(await Hud.getJSON("/dash/api/stats"));
+      renderStats(await Hud.getJSON(Hud.route("stats")));
     } catch (_) {
       /* a missed sample is not worth reporting */
     }
@@ -420,7 +420,7 @@ function setupConsole() {
     const text = input.value.trim();
     input.value = "";
     try {
-      const heard = await Hud.postJSON("/dash/api/command", {
+      const heard = await Hud.postJSON(Hud.route("command"), {
         text,
         submit: true,
       });
@@ -443,7 +443,7 @@ function setupMute() {
   el("mute-toggle").addEventListener("click", (event) => {
     event.preventDefault();
     muted = !muted;
-    localStorage.setItem("jarvis.muted", muted ? "1" : "0");
+    Hud.save("muted", muted ? "1" : "0");
     paint();
   });
 }

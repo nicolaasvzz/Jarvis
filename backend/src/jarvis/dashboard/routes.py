@@ -40,9 +40,14 @@ from jarvis.voice.service import VoiceService
 
 _log = get_logger(__name__)
 
-#: Served in place of the frontend's own config.js: pages that came from
-#: this server talk back to this server, whatever the file on disk says.
-_SAME_ORIGIN_CONFIG = 'window.JARVIS_CONFIG = { server: "" };\n'
+#: Appended to the frontend's own config.js when this server serves it:
+#: pages that came from here talk back to here, whatever server the file
+#: names for standalone use. Everything else in the file (name, routes)
+#: is kept.
+_SAME_ORIGIN_OVERRIDE = (
+    "\n// Added by the Jarvis backend: pages served from here talk back to it.\n"
+    "window.HUD_CONFIG = Object.assign(window.HUD_CONFIG || {}, { server: \"\" });\n"
+)
 
 _NO_FRONTEND = """<!doctype html>
 <meta charset="utf-8"><title>Jarvis API</title>
@@ -105,8 +110,10 @@ def build_router(
     # -- the page shell (public, no data) ---------------------------------
     @router.get("/config.js", include_in_schema=False)
     def frontend_config() -> Response:
+        own = web_root / "config.js" if web_root is not None else None
+        base = own.read_text(encoding="utf-8") if own and own.is_file() else ""
         return Response(
-            content=_SAME_ORIGIN_CONFIG,
+            content=base + _SAME_ORIGIN_OVERRIDE,
             media_type="text/javascript",
             headers={"Cache-Control": "no-cache"},
         )

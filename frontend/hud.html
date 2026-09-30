@@ -1,11 +1,11 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-page="HUD">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>J.A.R.V.I.S.</title>
 <script src="config.js"></script>
-<script src="js/connection.js"></script>
+<script src="js/lib/connection.js"></script>
 <style>
 :root {
   --bg:#060610;--cyan:#00f0ff;--cyan20:rgba(0,240,255,.2);--cyan40:rgba(0,240,255,.4);
@@ -129,7 +129,7 @@ body::before{content:'';position:fixed;inset:0;
 
 <div id="login" class="login-overlay">
   <div class="login-box">
-    <div class="login-title">J.A.R.V.I.S.</div>
+    <div class="login-title" data-app-name="dotted">J.A.R.V.I.S.</div>
     <div class="login-sub">Authentication Required</div>
     <input id="login-server" class="login-input" type="url" placeholder="Server (blank = this site)" autocomplete="off" />
     <input id="login-token" class="login-input" type="password" placeholder="API Token" autocomplete="off" />
@@ -148,7 +148,7 @@ body::before{content:'';position:fixed;inset:0;
     <div class="orb-ring r2"></div>
     <div class="orb-ring r3"></div>
     <div class="orb-core"></div>
-    <div class="orb-text">J.A.R.V.I.S.</div>
+    <div class="orb-text" data-app-name="dotted">J.A.R.V.I.S.</div>
   </div>
 
   <div class="nn-label" style="top:10%;left:50%;--c:var(--cyan)">
@@ -194,8 +194,8 @@ body::before{content:'';position:fixed;inset:0;
 <script>
 (function(){
 'use strict';
-// Which backend, and the token: see js/connection.js.
-var C=window.JarvisConnection;
+// Which backend, the token and every route: see js/lib/connection.js.
+var C=window.HudConnection;
 var token=C.token();
 var BASE=C.server();
 var $=function(id){return document.getElementById(id)};
@@ -256,7 +256,7 @@ function drawNN(){ctx.clearRect(0,0,canvas.width,canvas.height);
 initNN();requestAnimationFrame(drawNN);
 
 var everConnected=false;
-function fetchSystem(){api('/system').then(function(d){
+function fetchSystem(){api(C.route('system')).then(function(d){
   everConnected=true;
   conn.classList.add('ok');
   $('nn-brain').textContent=d.brain.provider+' / '+d.brain.model;
@@ -268,9 +268,9 @@ function fetchSystem(){api('/system').then(function(d){
     +'<div class="item"><div class="dot dot-cyan"></div><div class="item-text"><span class="item-label">Total Tasks</span><br><span class="item-val">'+d.total_tasks+'</span></div></div>'
 }).catch(function(e){conn.classList.remove('ok');
   // Never reached at all: most likely the wrong server, so ask again.
-  if(!everConnected&&e.message!=='401')showLogin('Could not reach Jarvis at '+C.describe()+'.')})}
+  if(!everConnected&&e.message!=='401')showLogin('Could not reach '+C.settings.appName+' at '+C.describe()+'.')})}
 
-function fetchTasks(){api('/tasks').then(function(tasks){
+function fetchTasks(){api(C.route('tasks')).then(function(tasks){
   if(!tasks.length){$('t-body').innerHTML='<div class="empty">No tasks yet</div>';return}
   $('t-body').innerHTML=tasks.slice(0,8).map(function(t){
     var txt=esc(t.request.slice(0,50))+(t.request.length>50?'...':'');
@@ -280,7 +280,7 @@ function fetchTasks(){api('/tasks').then(function(tasks){
   }).join('')
 }).catch(function(){})}
 
-function fetchActivity(){api('/notifications').then(function(notes){
+function fetchActivity(){api(C.route('notifications')).then(function(notes){
   if(!notes.length){$('a-body').innerHTML='<div class="empty">No activity yet</div>';return}
   $('a-body').innerHTML=notes.slice(0,8).map(function(n){
     var dc=n.type==='error'?'dot-pink':n.type==='approval'?'dot-amber':'dot-cyan';
@@ -289,7 +289,7 @@ function fetchActivity(){api('/notifications').then(function(notes){
   }).join('')
 }).catch(function(){})}
 
-function fetchApprovals(){api('/approvals').then(function(apps){
+function fetchApprovals(){api(C.route('approvals')).then(function(apps){
   if(!apps.length){$('ap-body').innerHTML='<div class="empty">None pending</div>';return}
   $('ap-body').innerHTML=apps.map(function(a){
     return'<div class="item" style="flex-direction:column">'
@@ -302,19 +302,19 @@ function fetchApprovals(){api('/approvals').then(function(apps){
   }).join('')
 }).catch(function(){})}
 
-window.decide=function(id,decision){apiPost('/approvals/'+id,{decision:decision})
+window.decide=function(id,decision){apiPost(C.route('approval',{id:id}),{decision:decision})
   .then(function(){fetchApprovals()}).catch(function(){})};
 
 var evtSource;
 function connectEvents(){if(evtSource)evtSource.close();
-  evtSource=new EventSource(BASE+'/events?token='+encodeURIComponent(token));
+  evtSource=new EventSource(C.endpoint('events')+'?token='+encodeURIComponent(token));
   evtSource.onmessage=function(){fetchTasks();fetchActivity();fetchApprovals()};
   evtSource.onerror=function(){setTimeout(connectEvents,5000)}}
 
 $('cmd').onkeydown=function(e){if(e.key==='Enter')sendCmd()};
 $('cmd-btn').onclick=sendCmd;
 function sendCmd(){var input=$('cmd');var text=input.value.trim();if(!text)return;input.value='';
-  apiPost('/tasks',{request:text}).then(function(){fetchTasks()}).catch(function(){})}
+  apiPost(C.route('tasks'),{request:text}).then(function(){fetchTasks()}).catch(function(){})}
 
 fetchSystem();fetchTasks();fetchActivity();fetchApprovals();connectEvents();
 setInterval(fetchSystem,15000);setInterval(fetchTasks,5000);

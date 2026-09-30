@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-page="Core">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -14,7 +14,7 @@
 <div class="hud">
 
   <header class="topbar">
-    <span class="brand">JARVIS</span>
+    <span class="brand" data-app-name>JARVIS</span>
     <nav class="nav">
       <a href="index.html">Core</a>
       <a href="files.html">Files</a>
@@ -75,7 +75,7 @@
           <svg viewBox="0 0 24 24"><path d="M3 21V8l9-5 9 5v13"/><path d="M9 21v-6h6v6"/></svg>
           Agent Office
         </a>
-        <a href="#" data-api-link="/docs" target="_blank" rel="noopener">
+        <a href="#" data-route-link="docs" target="_blank" rel="noopener">
           <svg viewBox="0 0 24 24"><path d="M4 5h16v14H4z"/><path d="M8 9h8M8 13h5"/></svg>
           API Reference
         </a>
@@ -107,8 +107,8 @@
 
 <div id="gate" style="display:none">
   <div class="card">
-    <h1>JARVIS</h1>
-    <p>Connect to a Jarvis backend. The token is its <code>JARVIS_API_TOKEN</code>,
+    <h1 data-app-name>JARVIS</h1>
+    <p data-token-hint>Connect to a Jarvis backend. The token is its <code>JARVIS_API_TOKEN</code>,
        from the backend's <code>.env</code> — <code>jarvis token</code> makes one.</p>
     <input name="server" type="url" placeholder="Server — blank means this site" autocomplete="off">
     <input name="token" type="password" placeholder="API token" autocomplete="off">
@@ -118,7 +118,7 @@
 </div>
 
 <script src="config.js"></script>
-<script src="js/connection.js"></script>
-<script type="module" src="js/page-core.js"></script>
+<script src="js/lib/connection.js"></script>
+<script type="module" src="js/pages/core.js"></script>
 </body>
 </html>

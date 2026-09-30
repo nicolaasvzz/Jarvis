@@ -213,7 +213,7 @@ curl -X POST $BASE/approvals/<id> -H "Authorization: Bearer $TOKEN" \
      -H "Content-Type: application/json" -d '{"decision": "allow"}'
 ```
 
-The full list is in [../docs/COMMANDS.md](../docs/COMMANDS.md). Don't expose
+The full list is in [../docs/COMMANDS.md](docs/COMMANDS.md). Don't expose
 the port to the internet; use a VPN such as Tailscale for remote access.
 
 ## Configuration model

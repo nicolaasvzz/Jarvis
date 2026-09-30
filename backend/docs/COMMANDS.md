@@ -11,7 +11,7 @@ differences are `source .venv/bin/activate` instead of
 The repository has two halves: **`backend\`** (the assistant — everything
 below runs there) and **`frontend\`** (the web dashboard, which the backend
 serves at `/dash/`, or which you open on its own — see
-[frontend/README.md](../frontend/README.md)). Run `jarvis` commands from
+[frontend/README.md](../../frontend/README.md)). Run `jarvis` commands from
 inside `backend\`: that is where `.env` and `config\config.yaml` live.
 
 ---
@@ -19,7 +19,7 @@ inside `backend\`: that is where `.env` and `config\config.yaml` live.
 ## The one-paste way
 
 On a machine that has nothing yet — no Git, no Python, no clone — paste the
-block from [the README](../README.md#start-here-windows-one-paste) (same
+block from [the README](../../README.md#start-here-windows-one-paste) (same
 content as `backend\scripts\bootstrap.ps1`). It installs the prerequisites,
 clones Jarvis, and then runs the script below with every skill pack.
 
@@ -181,7 +181,7 @@ jarvis brain                          # provider, model, and whether the key wor
 ```
 
 Using Claude instead (paid) — see
-[Choosing the model](../backend/README.md#choosing-the-model).
+[Choosing the model](../README.md#choosing-the-model).
 
 Now the workspace — the only folder Jarvis may touch. This creates it and
 prints the exact two lines to paste into the config:
