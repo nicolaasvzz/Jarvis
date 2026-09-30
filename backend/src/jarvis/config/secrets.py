@@ -25,6 +25,10 @@ class Secrets(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         extra="ignore",
+        # .env.example ships every key as "KEY=" for people to fill in. An
+        # unfilled one must read as missing - so require() can say where to
+        # get it - not as an empty secret that fails later and less clearly.
+        env_ignore_empty=True,
     )
 
     # Gemini API key for the default Brain (env: GEMINI_API_KEY, or

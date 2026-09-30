@@ -72,6 +72,20 @@ class TestGeminiProvider:
             build_brain(LLMConfig(provider="gemini"), _no_secrets())
         assert "aistudio.google.com" in str(caught.value)
 
+    def test_an_unfilled_key_in_dotenv_counts_as_missing(self, tmp_path: Path) -> None:
+        # .env.example ships "GEMINI_API_KEY=" empty; copying it unchanged
+        # must produce the "get a free key" message, not a request Google
+        # rejects with an empty key.
+        (tmp_path / ".env").write_text(
+            "GEMINI_API_KEY=\nJARVIS_API_TOKEN=\n", encoding="utf-8"
+        )
+        secrets = load_secrets()
+        assert secrets.gemini_api_key is None
+        with pytest.raises(RuntimeError, match="aistudio.google.com"):
+            build_brain(LLMConfig(provider="gemini"), secrets)
+        with pytest.raises(RuntimeError, match="JARVIS_API_TOKEN"):
+            secrets.require("jarvis_api_token")
+
     def test_accepts_googles_own_key_name(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("GOOGLE_API_KEY", "google-key")
         secrets = load_secrets(env_file=None)
