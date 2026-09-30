@@ -1,7 +1,7 @@
 # The backend API this frontend expects
 
-Everything the pages show comes from these HTTP routes. The Jarvis backend
-implements all of them; to drive this UI from **another project**, implement
+Everything the pages show comes from these HTTP routes. `backend/jarvis.py`
+implements all of them (`listen` answers 503 — it has no speech input); to drive this UI from **another project**, implement
 the ones for the pages you want and point `config.js` at your server. Route
 paths are defaults — rename any of them under `routes` in `config.js`.
 

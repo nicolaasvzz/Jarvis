@@ -88,6 +88,11 @@
   </div>
 
   <div class="console">
+    <div class="reply" id="reply" hidden>
+      <button class="reply-close" id="reply-close" title="Hide">×</button>
+      <div class="reply-q" id="reply-q"></div>
+      <div class="reply-a" id="reply-a"></div>
+    </div>
     <div class="transcript" id="transcript"></div>
     <div class="console-inner">
       <input id="prompt" type="text" autocomplete="off" spellcheck="false"
@@ -108,8 +113,8 @@
 <div id="gate" style="display:none">
   <div class="card">
     <h1 data-app-name>JARVIS</h1>
-    <p data-token-hint>Connect to a Jarvis backend. The token is its <code>JARVIS_API_TOKEN</code>,
-       from the backend's <code>.env</code> — <code>jarvis token</code> makes one.</p>
+    <p data-token-hint>Connect to Jarvis. The token is <code>JARVIS_API_TOKEN</code> in
+       <code>backend/.env</code> — <code>jarvis.py</code> makes one on its first run.</p>
     <input name="server" type="url" placeholder="Server — blank means this site" autocomplete="off">
     <input name="token" type="password" placeholder="API token" autocomplete="off">
     <button>Connect</button>

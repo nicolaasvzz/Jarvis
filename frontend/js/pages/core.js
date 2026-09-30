@@ -58,6 +58,7 @@ Hud.start(async () => {
 
   pollStats(snapshot.settings.stats_interval || 2);
   Hud.onEvent(onFrame);
+  el("reply-close").addEventListener("click", () => (el("reply").hidden = true));
 });
 
 /* -- live events ----------------------------------------------------------- */
@@ -87,9 +88,65 @@ function onFrame(frame) {
     Hud.toast(frame.message, "bad");
   }
 
+  if (frame.type === "task.completed" || frame.type === "task.failed") {
+    showReply(frame);
+  }
+
   if (frame.speak && !muted && voice) voice.say(frame.message);
 
   refreshState();
+}
+
+/* -- the reply panel: Jarvis's latest answer, readable in full ------------- */
+
+let awaiting = null; // the task id of the request just typed, if any
+
+function showReply(frame) {
+  const task = state.tasks.find((t) => t.id === frame.task_id);
+  const asked = (frame.data && frame.data.request) || (task && task.request) || "";
+  // Background terminal windows finish whenever they finish; only let them
+  // replace the panel when nothing newer is being waited on.
+  if (awaiting && frame.task_id !== awaiting && !asked) return;
+  if (frame.task_id === awaiting) awaiting = null;
+  paintReply(asked, frame.message, frame.type === "task.failed");
+}
+
+function paintReply(question, answer, failed = false, thinking = false) {
+  el("reply").hidden = false;
+  el("reply-q").textContent = question;
+  const body = el("reply-a");
+  body.classList.toggle("bad", failed);
+  body.classList.toggle("thinking", thinking);
+  body.innerHTML = thinking ? Hud.escape(answer) : markdown(answer);
+  body.scrollTop = 0;
+}
+
+/** Just enough Markdown for chat replies: paragraphs, lists, bold, code, links. */
+function markdown(text) {
+  const inline = (line) =>
+    Hud.escape(line)
+      .replace(/`([^`]+)`/g, "<code>$1</code>")
+      .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+      .replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
+      .replace(/(^|[\s(])(https?:\/\/[^\s<)]+)/g, '$1<a href="$2" target="_blank" rel="noopener">$2</a>');
+  const html = [];
+  let list = null;
+  for (const raw of String(text || "").split(/\n/)) {
+    const line = raw.trimEnd();
+    const item = line.match(/^\s*(?:[-*•]|\d+[.)])\s+(.*)$/);
+    if (item) {
+      if (!list) html.push((list = "<ul>"));
+      html.push(`<li>${inline(item[1])}</li>`);
+      continue;
+    }
+    if (list) {
+      html.push("</ul>");
+      list = null;
+    }
+    if (line.trim()) html.push(`<p>${inline(line.replace(/^#+\s*/, ""))}</p>`);
+  }
+  if (list) html.push("</ul>");
+  return html.join("");
 }
 
 async function refreshCollections() {
@@ -149,7 +206,7 @@ function refreshState() {
     detail = state.tasks[0].error || "";
   } else if (state.tasks.length) {
     line = "Standing by";
-    detail = state.tasks[0].result || "";
+    detail = plain(state.tasks[0].result);
   }
 
   // Speaking overrides the mood so the pulse follows the voice.
@@ -248,7 +305,7 @@ function renderFeed() {
         <div class="feed-item">
           <span class="pip ${Hud.tone(frame.type)}"></span>
           <span class="txt">
-            <span class="msg">${Hud.escape(frame.message)}</span>
+            <span class="msg">${Hud.escape(plain(frame.message))}</span>
             <span class="meta">${Hud.escape(bits.join(" · "))}</span>
           </span>
         </div>`;
@@ -283,7 +340,7 @@ function renderStats(stats) {
   if (!stats.available) {
     host.innerHTML =
       '<div class="empty">Install psutil for live system stats:<br>' +
-      '<code>pip install "jarvis-assistant[dash]"</code></div>';
+      '<code>pip install psutil</code></div>';
     return;
   }
 
@@ -389,7 +446,7 @@ function setupVoice(capability) {
     mic.title = "Listening is not installed — text still works";
     mic.addEventListener("click", () =>
       Hud.toast(
-        'Listening needs: pip install "jarvis-assistant[listen]"',
+        "Listening isn't built in — type to Jarvis instead.",
         "bad"
       )
     );
@@ -419,11 +476,13 @@ function setupConsole() {
     if (event.key !== "Enter" || !input.value.trim()) return;
     const text = input.value.trim();
     input.value = "";
+    paintReply(text, "Thinking…", false, true);
     try {
       const heard = await Hud.postJSON(Hud.route("command"), {
         text,
         submit: true,
       });
+      if (heard.task_id) awaiting = heard.task_id;
       if (!heard.submitted && !heard.addressed) {
         Hud.toast(
           `Start with “${(heard.details && heard.details.wake_word) || "Jarvis"}” or turn off wake_word_required.`,
@@ -449,6 +508,15 @@ function setupMute() {
 }
 
 /* -- helpers ---------------------------------------------------------------- */
+
+/** One-line form of a reply: Markdown marks removed, lines joined. */
+function plain(text) {
+  return String(text || "")
+    .replace(/\*\*|__|`/g, "")
+    .replace(/^\s*(?:#+|[-*•])\s+/gm, "")
+    .replace(/\s*\n+\s*/g, " — ")
+    .trim();
+}
 
 function truncate(text, max) {
   const value = String(text || "");

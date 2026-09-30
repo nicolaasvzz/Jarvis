@@ -376,7 +376,7 @@ function renderSummary(tree) {
     <div class="row"><span class="name">Folders</span><span class="val">${Math.max(0, dirs.length - 1)}</span></div>
     <div class="row"><span class="name">Total size</span><span class="val">${Hud.bytes(total)}</span></div>
     <div class="row"><span class="name">Depth scanned</span><span class="val">${tree.depth}</span></div>
-    ${tree.truncated ? '<div class="hint">Node cap reached — raise dashboard.file_tree_max_nodes to see more.</div>' : ""}
+    ${tree.truncated ? '<div class="hint">Node cap reached — only the first few hundred entries are drawn.</div>' : ""}
   `;
 }
 

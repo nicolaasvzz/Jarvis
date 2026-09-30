@@ -16,9 +16,9 @@ other projects too.
 
 ## Open it
 
-**Served by the Jarvis backend** — with this folder beside `backend/`,
-`jarvis dash` opens it at `http://127.0.0.1:8765/dash/` and it connects to
-that backend automatically.
+**Served by Jarvis** — with this folder beside `backend/`,
+`python jarvis.py` opens it at `http://127.0.0.1:8765/dash/` and it connects
+to that backend automatically.
 
 **On its own** — browsers won't run these pages from a `file://`
 double-click, so serve the folder:
@@ -33,8 +33,8 @@ Then fill in the connect screen:
 
 - **Server** — the backend's address, e.g. `http://127.0.0.1:8765`. Leave it
   blank only when the backend serves the page itself.
-- **API token** — the backend's token (for Jarvis: `JARVIS_API_TOKEN` from
-  its `.env`; `jarvis token` makes one).
+- **API token** — the backend's token (for Jarvis: `JARVIS_API_TOKEN` in
+  `backend/.env`, made on its first run).
 
 Both are remembered in the browser. To send someone a link that already
 points at the right backend, add `?server=`:
@@ -85,23 +85,23 @@ there are no other paths to find and change.
 
 A frontend opened on `localhost` or `127.0.0.1` (any port) can talk to a
 Jarvis backend on the same PC with no changes. For one opened from another
-address, the backend's owner adds two lines to `backend/config/config.yaml`
-and restarts it:
+address, the backend's owner adds two lines to `backend/.env` and restarts it:
 
-```yaml
-api:
-  host: 0.0.0.0                    # listen on the network
-  cors_origins:
-    - http://192.168.1.30:8080     # exactly where this frontend is opened
+```
+JARVIS_HOST=0.0.0.0
+JARVIS_CORS_ORIGINS=http://192.168.1.30:8080
 ```
 
-If the connect screen says it *could not reach* the backend, it's almost
-always one of: the backend isn't running, the server address is wrong, or
-the page's address isn't in `cors_origins`.
+(`JARVIS_HOST` makes it listen on the network; `JARVIS_CORS_ORIGINS` is
+exactly where this frontend is opened.) If the connect screen says it
+*could not reach* the backend, it's almost always one of: the backend isn't
+running, the server address is wrong, or the page's address isn't in
+`JARVIS_CORS_ORIGINS`.
 
-> **Microphone:** browsers only allow the mic on `https://` pages or on
-> `localhost`. Voice works when the page is opened on `localhost`; on a LAN
-> address, typing still works but the mic stays off.
+> **Voice:** Jarvis speaks its answers when `edge-tts` is installed on the
+> backend. The pages can also listen through the microphone if a backend
+> implements the `listen` route (see API.md) — `jarvis.py` doesn't, so you
+> type instead.
 
 ## Files
 

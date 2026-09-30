@@ -4,12 +4,10 @@ Reads the hook payload on stdin, picks out the edited file, and runs the same
 checks the project uses by hand:
 
 * ``ruff check`` on any Python file in the repo
-* ``mypy`` on files under ``backend/src/`` (matching the ``mypy src`` command
-  run from ``backend/``; the test suite is not type-checked)
+* ``mypy --strict`` on ``backend/jarvis.py`` (the tests are not type-checked)
 
-Both run from ``backend/``, where ``pyproject.toml`` holds their settings —
-run from the repo root, mypy would find no config and silently drop strict
-mode.
+There is no pyproject.toml any more, so the settings are passed on the
+command line — the same ones CLAUDE.md lists.
 
 Clean file -> exit 0, silent. Problems -> print them and exit 2, which feeds
 the output back to Claude so it fixes the file without re-reading it.
@@ -73,9 +71,10 @@ def main() -> int:
     if path is None:
         return 0
 
-    checks = [("ruff", ["ruff", "check"])]
-    if path.resolve().is_relative_to(BACKEND / "src"):
-        checks.append(("mypy", ["mypy"]))
+    checks = [("ruff", ["ruff", "check", "--line-length", "100",
+                        "--select", "E,F,I,UP,B,SIM"])]
+    if path.resolve() == (BACKEND / "jarvis.py").resolve():
+        checks.append(("mypy", ["mypy", "--strict", "--ignore-missing-imports"]))
 
     problems = [(name, out) for name, cmd in checks if (out := run(cmd, path))]
     if not problems:
