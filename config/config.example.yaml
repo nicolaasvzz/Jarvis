@@ -11,24 +11,31 @@
 api:
   host: 127.0.0.1     # use 0.0.0.0 to accept connections from your phone
   port: 8765
+  # Other web pages allowed to call this API — e.g. a copy of the frontend
+  # hosted somewhere else. Pages on localhost (any port) are always allowed.
+  # The API token is still required either way.
+  # cors_origins:
+  #   - http://192.168.1.20:8080
 
 llm:
-  # ollama    = a model running on THIS machine. No API key, no account,
-  #             and no conversation ever leaves the computer.
-  # anthropic = the hosted Claude API; that one needs ANTHROPIC_API_KEY
-  #             in .env.
+  # gemini    = Google's Gemini API. A FREE key from
+  #             https://aistudio.google.com/apikey is enough — put it in .env
+  #             as GEMINI_API_KEY.
+  # anthropic = the hosted Claude API (paid); needs ANTHROPIC_API_KEY in .env.
   # Both can also be set with the short LLM_PROVIDER / LLM_MODEL
   # environment variables, which override this file.
-  provider: ollama
-  model: gpt-oss:20b    # omit to get the provider's default model
+  provider: gemini
+  model: gemini-3.8-flash   # omit to get the provider's default model.
+                            # gemini-3.5-flash-lite is lighter still.
   max_tokens: 16000
 
-  # -- ollama only --
-  base_url: http://localhost:11434
-  timeout: 180          # seconds; a local model is slower than a hosted API
-  context_window: 8192  # num_ctx — too small silently truncates the prompt
-  # temperature: 0.2    # lower makes the planner's JSON more reliable
-  # think: false        # gpt-oss reasons by default; false answers faster
+  # -- gemini only --
+  thinking_level: low   # minimal | low | medium | high | null (model default).
+                        # Thinking counts against the free tier, so low is a
+                        # good balance. Gemini 2.5 models need null.
+  timeout: 120          # seconds to wait for one answer
+  max_retries: 3        # retries when the free tier's per-minute limit is hit
+  # temperature: 1.0    # unset = the model's default (Google's advice for 3.x)
 
   # -- anthropic only --
   effort: high          # low | medium | high | xhigh | max
@@ -47,6 +54,7 @@ agent:
   pool_size: 4           # how many agents may work on one plan at once (1-20).
                          # Only steps the planner marked independent run in
                          # parallel, so raising this never reorders real work.
+                         # On the free tier, lower it if you hit rate limits.
 
 logging:
   level: INFO

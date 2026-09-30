@@ -105,11 +105,26 @@ async def test_unknown_tool_is_rejected() -> None:
             "steps": [{"description": "x", "tool": "not_a_tool", "arguments": {}}],
         }
     )
-    # Same invalid answer twice: the validation error is not a JSON error,
-    # so it fails immediately without a retry.
-    planner = _planner(ScriptedBrain([bad, bad]))
+    # Same invalid answer twice: one corrective retry, then it fails.
+    brain = ScriptedBrain([bad, bad])
+    planner = _planner(brain)
     with pytest.raises(PlanningError, match="not_a_tool"):
         await planner.plan(Task(request="r"))
+    assert len(brain.calls) == 2
+
+
+async def test_unknown_tool_is_retried_with_the_reason() -> None:
+    bad = json.dumps(
+        {
+            "goal": "g",
+            "steps": [{"description": "x", "tool": "not_a_tool", "arguments": {}}],
+        }
+    )
+    brain = ScriptedBrain([bad, _plan_json()])
+    plan, _ = await _planner(brain).plan(Task(request="r"))
+    assert [s.tool for s in plan.steps] == ["write_file", "delete_path"]
+    # The retry told the model exactly what was wrong.
+    assert "not_a_tool" in brain.calls[1]["messages"][-1].content
 
 
 async def test_revise_returns_replacement_steps() -> None:

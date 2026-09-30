@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from pydantic import SecretStr
+from pydantic import AliasChoices, Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -27,7 +27,16 @@ class Secrets(BaseSettings):
         extra="ignore",
     )
 
-    # Anthropic API key for the Brain module (env: ANTHROPIC_API_KEY).
+    # Gemini API key for the default Brain (env: GEMINI_API_KEY, or
+    # GOOGLE_API_KEY — the name Google's own tools use). Free from
+    # https://aistudio.google.com/apikey
+    gemini_api_key: SecretStr | None = Field(
+        default=None,
+        validation_alias=AliasChoices("gemini_api_key", "google_api_key"),
+    )
+
+    # Anthropic API key, needed only for llm.provider "anthropic"
+    # (env: ANTHROPIC_API_KEY).
     anthropic_api_key: SecretStr | None = None
 
     # Shared token the phone client must present to the API server

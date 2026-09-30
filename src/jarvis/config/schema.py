@@ -15,7 +15,7 @@ Secrets are deliberately NOT part of this schema — see
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from platformdirs import user_data_path, user_log_path
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -26,9 +26,14 @@ _APP_NAME = "jarvis"
 # switching providers is a one-line change and never leaves a model name
 # pointing at the wrong service.
 DEFAULT_MODELS = {
-    "ollama": "gpt-oss:20b",
+    "gemini": "gemini-3.8-flash",
     "anthropic": "claude-opus-4-8",
 }
+
+# Settings that only ever meant something to the removed Ollama provider.
+# Named here so an old config fails with directions instead of a bare
+# "extra inputs are not permitted".
+_REMOVED_OLLAMA_KEYS = ("context_window", "think", "num_gpu", "keep_alive")
 
 
 class _Section(BaseModel):
@@ -42,16 +47,22 @@ class ApiServerConfig(_Section):
 
     host: str = "127.0.0.1"
     port: int = Field(default=8765, ge=1, le=65535)
+    # Web pages allowed to call the API from another origin — a copy of the
+    # frontend opened on its own, rather than served by this server. Any
+    # port on localhost is always allowed; list other origins here, or
+    # ["*"] for any. The API token is still required either way: this only
+    # decides which pages the browser lets *try*.
+    cors_origins: list[str] = Field(default_factory=list)
 
 
 class LLMConfig(_Section):
     """Settings for the language model behind the Brain module.
 
     ``provider`` chooses which implementation of the Brain protocol gets
-    built. The default is ``ollama``: a model running on this machine, so
-    no API key is needed and no conversation leaves the computer.
-    ``anthropic`` stays available as an optional provider — picking it is
-    the only thing that requires ``ANTHROPIC_API_KEY``.
+    built. The default is ``gemini``: Google's hosted models, where a free
+    API key from https://aistudio.google.com/apikey is enough.
+    ``anthropic`` stays available as an optional provider and needs
+    ``ANTHROPIC_API_KEY`` instead.
 
     Leaving ``model`` unset selects the right default for the chosen
     provider (see :data:`DEFAULT_MODELS`).
@@ -59,34 +70,44 @@ class LLMConfig(_Section):
 
     model_config = ConfigDict(extra="forbid", protected_namespaces=())
 
-    provider: Literal["ollama", "anthropic"] = "ollama"
+    provider: Literal["gemini", "anthropic"] = "gemini"
     model: str = ""
     max_tokens: int = Field(default=16000, gt=0)
 
     # Anthropic only: how hard the model should think before answering.
     effort: Literal["low", "medium", "high", "xhigh", "max"] = "high"
 
-    # Ollama only ---------------------------------------------------------
-    # Where the local Ollama server listens.
-    base_url: str = "http://localhost:11434"
-    # Local models generate far slower than a hosted API, and the first
-    # request also pays for loading the weights into memory.
-    timeout: float = Field(default=180.0, gt=0)
-    # Ollama's own default context window is small enough that the
-    # planner's tool catalogue can overflow it — and an overflowing prompt
-    # is silently truncated rather than rejected, so set it explicitly.
-    context_window: int = Field(default=8192, gt=0)
-    # Left unset, the model's own defaults apply. Lower values make the
-    # planner's JSON output more reliable on small local models.
+    # Gemini only ---------------------------------------------------------
+    base_url: str = "https://generativelanguage.googleapis.com/v1beta"
+    # Seconds to wait for one model call before giving up on it.
+    timeout: float = Field(default=120.0, gt=0)
+    # How much the model reasons before answering. Thinking tokens count
+    # against the free tier's limits like any other output, so the default
+    # is low; null leaves it to the model (Gemini 2.5 models need null).
+    thinking_level: Literal["minimal", "low", "medium", "high"] | None = "low"
+    # Left unset, the model's own default applies — Google recommends
+    # keeping Gemini 3 models at theirs.
     temperature: float | None = Field(default=None, ge=0.0, le=2.0)
-    # A reasoning model's thinking: true/false to switch it on or off, or
-    # "low"/"medium"/"high" to set the effort (gpt-oss supports the levels;
-    # qwen3 takes the booleans). Unset means "whatever the model does by
-    # default", which for gpt-oss is verbose enough to spend a whole
-    # generation budget thinking and return nothing - see config.yaml.
-    # Note false is not the same as "low": switching gpt-oss's analysis
-    # channel off entirely makes it answer with an empty string.
-    think: bool | Literal["low", "medium", "high"] | None = None
+    # Retries for a rate-limited (429) or overloaded (5xx) call. The free
+    # tier is limited per minute, so a short wait usually gets through.
+    max_retries: int = Field(default=3, ge=0, le=10)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _explain_removed_ollama(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        stale = [key for key in _REMOVED_OLLAMA_KEYS if key in data]
+        if data.get("provider") == "ollama" or stale:
+            raise ValueError(
+                "Ollama support has been removed. Set llm.provider to "
+                "'gemini' (free key: https://aistudio.google.com/apikey) or "
+                "'anthropic', and delete "
+                + (", ".join(f"llm.{key}" for key in stale) or "the Ollama settings")
+                + " from config.yaml — also check LLM_PROVIDER / LLM_BASE_URL "
+                "in .env."
+            )
+        return data
 
     @model_validator(mode="after")
     def _default_model_for_provider(self) -> LLMConfig:

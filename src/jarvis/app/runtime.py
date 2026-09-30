@@ -73,7 +73,7 @@ class JarvisRuntime:
             await transport.aclose()
         if self.dashboard is not None:
             self.dashboard.close()
-        # Providers that hold a connection pool (Ollama) expose aclose();
+        # Providers that hold a connection pool (Gemini) expose aclose();
         # the protocol itself does not require one.
         brain_close = getattr(self.brain, "aclose", None)
         if brain_close is not None:
@@ -90,8 +90,8 @@ def build_runtime(
     """Load config, wire every module, and return the ready runtime.
 
     ``brain`` may be injected (tests, offline mode); otherwise the provider
-    named by ``llm.provider`` is built — by default a local Ollama model,
-    which needs no API key.
+    named by ``llm.provider`` is built — by default Gemini, which needs
+    only a free ``GEMINI_API_KEY``.
     """
     config = load_config(config_file)
     log_file = setup_logging(config.logging)

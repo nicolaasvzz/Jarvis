@@ -63,7 +63,6 @@ _active_yaml_file: ContextVar[Path | None] = ContextVar(
 _LLM_ENV_VARS = {
     "LLM_PROVIDER": "provider",
     "LLM_MODEL": "model",
-    "LLM_BASE_URL": "base_url",
 }
 
 _DEFAULT_ENV_FILE = Path(".env")
@@ -93,7 +92,7 @@ def _read_env_file(path: Path) -> dict[str, str]:
 class LLMEnvSource(PydanticBaseSettingsSource):
     """Reads the short ``LLM_*`` provider variables into the ``llm`` section.
 
-    ``LLM_PROVIDER=ollama`` and ``LLM_MODEL=gpt-oss:20b`` are read from the
+    ``LLM_PROVIDER=gemini`` and ``LLM_MODEL=gemini-3.8-flash`` are read from the
     process environment or from ``.env``, and merged into the same section
     as ``JARVIS_LLM__*`` — which, sitting higher in the source order, still
     wins if both are set.

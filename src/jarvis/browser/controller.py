@@ -20,11 +20,10 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 _log = get_logger(__name__)
 
 _SEARCH_URL = "https://duckduckgo.com/html/?q={query}"
-# ~1.5k tokens. The old 20k chars was ~5k tokens on its own, which against a
-# num_ctx of 8192 left the tool schemas and the task itself fighting for what
-# remained - and Ollama drops the overflow silently, so the model planned from
-# a prompt it never fully saw. An excerpt it can actually read beats a full
-# page it cannot.
+# ~1.5k tokens. The old 20k chars was ~5k tokens on its own - every page read
+# lands in the next prompt, so a full page is paid for again on each step
+# that follows, and on a rate-limited free tier that is the budget that runs
+# out first. An excerpt the model can actually use beats a full page.
 _MAX_PAGE_TEXT = 6_000
 
 

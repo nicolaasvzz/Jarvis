@@ -37,13 +37,10 @@ PYTHONPATH=src python -m mypy src      # strict, must be clean
 ruff check .                           # lint, no PYTHONPATH needed
 ```
 
-**One test makes a live model call.** `TestAgainstARealOllama` skips itself
-when no Ollama server is listening, but on a machine where one *is* listening
-it calls the configured model under `llm.timeout` (180s). On a 4GB-VRAM card a
-cold `gpt-oss:20b` load can exceed that, so the test fails on a suite's first
-run and passes on the second once the model is resident. If it is the only
-failure, re-run it before investigating — you are looking at a cold start, not
-a regression.
+**No test makes a live model call.** The Gemini brain is exercised against a
+fake HTTP transport, so the suite needs no API key and never spends free-tier
+quota. To check a real key and model, run `jarvis brain` — it looks the model
+up without generating anything.
 
 ## Adding a new tool
 
@@ -129,11 +126,11 @@ Tool Manager, phone bridge, API server — sees only the `Brain` protocol from
    `complete()` takes `system`, `messages`, and optional `tools`, and returns a
    `BrainResponse`.
 2. Translate tool schemas **inside your provider.** Tools are defined once in
-   Anthropic's shape; each provider adapts them to its own wire format (Ollama
-   converts to the OpenAI function shape). Keep native tool calling — do not
+   Anthropic's shape; each provider adapts them to its own wire format (Gemini
+   turns them into `functionDeclarations` with `parametersJsonSchema`). Keep native tool calling — do not
    stringify tools into the prompt, which loses structured calls.
 3. Add a branch to `build_brain`, with the provider import **local to that
-   branch.** This is why running on Ollama never imports `anthropic` and never
+   branch.** This is why running on Gemini never imports `anthropic` and never
    asks for an API key. A module-level import would undo that.
 4. Enforce that provider's requirements only inside its own branch — an API
    key, a reachable server — so users of other providers are never asked for
@@ -142,13 +139,12 @@ Tool Manager, phone bridge, API server — sees only the `Brain` protocol from
    `extra="forbid"`, so a typo in YAML becomes a startup error rather than a
    silently ignored key.
 
-Test it with a fake HTTP transport, the way `test_ollama_brain.py` does, so the
-suite needs no server. Add a live test only if it skips cleanly when nothing is
-listening.
+Test it with a fake HTTP transport, the way `test_gemini_brain.py` does, so the
+suite needs no key, no network, and spends no quota.
 
 ## Before you call it done
 
-- `PYTHONPATH=src python -m pytest` — green, with the cold-start caveat above
+- `PYTHONPATH=src python -m pytest` — green
 - `PYTHONPATH=src python -m mypy src` — clean; the project is strict
 - `ruff check .` — clean
 - New tunables in `config/schema.py`, not hardcoded

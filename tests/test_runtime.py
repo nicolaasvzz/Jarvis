@@ -2,23 +2,26 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 from pathlib import Path
 
 import pytest
 
 from jarvis.app import build_runtime
-from jarvis.app.cli import main
-from jarvis.brain import OllamaBrain
+from jarvis.app.cli import main, resolve_approval_interactively
+from jarvis.brain import GeminiBrain
+from jarvis.config.schema import SecurityConfig
 from jarvis.core.errors import BrainError
-from jarvis.core.models import TaskStatus
+from jarvis.core.models import ApprovalDecision, ApprovalRequest, TaskStatus
+from jarvis.security import PermissionPolicy
 from tests.helpers import ScriptedBrain
 
 
 @pytest.fixture(autouse=True)
 def _isolated_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     for key in list(os.environ):
-        if key.startswith(("JARVIS_", "ANTHROPIC_", "LLM_")):
+        if key.startswith(("JARVIS_", "ANTHROPIC_", "GEMINI_", "GOOGLE_", "LLM_")):
             monkeypatch.delenv(key)
     monkeypatch.chdir(tmp_path)
     # Point all state at the temp dir via env overrides.
@@ -69,19 +72,27 @@ async def test_runtime_end_to_end_task(tmp_path: Path) -> None:
         await runtime.close()
 
 
-async def test_default_runtime_uses_a_local_brain_with_no_api_key() -> None:
-    """A default install must come up with no API key present at all."""
+async def test_default_runtime_needs_only_a_gemini_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A default install comes up on Gemini with nothing but its free key."""
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
     assert "ANTHROPIC_API_KEY" not in os.environ
-    runtime = build_runtime()  # no brain injected, no key in env
+    runtime = build_runtime()  # no brain injected
     try:
-        assert isinstance(runtime.brain, OllamaBrain)
-        assert runtime.config.llm.provider == "ollama"
-        assert runtime.config.llm.model == "gpt-oss:20b"
+        assert isinstance(runtime.brain, GeminiBrain)
+        assert runtime.config.llm.provider == "gemini"
+        assert runtime.config.llm.model == "gemini-3.8-flash"
         # The Planner and Orchestrator hold the very same Brain instance.
         assert runtime.planner._brain is runtime.brain
         assert runtime.orchestrator._brain is runtime.brain
     finally:
         await runtime.close()
+
+
+def test_missing_gemini_key_is_a_clear_error() -> None:
+    with pytest.raises(RuntimeError, match="GEMINI_API_KEY"):
+        build_runtime()  # no brain injected, no key in env
 
 
 def test_missing_api_key_is_a_clear_error_when_anthropic_is_chosen(
@@ -90,6 +101,36 @@ def test_missing_api_key_is_a_clear_error_when_anthropic_is_chosen(
     monkeypatch.setenv("LLM_PROVIDER", "anthropic")
     with pytest.raises(RuntimeError, match="ANTHROPIC_API_KEY"):
         build_runtime()  # no brain injected, no key in env
+
+
+class TestInteractiveApproval:
+    """``jarvis run`` asks at the terminal; with no terminal it must deny."""
+
+    @staticmethod
+    def _pending() -> tuple[PermissionPolicy, ApprovalRequest]:
+        policy = PermissionPolicy(SecurityConfig())
+        request = policy.create_request(
+            task_id="t1", tool="delete_path", arguments={"path": "x"}, reason="r"
+        )
+        return policy, request
+
+    async def test_no_terminal_denies_instead_of_hanging(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        def no_stdin(_prompt: str) -> str:
+            raise EOFError
+
+        monkeypatch.setattr("builtins.input", no_stdin)
+        policy, request = self._pending()
+        waiter = asyncio.create_task(policy.wait_for(request.id))
+        await resolve_approval_interactively(policy, request.id, request, auto_yes=False)
+        # The waiting task is woken with a denial, not left hanging.
+        assert await asyncio.wait_for(waiter, timeout=1) is ApprovalDecision.DENY
+
+    async def test_yes_flag_allows_without_asking(self) -> None:
+        policy, request = self._pending()
+        await resolve_approval_interactively(policy, request.id, request, auto_yes=True)
+        assert await policy.wait_for(request.id) is ApprovalDecision.ALLOW
 
 
 def test_cli_token_prints_a_strong_token(capsys: pytest.CaptureFixture[str]) -> None:
@@ -101,39 +142,39 @@ def test_cli_token_prints_a_strong_token(capsys: pytest.CaptureFixture[str]) -> 
 class TestCliBrainCommand:
     """``jarvis brain`` is how you check the model connection from a terminal."""
 
-    def test_reports_the_local_provider_and_confirms_the_model(
+    def test_reports_the_provider_and_confirms_the_model(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        async def models(_self: OllamaBrain) -> list[str]:
-            return ["llama3.1:8b", "gpt-oss:20b"]
+        async def describe(_self: GeminiBrain) -> dict[str, object]:
+            return {"displayName": "Gemini 3.8 Flash", "inputTokenLimit": 1048576}
 
-        monkeypatch.setattr(OllamaBrain, "list_models", models)
+        monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+        monkeypatch.setattr(GeminiBrain, "describe_model", describe)
         assert main(["brain"]) == 0
         output = capsys.readouterr().out
-        assert "provider: ollama" in output
-        assert "model:    gpt-oss:20b" in output
-        assert "endpoint: http://localhost:11434" in output
-        assert "is available" in output
+        assert "provider: gemini" in output
+        assert "model:    gemini-3.8-flash" in output
+        assert "Gemini 3.8 Flash (1,048,576 token context)" in output
+        assert "ready" in output
 
-    def test_missing_model_exits_nonzero_with_the_pull_command(
+    def test_a_rejected_key_exits_nonzero(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        async def models(_self: OllamaBrain) -> list[str]:
-            return ["llama3.1:8b"]
+        async def describe(_self: GeminiBrain) -> dict[str, object]:
+            raise BrainError("Gemini rejected the API key")
 
-        monkeypatch.setattr(OllamaBrain, "list_models", models)
+        monkeypatch.setenv("GEMINI_API_KEY", "bad-key")
+        monkeypatch.setattr(GeminiBrain, "describe_model", describe)
         assert main(["brain"]) == 1
-        assert "ollama pull gpt-oss:20b" in capsys.readouterr().err
+        assert "NOT usable" in capsys.readouterr().err
 
-    def test_unreachable_server_exits_nonzero(
-        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    def test_gemini_without_a_key_explains_itself(
+        self, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        async def models(_self: OllamaBrain) -> list[str]:
-            raise BrainError("Could not reach Ollama at http://localhost:11434")
-
-        monkeypatch.setattr(OllamaBrain, "list_models", models)
         assert main(["brain"]) == 1
-        assert "NOT reachable" in capsys.readouterr().err
+        err = capsys.readouterr().err
+        assert "GEMINI_API_KEY" in err
+        assert "aistudio.google.com" in err
 
     def test_anthropic_without_a_key_explains_itself(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]

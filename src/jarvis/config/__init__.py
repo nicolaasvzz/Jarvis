@@ -5,8 +5,8 @@ precedence first:
 
 1. Environment variables (``JARVIS_``-prefixed, ``__`` for nesting,
    e.g. ``JARVIS_API__PORT=9000``)
-2. The short provider variables ``LLM_PROVIDER``, ``LLM_MODEL`` and
-   ``LLM_BASE_URL``, read from the environment or ``.env``
+2. The short provider variables ``LLM_PROVIDER`` and ``LLM_MODEL``, read
+   from the environment or ``.env``
 3. A YAML config file (``config/config.yaml`` by default)
 4. Typed defaults defined in :mod:`jarvis.config.schema`
 

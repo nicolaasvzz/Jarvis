@@ -251,8 +251,7 @@ class Planner:
         user_content = task.request if not context else f"{context}\n\nRequest: {task.request}"
         messages = [BrainMessage(role="user", content=user_content)]
 
-        parsed = await self._complete_json(system, messages)
-        steps = self._validate_steps(parsed.get("steps", []))
+        parsed, steps = await self._complete_plan(system, messages)
         plan = Plan(
             task_id=task.id,
             goal=str(parsed.get("goal", task.request)),
@@ -347,11 +346,40 @@ class Planner:
         }
         messages = [BrainMessage(role="user", content=json.dumps(summary, indent=2))]
         try:
-            parsed = await self._complete_json(system, messages)
-            return self._validate_steps(parsed.get("steps", []))
+            _parsed, steps = await self._complete_plan(system, messages)
+            return steps
         except PlanningError as exc:
             _log.warning("plan revision failed", extra={"error": str(exc)})
             return []
+
+    async def _complete_plan(
+        self, system: str, messages: list[BrainMessage]
+    ) -> tuple[dict[str, Any], list[PlanStep]]:
+        """Get a plan and its validated steps, retrying once on a bad step.
+
+        Well-formed JSON can still name a tool that does not exist or pass
+        arguments that are not an object. Saying exactly what was wrong is
+        usually enough for the next attempt to fix it — and one retry on
+        this rare path is cheaper than failing a whole task.
+        """
+        parsed = await self._complete_json(system, messages)
+        try:
+            return parsed, self._validate_steps(parsed.get("steps", []))
+        except PlanningError as exc:
+            _log.warning("plan invalid, retrying", extra={"error": str(exc)})
+            retry_messages = [
+                *messages,
+                BrainMessage(role="assistant", content=json.dumps(parsed)),
+                BrainMessage(
+                    role="user",
+                    content=(
+                        f"That plan is invalid ({exc}). "
+                        "Reply again with ONLY a corrected JSON object."
+                    ),
+                ),
+            ]
+            parsed = await self._complete_json(system, retry_messages)
+            return parsed, self._validate_steps(parsed.get("steps", []))
 
     async def _complete_json(
         self, system: str, messages: list[BrainMessage]

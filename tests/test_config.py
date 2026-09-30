@@ -16,7 +16,7 @@ from jarvis.config.settings import CONFIG_FILE_ENV_VAR
 def _clean_environment(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """Isolate every test from the host environment and working directory."""
     for key in list(os.environ):
-        if key.startswith(("JARVIS_", "ANTHROPIC_", "LLM_")):
+        if key.startswith(("JARVIS_", "ANTHROPIC_", "GEMINI_", "GOOGLE_", "LLM_")):
             monkeypatch.delenv(key)
     monkeypatch.chdir(tmp_path)
 
@@ -32,10 +32,11 @@ class TestDefaults:
         config = load_config()
         assert config.api.host == "127.0.0.1"
         assert config.api.port == 8765
-        # Local-first: no API key needed for a default install.
-        assert config.llm.provider == "ollama"
-        assert config.llm.model == "gpt-oss:20b"
-        assert config.llm.base_url == "http://localhost:11434"
+        # Gemini by default: a free API key is all a new install needs.
+        assert config.llm.provider == "gemini"
+        assert config.llm.model == "gemini-3.8-flash"
+        assert config.llm.base_url == "https://generativelanguage.googleapis.com/v1beta"
+        assert config.llm.thinking_level == "low"
         assert config.logging.level == "INFO"
         assert config.browser.engine == "chromium"
         assert "delete_files" in config.security.require_confirmation
@@ -102,8 +103,8 @@ class TestShippedExample:
         copied = tmp_path / "config.yaml"
         copied.write_text(example.read_text(encoding="utf-8"), encoding="utf-8")
         config = load_config(copied)
-        assert config.llm.provider == "ollama"
-        assert config.llm.model == "gpt-oss:20b"
+        assert config.llm.provider == "gemini"
+        assert config.llm.model == "gemini-3.8-flash"
 
     def test_a_section_with_only_comments_falls_back_to_defaults(
         self, tmp_path: Path
@@ -131,34 +132,32 @@ class TestProviderSelection:
     def test_short_env_vars_select_the_provider(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setenv("LLM_PROVIDER", "ollama")
-        monkeypatch.setenv("LLM_MODEL", "qwen3:8b")
-        monkeypatch.setenv("LLM_BASE_URL", "http://127.0.0.1:11434")
+        monkeypatch.setenv("LLM_PROVIDER", "anthropic")
+        monkeypatch.setenv("LLM_MODEL", "claude-sonnet-5-5")
         config = load_config()
-        assert config.llm.provider == "ollama"
-        assert config.llm.model == "qwen3:8b"
-        assert config.llm.base_url == "http://127.0.0.1:11434"
+        assert config.llm.provider == "anthropic"
+        assert config.llm.model == "claude-sonnet-5-5"
 
     def test_short_env_vars_are_read_from_dotenv(self, tmp_path: Path) -> None:
         (tmp_path / ".env").write_text(
-            "# a comment\nLLM_PROVIDER=ollama\nLLM_MODEL='qwen3:8b'\n",
+            "# a comment\nLLM_PROVIDER=gemini\nLLM_MODEL='gemini-3.5-flash-lite'\n",
             encoding="utf-8",
         )
         config = load_config()
-        assert config.llm.provider == "ollama"
-        assert config.llm.model == "qwen3:8b"
+        assert config.llm.provider == "gemini"
+        assert config.llm.model == "gemini-3.5-flash-lite"
 
     def test_short_env_vars_override_yaml(self, tmp_path: Path, monkeypatch) -> None:
         config_file = write_yaml(tmp_path, "llm:\n  provider: anthropic\n")
-        monkeypatch.setenv("LLM_PROVIDER", "ollama")
-        assert load_config(config_file).llm.provider == "ollama"
+        monkeypatch.setenv("LLM_PROVIDER", "gemini")
+        assert load_config(config_file).llm.provider == "gemini"
 
     def test_prefixed_env_var_wins_over_the_short_name(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setenv("LLM_MODEL", "qwen3:8b")
-        monkeypatch.setenv("JARVIS_LLM__MODEL", "qwen3:14b")
-        assert load_config().llm.model == "qwen3:14b"
+        monkeypatch.setenv("LLM_MODEL", "gemini-3.5-flash")
+        monkeypatch.setenv("JARVIS_LLM__MODEL", "gemini-3.8-flash")
+        assert load_config().llm.model == "gemini-3.8-flash"
 
     def test_model_defaults_to_the_providers_own_model(
         self, monkeypatch: pytest.MonkeyPatch

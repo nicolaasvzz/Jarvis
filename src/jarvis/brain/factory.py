@@ -7,7 +7,7 @@ API server) sees only the protocol, so this is the sole place that changes
 when a provider is added or swapped.
 
 Each provider's requirements are enforced *only* when that provider is
-selected: running on Ollama never asks for an Anthropic API key, and the
+selected: running on Gemini never asks for an Anthropic API key, and the
 ``anthropic`` package is never even imported.
 """
 
@@ -27,14 +27,17 @@ def build_brain(config: LLMConfig, secrets: Secrets) -> Brain:
     The imports are deliberately local: selecting one provider must not
     drag the other's dependencies into the process.
     """
-    if config.provider == "ollama":
-        from jarvis.brain.ollama_brain import OllamaBrain
+    if config.provider == "gemini":
+        from jarvis.brain.gemini_brain import API_KEY_URL, GeminiBrain
 
-        _log.info(
-            "using ollama brain",
-            extra={"model": config.model, "base_url": config.base_url},
-        )
-        return OllamaBrain(config)
+        try:
+            api_key = secrets.require("gemini_api_key")
+        except RuntimeError as exc:
+            raise RuntimeError(
+                f"{exc} A free key comes from {API_KEY_URL}"
+            ) from exc
+        _log.info("using gemini brain", extra={"model": config.model})
+        return GeminiBrain(config, api_key)
 
     if config.provider == "anthropic":
         from jarvis.brain.anthropic_brain import AnthropicBrain
@@ -46,5 +49,5 @@ def build_brain(config: LLMConfig, secrets: Secrets) -> Brain:
     # Unreachable while provider is a Literal, but a wrong value from a
     # future edit should fail loudly rather than silently pick a provider.
     raise ValueError(  # pragma: no cover - guarded by the config schema
-        f"Unknown LLM provider {config.provider!r}. Supported: ollama, anthropic."
+        f"Unknown LLM provider {config.provider!r}. Supported: gemini, anthropic."
     )

@@ -80,10 +80,11 @@ internals — `Brain` is a Protocol for exactly this reason.
 
 **8. Provider selection lives only in `brain/factory.py`.**
 `build_brain()` is the one place that picks an implementation, and its provider
-imports are deliberately local so selecting Ollama never imports `anthropic` and
-never asks for an API key. The default provider is a **local Ollama model**
-(`gpt-oss:20b`), not Anthropic. Everything downstream sees only the `Brain`
-protocol — don't import a concrete brain anywhere else.
+imports are deliberately local so selecting Gemini never imports `anthropic` and
+never asks for an Anthropic key. The default provider is **Gemini**
+(`gemini-3.8-flash`, which a free AI Studio key covers), not Anthropic.
+Everything downstream sees only the `Brain` protocol — don't import a concrete
+brain anywhere else.
 
 ## Layout gotchas
 
@@ -122,9 +123,7 @@ the calls it received. The Telegram bridge and push channel are testable the sam
 way via the `HttpTransport` protocol — no bot, account, or network in CI. New
 integrations should follow that shape: define the protocol, fake it in tests.
 
-**One test talks to a real server.** `TestAgainstARealOllama` skips itself when no
-Ollama is listening, but on a machine where one *is* listening it makes a live
-model call under `llm.timeout` (180s). On a 4GB-VRAM card a cold `gpt-oss:20b`
-load can blow that budget, so this test fails on the first run of a suite and
-passes on the second once the model is resident. A failure here alone is a cold
-start, not a regression — re-run it before investigating.
+**No test talks to a real model.** The Gemini brain is tested against
+`httpx.MockTransport` ([`tests/test_gemini_brain.py`](tests/test_gemini_brain.py)),
+so the suite needs no key and no network, and spends none of the free tier's
+quota. Keep it that way: a live call belongs in `jarvis brain`, not in CI.

@@ -34,9 +34,20 @@ from jarvis import __version__
 
 if TYPE_CHECKING:
     from jarvis.app.runtime import JarvisRuntime
+    from jarvis.core.models import ApprovalRequest
+    from jarvis.security import PermissionPolicy
 
 
 def main(argv: list[str] | None = None) -> int:
+    # A model is free to answer with any Unicode it likes (smart quotes,
+    # non-breaking hyphens, ...); Windows' console defaults to cp1252, which
+    # cannot encode most of that and would crash the CLI on a perfectly
+    # successful response.
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            reconfigure(encoding="utf-8", errors="replace")
+
     parser = argparse.ArgumentParser(
         prog="jarvis", description="Jarvis — personal AI desktop assistant"
     )
@@ -250,9 +261,44 @@ def _open_dashboard(host: str, port: int, token: str) -> None:
         webbrowser.open(url)
 
 
+async def resolve_approval_interactively(
+    policy: PermissionPolicy,
+    approval_id: str,
+    request: ApprovalRequest,
+    *,
+    auto_yes: bool,
+) -> None:
+    """Resolve one pending approval: auto-allow, ask the terminal, or deny.
+
+    ``policy.resolve()`` must be called whatever happens here — the task
+    waiting on this approval blocks on an event that only that call sets,
+    so an uncaught exception would hang it forever rather than fail it.
+    """
+    from jarvis.core.models import ApprovalDecision
+
+    if auto_yes:
+        print("  --yes given: approving automatically")
+        policy.resolve(approval_id, ApprovalDecision.ALLOW)
+        return
+    try:
+        answer = await asyncio.to_thread(
+            input, f"  Approve {request.tool} {request.arguments}? [y/N] "
+        )
+    except EOFError:
+        # No terminal to ask (stdin closed or redirected): deny, not hang.
+        print("  no input available to answer this - denying by default")
+        answer = "n"
+    decision = (
+        ApprovalDecision.ALLOW
+        if answer.strip().lower() in {"y", "yes"}
+        else ApprovalDecision.DENY
+    )
+    policy.resolve(approval_id, decision)
+
+
 async def _run_once(args: argparse.Namespace) -> int:
     from jarvis.core.events import Event, EventType
-    from jarvis.core.models import ApprovalDecision, TaskStatus
+    from jarvis.core.models import TaskStatus
 
     runtime = _build(args)
     if runtime is None:
@@ -263,21 +309,10 @@ async def _run_once(args: argparse.Namespace) -> int:
         if event.type is EventType.APPROVAL_REQUIRED:
             approval_id = str(event.data.get("approval_id"))
             request = runtime.policy.get(approval_id)
-            if request is None:
-                return
-            if args.yes:
-                print("  --yes given: approving automatically")
-                runtime.policy.resolve(approval_id, ApprovalDecision.ALLOW)
-                return
-            answer = await asyncio.to_thread(
-                input, f"  Approve {request.tool} {request.arguments}? [y/N] "
-            )
-            decision = (
-                ApprovalDecision.ALLOW
-                if answer.strip().lower() in {"y", "yes"}
-                else ApprovalDecision.DENY
-            )
-            runtime.policy.resolve(approval_id, decision)
+            if request is not None:
+                await resolve_approval_interactively(
+                    runtime.policy, approval_id, request, auto_yes=args.yes
+                )
 
     runtime.bus.subscribe(on_event)
     try:
@@ -302,7 +337,7 @@ async def _check_brain(args: argparse.Namespace) -> int:
     """
     import logging
 
-    from jarvis.brain import OllamaBrain, build_brain
+    from jarvis.brain import GeminiBrain, build_brain
     from jarvis.config import load_config, load_secrets
     from jarvis.core.errors import BrainError
 
@@ -320,34 +355,27 @@ async def _check_brain(args: argparse.Namespace) -> int:
         print(f"Cannot use this provider: {exc}", file=sys.stderr)
         return 1
 
-    if not isinstance(brain, OllamaBrain):
+    if not isinstance(brain, GeminiBrain):
         print("endpoint: Anthropic API (hosted)")
         return 0
 
     print(f"endpoint: {config.llm.base_url}")
     try:
-        models = await brain.list_models()
+        # A model lookup, not a generation: proves the key and the model
+        # name without spending any of the free tier's request budget.
+        info = await brain.describe_model()
     except BrainError as exc:
-        print(f"NOT reachable: {exc}", file=sys.stderr)
+        print(f"NOT usable: {exc}", file=sys.stderr)
         return 1
     finally:
         await brain.aclose()
 
-    print(f"connected: yes — {len(models)} model(s) downloaded")
-    # "gpt-oss" in config means "gpt-oss:latest" to Ollama.
-    wanted = {config.llm.model}
-    if ":" not in config.llm.model:
-        wanted.add(f"{config.llm.model}:latest")
-    if wanted & set(models):
-        print(f"model {config.llm.model!r} is available — Jarvis is ready.")
-        return 0
-    print(
-        f"model {config.llm.model!r} is NOT downloaded "
-        f"(have: {', '.join(models) or 'none'}).\n"
-        f"Download it with: ollama pull {config.llm.model}",
-        file=sys.stderr,
-    )
-    return 1
+    name = info.get("displayName") or config.llm.model
+    limit = info.get("inputTokenLimit")
+    detail = f" ({limit:,} token context)" if isinstance(limit, int) else ""
+    print(f"connected: yes — {name}{detail}")
+    print("Jarvis is ready.")
+    return 0
 
 
 def _list_tools(args: argparse.Namespace) -> int:
