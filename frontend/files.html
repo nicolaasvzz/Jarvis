@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>JARVIS — File Constellation</title>
-  <link rel="stylesheet" href="/dash/static/css/hud.css">
-  <link rel="stylesheet" href="/dash/static/css/pages.css">
+  <link rel="stylesheet" href="css/hud.css">
+  <link rel="stylesheet" href="css/pages.css">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='11' fill='none' stroke='%2322d3ee' stroke-width='3'/><circle cx='16' cy='16' r='4' fill='%2322d3ee'/></svg>">
 </head>
 <body>
@@ -17,9 +17,10 @@
   <header class="topbar">
     <span class="brand">JARVIS</span>
     <nav class="nav">
-      <a href="/dash/">Core</a>
-      <a href="/dash/files">Files</a>
-      <a href="/dash/office">Office</a>
+      <a href="index.html">Core</a>
+      <a href="files.html">Files</a>
+      <a href="office.html">Office</a>
+      <a href="hud.html">HUD</a>
     </nav>
     <div class="status-strip">
       <span data-workspace></span>
@@ -76,14 +77,17 @@
 <div id="gate" style="display:none">
   <div class="card">
     <h1>JARVIS</h1>
-    <p>Paste the API token to connect. It is the <code>JARVIS_API_TOKEN</code>
-       you set in <code>.env</code> — generate one with <code>jarvis token</code>.</p>
-    <input type="password" placeholder="API token" autocomplete="off">
+    <p>Connect to a Jarvis backend. The token is its <code>JARVIS_API_TOKEN</code>,
+       from the backend's <code>.env</code> — <code>jarvis token</code> makes one.</p>
+    <input name="server" type="url" placeholder="Server — blank means this site" autocomplete="off">
+    <input name="token" type="password" placeholder="API token" autocomplete="off">
     <button>Connect</button>
     <div class="err"></div>
   </div>
 </div>
 
-<script type="module" src="/dash/static/js/page-files.js"></script>
+<script src="config.js"></script>
+<script src="js/connection.js"></script>
+<script type="module" src="js/page-files.js"></script>
 </body>
 </html>

@@ -50,12 +50,12 @@ order in which they are being built.
 |---|---|---|
 | Configuration | `jarvis.config` | Typed settings from defaults → YAML → env vars; secrets kept structurally separate |
 | Logging | `jarvis.logging` | Structured JSON-lines logs + console output, with task context propagation |
-| Brain | `jarvis.brain` | LLM connection (local Ollama by default; Anthropic optional); decides what to do next |
+| Brain | `jarvis.brain` | LLM connection (Gemini by default; Anthropic optional); decides what to do next |
 | Planner | `jarvis.planner` | Breaks requests into a risk-tagged dependency graph of steps |
 | Agent Pool | `jarvis.agent.pool` | Runs every unblocked step at once across named agents |
 | Memory | `jarvis.memory` | Persistent conversations, preferences, and task history |
 | Voice | `jarvis.voice` | Neural speech out; wake-word listening, transcribed locally |
-| Dashboard | `jarvis.dashboard` | Live web HUD: particle core, file constellation, agent office |
+| Dashboard | `jarvis.dashboard` + `frontend/` | The event hub and API behind the web UI; the pages themselves are the separate `frontend/` folder |
 | Tool Manager | `jarvis.tools` | Tool registry + dispatch; enforces permissions; logs every invocation |
 | Desktop Controller | `jarvis.desktop` | Windows control: apps, windows, mouse, keyboard |
 | Browser Controller | `jarvis.browser` | Playwright web automation |
@@ -97,6 +97,7 @@ order in which they are being built.
 | Decision | Why |
 |---|---|
 | Python 3.11+, `src/` layout | Modern typing (`X | Y`, `Self`); `src/` layout prevents accidentally importing the uninstalled tree |
+| `backend/` and `frontend/` as separate top-level folders | Each half can be handed to someone on its own. They share nothing but HTTP: the backend runs headless without the pages, and the pages connect to any backend by URL + token. The backend serves `../frontend` at `/dash/` when it is there |
 | pydantic-settings for config | Typed validation at startup, env + YAML layering built in, clear errors on typos (`extra="forbid"` per section) |
 | Separate `Secrets` settings class | Makes committing a secret structurally impossible, not just discouraged |
 | stdlib `logging` + custom JSON formatter | Zero extra dependencies, universally compatible with libraries, easy to swap for structlog later if needed (the module is replaceable) |
@@ -106,15 +107,18 @@ order in which they are being built.
 | Telegram bridge for phone control | Outbound long-poll only — no LAN, no port-forwarding, no exposed server; works over any internet (even a phone tether), which is exactly the "no wifi on the laptop" case. Gives push + full control in one integration |
 | HTTP behind an `HttpTransport` protocol | The Telegram bridge and push channel are fully unit-testable with a fake transport — no real bot/account/network needed in CI |
 | `owner_chat_id` allowlist for Telegram | A personal bot must obey only its owner; unknown chats are refused (but told their own id, to ease first-run setup) |
-| Local Ollama model as the default Brain | A desktop assistant reads files, screens, and messages; keeping the model on the machine means none of that is sent anywhere, needs no API key, and costs nothing per task. Design rule 1 already made the provider replaceable, so this is a configuration change, not a rewrite |
-| Providers chosen in one factory (`brain.factory`) | Selection lives in exactly one place, and each provider's requirements (an API key, a running server) are enforced only when that provider is picked — so Ollama users are never asked for `ANTHROPIC_API_KEY` |
-| Tool schemas translated inside each Brain | Tools are defined once, in Anthropic's shape, and each provider adapts them to its own wire format (Ollama wants the OpenAI function shape). Native tool calling is preserved on both — no stringifying tools into the prompt |
+| Gemini as the default Brain | A free AI Studio key covers it, so a new install costs nothing and needs no GPU. It replaced a local Ollama provider: local models were free too, but needed a large download and a strong machine, which is the wrong default for sharing Jarvis with anyone. Design rule 1 made this a provider swap, not a rewrite |
+| Gemini over plain HTTPS, no SDK | `httpx` is already in the base install; one fewer dependency, and the brain is tested against a fake transport with no key and no network |
+| Rate limits absorbed in the brain | The free tier is limited per minute. A `429` waits as long as Google asks (capped at a minute, so a daily quota fails rather than sleeping for hours) before the Planner ever sees an error |
+| Providers chosen in one factory (`brain.factory`) | Selection lives in exactly one place, and each provider's requirements (its API key) are enforced only when that provider is picked — so Gemini users are never asked for `ANTHROPIC_API_KEY` |
+| Tool schemas translated inside each Brain | Tools are defined once, in Anthropic's shape, and each provider adapts them to its own wire format (Gemini wants `functionDeclarations` with `parametersJsonSchema`). Native tool calling is preserved on both — no stringifying tools into the prompt |
 | Plans are dependency graphs, not lists | Lets independent work run in parallel without inventing a second planning concept. A fully-chained graph behaves exactly as the old sequential list did |
 | Dependencies may only point backwards | Makes a cycle — and therefore a deadlock — structurally impossible, rather than something to detect at runtime |
 | Concurrency in the pool, policy in the Orchestrator | Retry/revise needs the Planner and task history; task-juggling needs neither. Splitting them keeps both readable |
 | Tool arguments are redacted before publishing | The dashboard needs to know *which file*; it must never receive the file's contents or a password. Identifying fields survive, payloads become `<N chars>` |
-| Dashboard served in-process | Live agent state exists only in the Orchestrator's memory; a second process could only ever show what had already reached disk |
-| Vanilla ES modules, no build step | A Python project should not need npm to serve its own UI. Canvas 2D and modules are enough for all three views |
+| Dashboard API served in-process | Live agent state exists only in the Orchestrator's memory; a second process could only ever show what had already reached disk. The *pages* can live anywhere — only the API has to be in-process |
+| CORS: localhost always, other origins by config | A standalone frontend is a different origin. The bearer token (not a cookie) is what authorises a request, so CORS only decides which pages may try; localhost is safe to allow by default, anything else is listed in `api.cors_origins` |
+| Vanilla ES modules, no build step | A Python project should not need npm to serve its own UI. Canvas 2D and modules are enough for all four pages, and the folder can be served by anything |
 | Office sprites drawn in code | No third-party art licence to honour, and agent colour can be derived from the agent's own hue so twenty stay distinguishable |
 | Speech synthesised server-side, played in the browser | Lets the HUD visualise the waveform in time with the voice, and keeps a headless server silent instead of talking to an empty room |
 | Transcription runs locally | An always-listening microphone that streams to someone else's server is a different product; Jarvis should not quietly be the first |
@@ -125,7 +129,7 @@ order in which they are being built.
 2. ✅ Core types + EventBus, Security policy, Notifications
 3. ✅ Tool Manager — registry, risk gating, audit logging
 4. ✅ File Manager (sandboxed) + Memory (SQLite)
-5. ✅ Brain (local Ollama, or Anthropic) + Planner + agent Orchestrator
+5. ✅ Brain (Gemini, or Anthropic) + Planner + agent Orchestrator
 6. ✅ API Server + Authentication — the phone's entry point
 7. ✅ Browser Controller (Playwright)
 8. ✅ Desktop Controller + Vision — screen-aware Windows control

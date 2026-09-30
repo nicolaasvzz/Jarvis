@@ -2,9 +2,9 @@
 #
 # The contents of this file are also the copy-paste block in README.md: paste
 # it into PowerShell on any Windows machine and it installs Git and Python if
-# they are missing, clones Jarvis, then hands off to scripts/jarvis.ps1, which
-# installs every skill pack, writes the config, asks for your API key, and
-# starts the Telegram bridge.
+# they are missing, clones Jarvis, then hands off to backend/scripts/jarvis.ps1,
+# which installs every skill pack, writes the config, asks for your free
+# Gemini API key, and starts Jarvis with its dashboard.
 #
 # Safe to run every time - nothing already done is done twice.
 
@@ -14,7 +14,7 @@
     # winget and python all use stderr routinely. Exit codes are checked below.
     $ErrorActionPreference = 'Continue'
     $Repo = 'https://github.com/nicolaasvzz/Jarvis.'
-    $Branch = 'claude/jarvis-startup-skills-commands-ilp298'
+    $Branch = 'main'
     $Dir = Join-Path $HOME 'jarvis'
 
     function Have($name) { [bool](Get-Command $name -ErrorAction SilentlyContinue) }
@@ -71,7 +71,7 @@
     # covers a clone on an old branch, on a detached HEAD, or half-checked-out.
     # Done in place with git on purpose - another window sitting inside the
     # folder locks it against being renamed, but not against git rewriting it.
-    $Script = Join-Path $Dir 'scripts\jarvis.ps1'
+    $Script = Join-Path $Dir 'backend\scripts\jarvis.ps1'
     Write-Host "Updating $Dir to $Branch ..." -ForegroundColor Cyan
     git -C $Dir fetch origin
     if ($LASTEXITCODE -ne 0) { Stop-With 'Could not reach the repository - check the GitHub sign-in prompt, or your internet connection.'; return }
@@ -98,11 +98,14 @@
         Write-Host "Cloning Jarvis into $Dir ..." -ForegroundColor Cyan
         git clone --branch $Branch $Repo $Dir
         if ($LASTEXITCODE -ne 0) { Stop-With "Clone failed. Your old folder is still at $Old"; return }
+        # Settings may sit in backend\ or, from before the split, at the top.
         foreach ($keep in @('.env', 'config\config.yaml')) {
-            $from = Join-Path $Old $keep
-            if (Test-Path $from) {
-                Copy-Item $from (Join-Path $Dir $keep) -Force
-                Write-Host "Kept your $keep" -ForegroundColor Gray
+            foreach ($from in @((Join-Path $Old "backend\$keep"), (Join-Path $Old $keep))) {
+                if (Test-Path $from) {
+                    Copy-Item $from (Join-Path $Dir "backend\$keep") -Force
+                    Write-Host "Kept your $keep" -ForegroundColor Gray
+                    break
+                }
             }
         }
     }

@@ -169,6 +169,7 @@ async def _serve(args: argparse.Namespace) -> int:
         return 1
 
     from jarvis.api import create_app
+    from jarvis.dashboard import find_frontend
     from jarvis.security import TokenAuthenticator
 
     runtime = _build(args)
@@ -183,6 +184,7 @@ async def _serve(args: argparse.Namespace) -> int:
         return 1
 
     hub = None if args.no_dash else runtime.dashboard
+    web_root = find_frontend(runtime.config.dashboard.web_root) if hub else None
     app = create_app(
         orchestrator=runtime.orchestrator,
         policy=runtime.policy,
@@ -195,11 +197,20 @@ async def _serve(args: argparse.Namespace) -> int:
         hub=hub,
         dashboard=runtime.config.dashboard,
         voice=runtime.voice,
+        web_root=web_root,
+        cors_origins=runtime.config.api.cors_origins,
     )
 
     host = args.host or runtime.config.api.host
     port = args.port or runtime.config.api.port
-    _print_banner(runtime, host, port, hub is not None, token.get_secret_value())
+    _print_banner(
+        runtime,
+        host,
+        port,
+        dashboard=hub is not None,
+        frontend=web_root is not None,
+        token=token.get_secret_value(),
+    )
 
     server = uvicorn.Server(
         uvicorn.Config(app, host=host, port=port, log_level="warning")
@@ -218,7 +229,8 @@ async def _serve(args: argparse.Namespace) -> int:
     if runtime.telegram is not None:
         jobs.append(runtime.telegram.run(stop))
 
-    if args.open_browser or (hub and runtime.config.dashboard.open_browser):
+    wants_browser = args.open_browser or runtime.config.dashboard.open_browser
+    if wants_browser and web_root is not None:
         _open_dashboard(host, port, token.get_secret_value())
 
     try:
@@ -232,7 +244,13 @@ async def _serve(args: argparse.Namespace) -> int:
 
 
 def _print_banner(
-    runtime: JarvisRuntime, host: str, port: int, dashboard: bool, token: str
+    runtime: JarvisRuntime,
+    host: str,
+    port: int,
+    *,
+    dashboard: bool,
+    frontend: bool,
+    token: str,
 ) -> None:
     config = runtime.config
     print(f"Jarvis API listening on http://{host}:{port}")
@@ -241,8 +259,13 @@ def _print_banner(
         f"  agents     {config.agent.pool_size} "
         f"({'parallel' if config.agent.parallel else 'sequential'})"
     )
-    if dashboard:
+    if dashboard and frontend:
         print(f"  dashboard  http://{host}:{port}/dash/?token={token}")
+    elif dashboard:
+        print(
+            "  dashboard  no frontend folder here - API only. Open the frontend\n"
+            f"             separately and connect it to http://{host}:{port}"
+        )
     if runtime.voice is not None:
         speaks = runtime.voice.voice_name if runtime.voice.can_speak else "off"
         hears = "on" if runtime.voice.can_listen else "off"

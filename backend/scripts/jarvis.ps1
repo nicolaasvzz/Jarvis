@@ -5,23 +5,28 @@
 .DESCRIPTION
     Does everything in docs/COMMANDS.md sections 1-3:
       * clones Jarvis, or updates an existing clone (stashing local edits)
-      * creates the virtual environment
+      * creates the virtual environment in backend\.venv
       * installs the skill packs you ask for, plus their non-Python parts
         (the Chromium download, the Tesseract OCR binary and its PATH entry)
-      * creates .env and config/config.yaml, generates the API token, fills
-        in the workspace folder, and prompts for any missing secret
+      * creates backend\.env and backend\config\config.yaml, generates the
+        API token, fills in the workspace folder, and asks for your free
+        Gemini API key and any other missing secret
       * prints the skill inventory, then starts Jarvis
+
+    Also works in a backend folder on its own, without the rest of the
+    repository: it then skips the git steps and sets up what is there.
 
     Every step is idempotent: nothing already done is done twice, so this is
     also the right thing to run each morning.
 
 .EXAMPLE
     .\jarvis.ps1
-    Update, make sure everything is installed, start the Telegram bridge.
+    Update, make sure everything is installed, start Jarvis and open the
+    dashboard (the Telegram bridge runs too, once it is configured).
 
 .EXAMPLE
     .\jarvis.ps1 -Skills all
-    Install every skill pack (33 skills), then start.
+    Install every skill pack, then start.
 
 .EXAMPLE
     .\jarvis.ps1 -Skills browser,vision -Start none
@@ -33,26 +38,29 @@
 
 .NOTES
     If PowerShell refuses to run it, launch it like this:
-      powershell -ExecutionPolicy Bypass -File .\scripts\jarvis.ps1
+      powershell -ExecutionPolicy Bypass -File .\backend\scripts\jarvis.ps1
 #>
 [CmdletBinding()]
 param(
-    # Where Jarvis lives. Defaults to the repo this script sits in, or ~\jarvis.
+    # Where the Jarvis repository lives. Defaults to the repo this script sits
+    # in, or ~\jarvis.
     [string] $Path,
 
     # Branch to track.
-    [string] $Branch = 'claude/jarvis-startup-skills-commands-ilp298',
+    [string] $Branch = 'main',
 
     [string] $Repo = 'https://github.com/nicolaasvzz/Jarvis.',
 
     # Skill packs to install: all, core, browser, desktop, vision, api, phone,
-    # dev. 'core' = the 14 file + memory skills. Comma-separated or repeated;
-    # a quoted "browser,vision" works too, which is what -File passes through.
+    # dash, voice, listen, llm, dev. 'core' = the 15 file + memory skills.
+    # Comma-separated or repeated; a quoted "browser,vision" works too, which
+    # is what -File passes through.
     [string[]] $Skills = @('all'),
 
-    # What to do when setup finishes.
-    [ValidateSet('phone', 'serve', 'run', 'none')]
-    [string] $Start = 'phone',
+    # What to do when setup finishes. 'dash' runs everything (API, dashboard,
+    # and the Telegram bridge if configured) and opens the dashboard.
+    [ValidateSet('dash', 'phone', 'serve', 'run', 'none')]
+    [string] $Start = 'dash',
 
     # The task text, for -Start run.
     [string] $Request,
@@ -242,24 +250,32 @@ function Get-YamlSectionKey {
 
 # ------------------------------------------------------------ 0. where ----
 
+# $Path is the repository (what git clones and updates); $Backend is the
+# backend folder inside it, where the venv, .env and config live. A backend
+# folder handed over on its own has no repository around it: $Path is then
+# empty and the git steps are skipped.
 if ($Path) {
     # .NET file writes resolve against their own working directory, so make
     # sure everything downstream is an absolute path.
     if (-not [System.IO.Path]::IsPathRooted($Path)) {
         $Path = Join-Path (Get-Location).Path $Path
     }
+    $Backend = Join-Path $Path 'backend'
 }
 else {
-    $repoRoot = Split-Path -Parent $PSScriptRoot
-    if ($repoRoot -and (Test-Path -LiteralPath (Join-Path $repoRoot 'pyproject.toml'))) {
-        $Path = $repoRoot          # running from inside a clone
+    $here = Split-Path -Parent $PSScriptRoot          # backend\scripts -> backend
+    if ($here -and (Test-Path -LiteralPath (Join-Path $here 'pyproject.toml'))) {
+        $Backend = $here
+        $parent = Split-Path -Parent $here
+        $Path = if ($parent -and (Test-Path -LiteralPath (Join-Path $parent '.git'))) { $parent } else { '' }
     }
     else {
         $Path = Join-Path $HOME 'jarvis'
+        $Backend = Join-Path $Path 'backend'
     }
 }
 
-Write-Host "Jarvis setup - $Path" -ForegroundColor White
+Write-Host "Jarvis setup - $Backend" -ForegroundColor White
 
 # ------------------------------------------------------ 1. prerequisites --
 
@@ -295,7 +311,10 @@ Write-Good "git and Python $pythonVersion"
 
 # --------------------------------------------------------- 2. get / pull --
 
-if (-not (Test-Path -LiteralPath (Join-Path $Path '.git'))) {
+if (-not $Path) {
+    Write-Step 'A backend folder on its own - no repository to update, so git is skipped'
+}
+elseif (-not (Test-Path -LiteralPath (Join-Path $Path '.git'))) {
     Write-Step "Cloning Jarvis into $Path"
     $parent = Split-Path -Parent $Path
     if ($parent -and -not (Test-Path -LiteralPath $parent)) {
@@ -333,7 +352,7 @@ else {
 
 # ---------------------------------------------------------- 3. the venv ---
 
-$venvRoot = Join-Path $Path '.venv'
+$venvRoot = Join-Path $Backend '.venv'
 $venvBin = if ($IsWin) { Join-Path $venvRoot 'Scripts' } else { Join-Path $venvRoot 'bin' }
 $venvPy = if ($IsWin) { Join-Path $venvBin 'python.exe' } else { Join-Path $venvBin 'python' }
 
@@ -373,7 +392,7 @@ function Invoke-Jarvis {
 #   .\jarvis.ps1 -Skills browser,vision
 #   powershell -File .\scripts\jarvis.ps1 -Skills "browser,vision"
 # mean the same thing.
-$knownPacks = @('all', 'core', 'browser', 'desktop', 'vision', 'api', 'phone', 'dev', 'llm')
+$knownPacks = @('all', 'core', 'browser', 'desktop', 'vision', 'api', 'phone', 'dash', 'voice', 'listen', 'dev', 'llm')
 $requested = @()
 foreach ($item in $Skills) {
     foreach ($part in ($item -split '[,;\s]+')) {
@@ -386,21 +405,21 @@ if ($unknown.Count -gt 0) {
     throw "Unknown skill pack(s): $($unknown -join ', '). Valid: $($knownPacks -join ', ')"
 }
 
-# 'llm' is deliberately not in 'all': it installs the anthropic package,
-# which is only for running hosted Claude instead of the local model. The
+# Not in 'all', on purpose: 'llm' installs the anthropic package, which is
+# only for running paid Claude instead of the default Gemini, and 'listen' is
+# local speech recognition - a large download most people can skip. The
 # default provider needs nothing beyond the base install.
 $wanted = [System.Collections.Generic.HashSet[string]]::new()
 if ($requested -contains 'all') {
-    foreach ($e in @('api', 'phone', 'browser', 'desktop', 'vision')) { [void]$wanted.Add($e) }
+    foreach ($e in @('api', 'phone', 'dash', 'voice', 'browser', 'desktop', 'vision')) { [void]$wanted.Add($e) }
 }
-else {
-    foreach ($s in $requested) {
-        if ($s -ne 'core') { [void]$wanted.Add($s) }
-    }
-    # Telegram/API are how you actually reach Jarvis; keep them by default.
-    if ($Start -eq 'phone') { [void]$wanted.Add('phone') }
-    if ($Start -eq 'serve') { [void]$wanted.Add('api') }
+foreach ($s in $requested) {
+    if ($s -notin @('all', 'core')) { [void]$wanted.Add($s) }
 }
+# The API, dashboard and Telegram are how you actually reach Jarvis; keep
+# whichever the chosen start needs.
+if ($Start -eq 'phone') { [void]$wanted.Add('phone') }
+if ($Start -in @('serve', 'dash')) { [void]$wanted.Add('api'); [void]$wanted.Add('dash') }
 $extras = (@($wanted) | Sort-Object) -join ','
 # With no extras at all the core install is still a working Jarvis.
 $pipTarget = if ($extras) { ".[$extras]" } else { '.' }
@@ -410,7 +429,7 @@ $pipTarget = if ($extras) { ".[$extras]" } else { '.' }
 # when neither the requested packs nor pyproject.toml have changed since the
 # last successful one; -Reinstall forces it.
 $stampFile = Join-Path $venvRoot '.jarvis-install-stamp'
-$stamp = "$extras|" + (Get-FileHash (Join-Path $Path 'pyproject.toml') -Algorithm SHA256).Hash
+$stamp = "$extras|" + (Get-FileHash (Join-Path $Backend 'pyproject.toml') -Algorithm SHA256).Hash
 $upToDate = (Test-Path -LiteralPath $stampFile) -and
             ((Get-Content -LiteralPath $stampFile -Raw).Trim() -eq $stamp)
 
@@ -443,7 +462,7 @@ else {
         Write-Info "Stopped $names."
     }
 
-    Push-Location $Path
+    Push-Location $Backend
     try {
         Get-NativeExitCode $venvPy @('-m', 'pip', 'install', '--upgrade', '--quiet', 'pip') | Out-Null
         $pip = Invoke-NativeCapture $venvPy @('-m', 'pip', 'install', '--quiet', '-e', $pipTarget)
@@ -534,17 +553,29 @@ if ($wanted.Contains('vision')) {
 
 Write-Step 'Configuration'
 
-$envFile = Join-Path $Path '.env'
-$cfgDir = Join-Path $Path 'config'
+$envFile = Join-Path $Backend '.env'
+$cfgDir = Join-Path $Backend 'config'
 $cfgFile = Join-Path $cfgDir 'config.yaml'
 
+# Before the backend/ split these lived at the top of the repository. Carry
+# them over once, so an update does not lose a working setup.
+if ($Path) {
+    foreach ($pair in @(@('.env', $envFile), @('config\config.yaml', $cfgFile))) {
+        $old = Join-Path $Path $pair[0]
+        if ((Test-Path -LiteralPath $old) -and -not (Test-Path -LiteralPath $pair[1])) {
+            Copy-Item -LiteralPath $old -Destination $pair[1]
+            Write-Info "Moved your $($pair[0]) into backend\ (the old copy can be deleted)"
+        }
+    }
+}
+
 if (-not (Test-Path -LiteralPath $envFile)) {
-    Copy-Item (Join-Path $Path '.env.example') $envFile
-    Write-Info 'Created .env'
+    Copy-Item (Join-Path $Backend '.env.example') $envFile
+    Write-Info 'Created backend\.env'
 }
 if (-not (Test-Path -LiteralPath $cfgFile)) {
     Copy-Item (Join-Path $cfgDir 'config.example.yaml') $cfgFile
-    Write-Info 'Created config/config.yaml'
+    Write-Info 'Created backend\config\config.yaml'
 }
 
 # The API token is machine-generated; never make the user invent one.
@@ -589,110 +620,38 @@ if ($botToken) {
 
 Write-Step 'The model'
 
-# `jarvis brain` is the authority here: it applies the config defaults, prints
-# which provider and model are configured, and for Ollama checks that the
-# server answers and the model is downloaded. Its exit code is the verdict.
-# The Windows installer drops ollama.exe in a per-user folder, and a shell that
-# was already open will not have it on PATH yet - so look there too rather than
-# telling someone to install what they already have.
-function Resolve-Ollama {
-    $ErrorActionPreference = 'Continue'
-    $cmd = Get-Command 'ollama' -ErrorAction SilentlyContinue
-    if ($cmd -and $cmd.Source) { return $cmd.Source }
-    $candidates = @()
-    foreach ($root in @($env:LOCALAPPDATA, $env:ProgramFiles, ${env:ProgramFiles(x86)})) {
-        if ($root) {
-            $candidates += (Join-Path $root 'Programs\Ollama\ollama.exe')
-            $candidates += (Join-Path $root 'Ollama\ollama.exe')
-        }
-    }
-    foreach ($candidate in $candidates) {
-        if (Test-Path -LiteralPath $candidate -ErrorAction SilentlyContinue) { return $candidate }
-    }
-    return ''
-}
-
 function Invoke-BrainCheck {
     $exe = if ($IsWin) { Join-Path $venvBin 'jarvis.exe' } else { Join-Path $venvBin 'jarvis' }
     if (Test-Path -LiteralPath $exe) { return Invoke-NativeCapture $exe @('brain') }
     return Invoke-NativeCapture $venvPy @('-c', $jarvisBootstrap, 'brain')
 }
 
-Push-Location $Path
+# Gemini is the default provider, and a free key is all it needs. Ask for it
+# here rather than letting the first task fail on it.
+$provider = Get-EnvValue $envFile 'LLM_PROVIDER'
+if (-not $provider) { $provider = 'gemini' }
+if ($provider -eq 'gemini' -and -not (Get-EnvValue $envFile 'GEMINI_API_KEY')) {
+    Write-Info 'Jarvis thinks with Google Gemini. A free API key is enough:'
+    Write-Info '  1. open https://aistudio.google.com/apikey and sign in with a Google account'
+    Write-Info '  2. click "Create API key" and copy it'
+    Write-Info 'Paste it here (input is hidden; Enter skips):'
+    $geminiKey = Read-Secret 'GEMINI_API_KEY'
+    if ($geminiKey) {
+        Set-EnvValue $envFile 'GEMINI_API_KEY' $geminiKey
+        Write-Good 'Saved GEMINI_API_KEY to .env'
+    }
+}
+
+# `jarvis brain` is the authority here: it applies the config defaults, prints
+# which provider and model are configured, and checks the key is accepted -
+# by looking the model up, which spends none of the free tier's quota. Its
+# exit code is the verdict.
+Push-Location $Backend
 try {
     $brain = Invoke-BrainCheck
     foreach ($line in $brain.Output) { Write-Info $line }
-
-    $provider = ''
-    $model = ''
     foreach ($line in $brain.Output) {
         if ($line -match '^\s*provider:\s*(\S+)') { $provider = $Matches[1] }
-        elseif ($line -match '^\s*model:\s*(\S+)') { $model = $Matches[1] }
-    }
-
-    # A local model is a prerequisite like any other: find it, start it,
-    # download the weights. No API key is involved at any point.
-    if ($brain.Code -ne 0 -and $provider -eq 'ollama') {
-        $ollama = Resolve-Ollama
-        if (-not $ollama -and (Test-Exe 'winget')) {
-            Write-Info 'Installing Ollama...'
-            Get-NativeExitCode winget @(
-                'install', '--id', 'Ollama.Ollama', '--exact', '--silent',
-                '--accept-package-agreements', '--accept-source-agreements'
-            ) | Out-Null
-            if ($IsWin) {
-                $env:Path = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' +
-                [Environment]::GetEnvironmentVariable('Path', 'User')
-            }
-            $ollama = Resolve-Ollama
-        }
-        if (-not $ollama) {
-            Write-Warn 'Ollama is not on this machine. Install it once from https://ollama.com/download'
-            Write-Warn '(a normal installer, no admin needed), then run this again.'
-        }
-        else {
-            Write-Info "Using $ollama"
-            # `ollama list` fails when the server is not up.
-            if ((Get-NativeExitCode $ollama @('list') -Quiet) -ne 0) {
-                Write-Info 'Starting the Ollama server...'
-                if ($IsWin) { Start-Process -FilePath $ollama -ArgumentList 'serve' -WindowStyle Hidden }
-                else { Start-Process -FilePath $ollama -ArgumentList 'serve' }
-                Start-Sleep -Seconds 3
-                if ((Get-NativeExitCode $ollama @('list') -Quiet) -ne 0) {
-                    Write-Warn 'The Ollama server did not come up. Start it in its own window with:  ollama serve'
-                }
-            }
-            # Only download when there is nothing to choose from. Someone who
-            # already has models locally should not have a multi-GB pull of a
-            # different one started for them.
-            if ($model) {
-                $installed = @(Get-NativeOutput $ollama @('list') |
-                    Select-Object -Skip 1 |
-                    ForEach-Object { ($_ -split '\s+')[0] } |
-                    Where-Object { $_ })
-                $have = ($installed -contains $model) -or ($installed -contains "${model}:latest")
-                if ($have) {
-                    Write-Good "$model is downloaded"
-                }
-                elseif ($installed.Count -eq 0) {
-                    Write-Info "Downloading $model - first time only, and it is a few GB."
-                    Get-NativeExitCode $ollama @('pull', $model) | Out-Null
-                }
-                else {
-                    Write-Warn "The configured model $model is not downloaded."
-                    Write-Warn ("Downloaded here: " + ($installed -join ', '))
-                    Write-Warn "Point Jarvis at one of those by putting it in .env:  LLM_MODEL=<name>"
-                    $pull = $false
-                    if ([Environment]::UserInteractive -and -not [Console]::IsInputRedirected) {
-                        $answer = Read-Host "    Or download $model now? [y/N]"
-                        $pull = ($answer.Trim().ToLowerInvariant() -in @('y', 'yes'))
-                    }
-                    if ($pull) { Get-NativeExitCode $ollama @('pull', $model) | Out-Null }
-                }
-            }
-            $brain = Invoke-BrainCheck
-            foreach ($line in $brain.Output) { Write-Info $line }
-        }
     }
 }
 finally { Pop-Location }
@@ -718,10 +677,10 @@ else { Write-Warn 'The model is not usable yet - the lines above say why. Re-che
 
 Write-Step 'Skills available on this machine'
 
-# From $Path, so config/config.yaml is found the same way every other
+# From $Backend, so config/config.yaml is found the same way every other
 # command finds it - run from elsewhere, discovery silently falls back to the
 # coded defaults and reports a state that is not the real one.
-Push-Location $Path
+Push-Location $Backend
 try {
     $exe = if ($IsWin) { Join-Path $venvBin 'jarvis.exe' } else { Join-Path $venvBin 'jarvis' }
     if (Test-Path -LiteralPath $exe) { $tools = @(Get-NativeOutput $exe @('tools')) }
@@ -731,8 +690,8 @@ finally { Pop-Location }
 if ($tools.Count -gt 0) {
     $names = $tools | ForEach-Object { ($_ -split '\s+')[0] }
     $packs = [ordered]@{
-        'files + memory' = @{ probe = 'read_file'; count = 14 }
-        'browser'        = @{ probe = 'browser_open'; count = 8 }
+        'files + memory' = @{ probe = 'read_file'; count = 15 }
+        'browser'        = @{ probe = 'browser_open'; count = 9 }
         'desktop'        = @{ probe = 'open_application'; count = 8 }
         'vision'         = @{ probe = 'capture_screen'; count = 3 }
     }
@@ -750,7 +709,7 @@ if ($tools.Count -gt 0) {
         'p = sync_playwright().start(); ' +
         'sys.exit(0 if os.path.exists(p.chromium.executable_path) else 3)'
         if ((Get-NativeExitCode $venvPy @('-c', $probe) -Quiet) -ne 0) {
-            Write-Warn 'The 8 browser skills are registered but Chromium is missing - they will fail until you run:'
+            Write-Warn 'The 9 browser skills are registered but Chromium is missing - they will fail until you run:'
             Write-Warn '  .venv\Scripts\python -m playwright install chromium'
         }
     }
@@ -767,7 +726,7 @@ else {
 # ------------------------------------------------------------ 8. start ----
 
 Write-Step 'Ready'
-Write-Info "Re-run any time - this script is safe to repeat:  .\scripts\jarvis.ps1"
+Write-Info "Re-run any time - this script is safe to repeat:  .\backend\scripts\jarvis.ps1"
 Write-Info "Everything else you can type is in docs\COMMANDS.md"
 
 if (-not $brainReady -and $Start -ne 'none') {
@@ -775,9 +734,13 @@ if (-not $brainReady -and $Start -ne 'none') {
     exit 1
 }
 
-Push-Location $Path
+Push-Location $Backend
 try {
     switch ($Start) {
+        'dash' {
+            Write-Host "`nStarting Jarvis and opening the dashboard. Ctrl-C to stop.`n" -ForegroundColor White
+            Invoke-Jarvis @('dash') | Out-Null
+        }
         'phone' {
             Write-Host "`nStarting the Telegram bridge. Ctrl-C to stop.`n" -ForegroundColor White
             Invoke-Jarvis @('phone') | Out-Null
@@ -792,7 +755,7 @@ try {
             $script:taskExit = Invoke-Jarvis @('run', $Request)
         }
         'none' {
-            Write-Info 'Start it yourself with:  .venv\Scripts\activate  then  jarvis phone'
+            Write-Info "Start it yourself from $Backend with:  .venv\Scripts\activate  then  jarvis dash"
         }
     }
 }

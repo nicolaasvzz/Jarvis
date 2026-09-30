@@ -27,7 +27,8 @@ phone = ["httpx>=0.27"]
 browser = ["playwright>=1.44"]
 desktop = ["pyautogui>=0.9.54", "pygetwindow>=0.0.9"]
 vision = ["pillow>=10.0", "pytesseract>=0.3.10", "mss>=9.0"]
-# The web dashboard. Needs the api extra; psutil only powers the system
+# The dashboard's backend API (the pages themselves are the separate
+# frontend/ folder). Needs the api extra; psutil only powers the system
 # status panel, which reports itself unavailable without it.
 dash = ["psutil>=5.9"]
 # Speech out: free Microsoft neural voices, no API key or account.
@@ -50,11 +51,6 @@ jarvis = "jarvis.app.cli:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
-# The dashboard's HTML/CSS/JS are data, not modules, so they need listing
-# explicitly or an installed Jarvis would serve 404s for its own UI.
-[tool.setuptools.package-data]
-"jarvis.dashboard" = ["web/*.html", "web/css/*.css", "web/js/*.js"]
-
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
@@ -63,7 +59,6 @@ asyncio_mode = "auto"
 [tool.ruff]
 line-length = 100
 src = ["src", "tests"]
-exclude = ["src/jarvis/dashboard/templates.py"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]

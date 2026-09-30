@@ -1,63 +1,66 @@
 # Setting up your own Jarvis
 
 Jarvis is a personal AI assistant that runs on **your own Windows PC** and
-takes instructions from your phone. It plans tasks before doing them, asks
-before anything dangerous, and tells you what it did.
+takes instructions typed, spoken, or sent from your phone. It plans tasks
+before doing them, asks before anything dangerous, and tells you what it did.
 
-Everything below runs on *your* machine, including the AI model itself —
-nothing is shared with anyone else, and there is no API key to buy.
+Everything below sets up *your own* Jarvis — nothing is shared with whoever
+sent you this. The AI thinking is done by Google's Gemini, and a **free**
+API key covers it: no credit card, no powerful graphics card needed.
 
-Takes about 10 minutes, plus a download.
+Takes about 10 minutes.
 
 ---
 
-## 1. Install the prerequisites
+## The quick way
+
+Open **PowerShell** and paste the block from the
+[README's "Start here" section](../README.md#start-here-windows-one-paste).
+It installs everything, asks for your Gemini key (step 1 below explains how
+to get one), and opens the dashboard. If that worked, skip to
+[step 6](#6-try-it). The steps below are the same thing done by hand.
+
+## 1. Get a free Gemini API key
+
+1. Go to **https://aistudio.google.com/apikey** and sign in with any Google
+   account.
+2. Click **Create API key** and copy it somewhere for a minute.
+
+Treat it like a password — anyone with it can use your free quota.
+
+## 2. Install the prerequisites
 
 - **Python 3.11 or newer** — https://python.org (during install, tick
   *"Add Python to PATH"*)
 - **Git** — https://git-scm.com
-- **Ollama** — https://ollama.com — this is what actually runs the AI model
-  on your PC. Install it and leave it running.
 
 Check they worked — open PowerShell and run:
 
 ```powershell
 python --version
 git --version
-ollama --version
 ```
 
-All three should print a version number. Now download the model Jarvis
-uses (about 14 GB, one time):
+## 3. Get Jarvis
 
 ```powershell
-ollama pull gpt-oss:20b
+git clone https://github.com/nicolaasvzz/Jarvis. jarvis
+cd jarvis\backend
 ```
 
-> **How much computer do I need?** `gpt-oss:20b` wants roughly 16 GB of free
-> RAM, and is much faster with a dedicated graphics card. On a lighter PC,
-> `ollama pull qwen3:8b` (about 5 GB) and set `LLM_MODEL=qwen3:8b` in step 5.
-> With plenty of hardware, `gpt-oss:120b` is the larger sibling.
+Jarvis has two folders: `backend` (the assistant) and `frontend` (the web
+dashboard). Everything you run lives in `backend`.
 
-## 2. Get Jarvis
-
-```powershell
-git clone <REPO-URL> jarvis
-cd jarvis
-```
-
-*(Ask whoever sent you this for the repo URL and the branch name to use.)*
-
-## 3. Install it
+## 4. Install it
 
 ```powershell
 python -m venv .venv
 .venv\Scripts\activate
-pip install -e ".[phone]"
+pip install -e ".[api,dash,voice,phone]"
 ```
 
-That gives you the assistant plus phone control. Optional add-ons, install
-whichever you want:
+That gives you the assistant, its dashboard, a voice, and phone control.
+Optional add-ons, install whichever you want:
 
 ```powershell
 pip install -e ".[desktop]"    # control apps/windows, click, type
@@ -66,51 +69,32 @@ playwright install chromium    #   (run this after the browser one)
 pip install -e ".[vision]"     # read the screen (also needs Tesseract OCR)
 ```
 
-## 4. Check the AI model is working
-
-```powershell
-jarvis brain
-```
-
-You want to see:
-
-```
-provider: ollama
-model:    gpt-oss:20b
-endpoint: http://localhost:11434
-connected: yes — 1 model(s) downloaded
-model 'gpt-oss:20b' is available — Jarvis is ready.
-```
-
-If it says it can't reach Ollama, start it (open the Ollama app, or run
-`ollama serve`) and try again. If it says the model isn't downloaded, run
-the `ollama pull` from step 1.
-
-Nothing you type ever leaves your PC: Jarvis talks to Ollama on
-`localhost`, and Ollama runs the model on your own hardware.
-
 ## 5. Configure
 
 ```powershell
 copy .env.example .env
 copy config\config.example.yaml config\config.yaml
+jarvis token
+notepad .env
 ```
 
-`.env` already selects the local model, so there is nothing you must
-change:
+In `.env`, paste your Gemini key and the token `jarvis token` just printed:
 
 ```
-LLM_PROVIDER=ollama
-LLM_MODEL=gpt-oss:20b
+GEMINI_API_KEY=your-gemini-key
+JARVIS_API_TOKEN=the-long-token-it-printed
 ```
 
-*(Only if you'd rather use Anthropic's Claude than a model on your own PC:
-run `pip install -e ".[llm]"`, set `LLM_PROVIDER=anthropic`, and put your
-own key from https://console.anthropic.com in `ANTHROPIC_API_KEY`. That
-one is paid per use and sends your requests to Anthropic — the local
-setup above does neither.)*
+`.env` is never uploaded or shared — it stays on your PC.
 
-`.env` is gitignored, so nothing in it ever gets committed.
+Then check the key works:
+
+```powershell
+jarvis brain
+```
+
+You want to see `connected: yes` and `Jarvis is ready.` If it says the key
+was rejected, re-copy it from step 1.
 
 Now open `config\config.yaml` and **point Jarvis at a test folder first** —
 this is the only directory it's allowed to touch, and it cannot escape it:
@@ -120,65 +104,62 @@ files:
   root: C:/Users/<your-username>/JarvisTest
 ```
 
-Create that folder. Once you trust Jarvis, you can repoint this at a real
+Create that folder. Once you trust Jarvis, you can point this at a real
 folder you want managed.
 
-## 6. Try it on the PC first
+## 6. Try it
 
 ```powershell
-jarvis tools
+jarvis dash
 ```
 
-Lists what Jarvis can do on your machine (depends which add-ons you
-installed). Then run one task:
+Your browser opens the dashboard. Type a request in the bar at the bottom —
+for example *make a file called hello.txt that says hi* — and watch it plan
+and work. If a step is dangerous (deleting a file, say), an **Allow / Deny**
+card appears and nothing happens until you choose.
+
+Or from the terminal:
 
 ```powershell
 jarvis run "make a file called hello.txt that says hi"
 ```
 
-It will show you its plan and progress. If a step is dangerous (deleting a
-file, for example) it stops and asks `y/N` first.
+Every time after this, start it with:
 
-If that worked, you're up and running.
+```powershell
+cd ~\jarvis\backend
+.venv\Scripts\activate
+jarvis dash
+```
 
 ## 7. Control it from your phone (Telegram)
 
-This only makes *outbound* connections, so it needs **no wifi, no LAN, no
-port forwarding, and no exposed server** — any internet on the PC works,
-even tethering to your phone.
+This only makes *outbound* connections, so it needs **no wifi setup, no
+port forwarding, and no exposed server** — any internet on the PC works.
 
 1. In the Telegram app, message **@BotFather**, send `/newbot`, follow the
    prompts, and copy the bot token it gives you.
-2. Add it to `.env`:
+2. Add it to `backend\.env`:
    ```
    TELEGRAM_BOT_TOKEN=123456:ABC-your-token
    ```
-3. In `config\config.yaml`, turn the bridge on:
+3. In `backend\config\config.yaml`, turn the bridge on:
    ```yaml
    telegram:
      enabled: true
    ```
-4. Start it:
-   ```powershell
-   jarvis phone
-   ```
+4. Restart `jarvis dash` (or run `jarvis phone` for just the bridge).
 5. Message your new bot anything. It replies with your **chat id**. Put that
-   in the config so only *you* can command your Jarvis, then restart
-   `jarvis phone`:
+   in the config so only *you* can command your Jarvis, then restart:
    ```yaml
    telegram:
      enabled: true
      owner_chat_id: 123456789
    ```
 
-Now, from Telegram you can:
-
-- **Send any task** — just type it normally.
-- **Approve or deny** dangerous actions by tapping **✅ Allow** / **⛔ Deny**.
-- `/status` — recent tasks · `/task <id>` — details · `/cancel <id>` — stop one
-- `/tools` — what it can do · `/help` — all commands
-
-Leave `jarvis phone` running on the PC and you can drive it from anywhere.
+Now, from Telegram you can send any task, tap **✅ Allow** / **⛔ Deny** on
+dangerous steps, and use `/status`, `/task <id>`, `/cancel <id>`, `/tools`,
+`/help`.
 
 ---
 
@@ -192,21 +173,22 @@ Leave `jarvis phone` running on the PC and you can drive it from anywhere.
   send it commands. With it, strangers are refused.
 - **Don't expose the HTTP API to the internet.** Leave `api.host` at
   `127.0.0.1` (the default) and use the Telegram bridge for remote access.
-- **Keep your Telegram bot token private** — it's the key to the bridge.
-  If it leaks, revoke it with @BotFather and set a new one.
+- **Keep your keys private** — the Gemini key, `JARVIS_API_TOKEN`, and the
+  Telegram bot token. If one leaks, make a new one (AI Studio, `jarvis
+  token`, or @BotFather) and replace it in `.env`.
 
 ## If something breaks
 
+- `jarvis brain` is the first thing to run: it says whether Jarvis can reach
+  Gemini at all, and what to do if it can't.
+- *"Gemini rejected the API key"* — re-copy the key from
+  https://aistudio.google.com/apikey into `GEMINI_API_KEY` in `backend\.env`.
+- *"Gemini's rate limit was hit"* — the free tier allows a limited number of
+  requests per minute and per day. Wait a minute; if it keeps happening, set
+  `agent: {pool_size: 2}` in `config\config.yaml`.
+- *"Missing required secret"* — you're running `jarvis` from the wrong
+  folder. `cd` into `jarvis\backend` first; that's where `.env` lives.
+- `jarvis tools` showing fewer tools than expected usually means an optional
+  add-on isn't installed (step 4).
 - Logs are JSON-lines at `%LOCALAPPDATA%\jarvis\Logs\jarvis.jsonl` — every
   command, decision, and error is in there.
-- `jarvis brain` is the first thing to run: it says whether Jarvis can
-  reach the model at all, and what to do if it can't.
-- `jarvis tools` showing fewer tools than expected usually means an optional
-  add-on isn't installed (step 3).
-- *"Could not reach Ollama"* means Ollama isn't running — start the Ollama
-  app, or run `ollama serve`.
-- *"Ollama does not have the model"* means the download in step 1 didn't
-  finish — run `ollama pull gpt-oss:20b` again.
-- Tasks that take a long time are normal on a slower PC the first time a
-  model is used (the weights load into memory). If they time out, raise
-  `llm.timeout` in `config\config.yaml`.

@@ -231,6 +231,10 @@ class DashboardConfig(_Section):
     """
 
     enabled: bool = True
+    #: The frontend folder to serve at /dash/. Unset: the ``frontend/``
+    #: folder beside ``backend/`` in this checkout, when there is one.
+    #: Without a frontend the API still runs; only the pages are missing.
+    web_root: Path | None = None
     #: How many recent events a freshly-opened page is back-filled with, so
     #: the HUD is never blank on load.
     history_limit: int = Field(default=300, ge=10, le=5000)

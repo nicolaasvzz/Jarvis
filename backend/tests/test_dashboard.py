@@ -17,7 +17,7 @@ from jarvis.config.schema import (
     VoiceConfig,
 )
 from jarvis.core.events import EventBus, EventType
-from jarvis.dashboard import DashboardHub
+from jarvis.dashboard import DashboardHub, find_frontend
 from jarvis.dashboard.mapping import file_action, paths_touched, room_for_tool
 from jarvis.files import FileManager, build_file_tools
 from jarvis.memory import MemoryStore
@@ -32,7 +32,26 @@ TOKEN = "dash-token-abc"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
 
 
-def build(tmp_path: Path, brain: ScriptedBrain | None = None, *, voice=None):
+def fake_frontend(root: Path) -> Path:
+    """A stand-in frontend folder, so these tests never depend on the real
+    one being present — the backend may be shipped without it."""
+    for page in ("index.html", "files.html", "office.html", "hud.html"):
+        (root / page).parent.mkdir(parents=True, exist_ok=True)
+        (root / page).write_text(f"<title>{page}</title>", encoding="utf-8")
+    for asset in ("css/hud.css", "js/hud.js", "config.js"):
+        (root / asset).parent.mkdir(parents=True, exist_ok=True)
+        (root / asset).write_text(f"/* {asset} */", encoding="utf-8")
+    return root
+
+
+def build(
+    tmp_path: Path,
+    brain: ScriptedBrain | None = None,
+    *,
+    voice=None,
+    frontend: bool = True,
+    cors_origins: list[str] | None = None,
+):
     brain = brain or ScriptedBrain([])
     fm = FileManager(tmp_path / "sandbox")
     registry = ToolRegistry()
@@ -69,6 +88,8 @@ def build(tmp_path: Path, brain: ScriptedBrain | None = None, *, voice=None):
         hub=hub,
         dashboard=DashboardConfig(),
         voice=voice,
+        web_root=fake_frontend(tmp_path / "frontend") if frontend else None,
+        cors_origins=cors_origins,
     )
     return app, hub, bus, fm, orchestrator
 
@@ -189,10 +210,37 @@ class TestRoutes:
     ) -> None:
         app, *_ = build(tmp_path)
         async with client_for(app) as client:
-            assert (await client.get("/dash/")).status_code == 200
-            assert (await client.get("/dash/files")).status_code == 200
-            assert (await client.get("/dash/office")).status_code == 200
+            home = await client.get("/dash/")
+            assert home.status_code == 200
+            assert "index.html" in home.text
+            for page in ("files.html", "office.html", "hud.html"):
+                assert (await client.get(f"/dash/{page}")).status_code == 200
             assert (await client.get("/dash/api/snapshot")).status_code == 401
+
+    async def test_old_page_links_still_work(self, tmp_path: Path) -> None:
+        app, *_ = build(tmp_path)
+        async with client_for(app) as client:
+            response = await client.get("/dash/files")
+        assert response.status_code in (302, 307)
+        assert response.headers["location"] == "/dash/files.html"
+
+    async def test_served_pages_talk_back_to_this_server(self, tmp_path: Path) -> None:
+        # The frontend's own config.js names a server for standalone use;
+        # pages served from here must ignore that and use this origin.
+        app, *_ = build(tmp_path)
+        async with client_for(app) as client:
+            response = await client.get("/dash/config.js")
+        assert response.status_code == 200
+        assert 'server: ""' in response.text
+
+    async def test_without_a_frontend_the_api_still_runs(self, tmp_path: Path) -> None:
+        app, *_ = build(tmp_path, frontend=False)
+        async with client_for(app) as client:
+            page = await client.get("/dash/")
+            data = await client.get("/dash/api/snapshot", headers=AUTH)
+        assert page.status_code == 200
+        assert "frontend is not installed" in page.text
+        assert data.status_code == 200
 
     async def test_snapshot_describes_the_whole_system(self, tmp_path: Path) -> None:
         app, *_ = build(tmp_path)
@@ -283,10 +331,12 @@ class TestRoutes:
     async def test_static_assets_are_served(self, tmp_path: Path) -> None:
         app, *_ = build(tmp_path)
         async with client_for(app) as client:
-            css = await client.get("/dash/static/css/hud.css")
-            js = await client.get("/dash/static/js/hud.js")
+            css = await client.get("/dash/css/hud.css")
+            js = await client.get("/dash/js/hud.js")
         assert css.status_code == 200
         assert js.status_code == 200
+        # A module script served as anything else is refused by browsers.
+        assert js.headers["content-type"].startswith("text/javascript")
 
     async def test_root_redirects_to_the_dashboard(self, tmp_path: Path) -> None:
         app, *_ = build(tmp_path)
@@ -294,6 +344,55 @@ class TestRoutes:
             response = await client.get("/")
         assert response.status_code in (302, 307)
         assert response.headers["location"] == "/dash/"
+
+
+class TestCrossOrigin:
+    """A frontend opened on its own is a different origin from the API."""
+
+    @staticmethod
+    async def preflight(app, origin: str) -> httpx.Response:
+        async with client_for(app) as client:
+            return await client.options(
+                "/dash/api/snapshot",
+                headers={
+                    "Origin": origin,
+                    "Access-Control-Request-Method": "GET",
+                    "Access-Control-Request-Headers": "authorization",
+                },
+            )
+
+    async def test_a_frontend_on_localhost_may_call_the_api(self, tmp_path: Path) -> None:
+        app, *_ = build(tmp_path)
+        response = await self.preflight(app, "http://localhost:8080")
+        assert response.status_code == 200
+        assert response.headers["access-control-allow-origin"] == "http://localhost:8080"
+
+    async def test_other_origins_need_listing(self, tmp_path: Path) -> None:
+        app, *_ = build(tmp_path)
+        response = await self.preflight(app, "http://evil.example")
+        assert "access-control-allow-origin" not in response.headers
+
+    async def test_listed_origins_are_allowed(self, tmp_path: Path) -> None:
+        app, *_ = build(tmp_path, cors_origins=["http://192.168.1.20:8080"])
+        response = await self.preflight(app, "http://192.168.1.20:8080")
+        assert response.headers["access-control-allow-origin"] == "http://192.168.1.20:8080"
+
+    async def test_cross_origin_still_needs_the_token(self, tmp_path: Path) -> None:
+        app, *_ = build(tmp_path)
+        async with client_for(app) as client:
+            response = await client.get(
+                "/dash/api/snapshot", headers={"Origin": "http://localhost:8080"}
+            )
+        assert response.status_code == 401
+
+
+class TestFindFrontend:
+    def test_a_configured_folder_wins(self, tmp_path: Path) -> None:
+        root = fake_frontend(tmp_path / "ui")
+        assert find_frontend(root) == root
+
+    def test_a_configured_folder_without_pages_is_ignored(self, tmp_path: Path) -> None:
+        assert find_frontend(tmp_path) is None
 
 
 class _FakeSynth:

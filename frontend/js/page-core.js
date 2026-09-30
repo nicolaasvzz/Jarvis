@@ -29,7 +29,6 @@ const state = {
 /* -- boot ------------------------------------------------------------------ */
 
 Hud.start(async () => {
-  window.__jarvisToken = Hud.token; // voice.js posts its own multipart bodies
 
   const snapshot = await Hud.getJSON("/dash/api/snapshot");
   core = new Core(el("core"), {

@@ -25,6 +25,7 @@ its own branch with its own uncommitted work. So `pytest` from a worktree runs
 functions you can see, and have nothing to do with your change.
 
 ```bash
+cd backend      # the Python half of the repo; every path below is under it
 PYTHONPATH=src python -c "import jarvis; print(jarvis.__file__)"
 ```
 

@@ -9,6 +9,12 @@ Authentication matches the rest of the API — every data route needs the
 token. Only the static shell is public, because a page with no data in it
 gives nothing away, and something has to load before a token can be entered.
 
+The pages themselves are the separate ``frontend/`` folder, mounted by
+:func:`jarvis.api.server.create_app` when it is present. This router only
+adds what the backend has to answer itself: the frontend's ``config.js``
+(pointing it back at this same server) and a plain explanation when the
+frontend is not installed here.
+
 Note: like :mod:`jarvis.api.server`, this module deliberately does NOT use
 ``from __future__ import annotations``; FastAPI must evaluate the dependency
 annotations that reference closure locals.
@@ -21,7 +27,7 @@ from pathlib import Path
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse, Response, StreamingResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
 from jarvis.agent.orchestrator import Orchestrator
@@ -34,7 +40,21 @@ from jarvis.voice.service import VoiceService
 
 _log = get_logger(__name__)
 
-WEB_ROOT = Path(__file__).parent / "web"
+#: Served in place of the frontend's own config.js: pages that came from
+#: this server talk back to this server, whatever the file on disk says.
+_SAME_ORIGIN_CONFIG = 'window.JARVIS_CONFIG = { server: "" };\n'
+
+_NO_FRONTEND = """<!doctype html>
+<meta charset="utf-8"><title>Jarvis API</title>
+<body style="font-family:system-ui;background:#05080c;color:#cbd5e1;padding:40px">
+<h1 style="color:#22d3ee;letter-spacing:.3em">JARVIS</h1>
+<p>This backend is running, but the web frontend is not installed next to it.</p>
+<p>Either put the <code>frontend</code> folder beside this <code>backend</code>
+folder (or set <code>dashboard.web_root</code> to it) and restart, or open the
+frontend on its own and connect it to this server.</p>
+<p>The API itself is here: <a style="color:#22d3ee" href="/docs">/docs</a></p>
+</body>
+"""
 
 #: Heartbeat interval for the event stream. Without it a proxy or a sleeping
 #: laptop can hold a dead connection open indefinitely; a comment line costs
@@ -72,23 +92,39 @@ def build_router(
     config: DashboardConfig,
     voice: VoiceService | None,
     require_auth: Any,
+    web_root: Path | None = None,
 ) -> APIRouter:
-    """Build the dashboard router around already-wired components."""
+    """Build the dashboard router around already-wired components.
+
+    ``web_root`` is the frontend folder the server mounts at ``/dash``, or
+    ``None`` when this backend runs without one.
+    """
     router = APIRouter(prefix="/dash", tags=["dashboard"])
     auth = Depends(require_auth)
 
-    # -- pages (public shell, no data) -----------------------------------
-    @router.get("/", include_in_schema=False)
-    def core_page() -> FileResponse:
-        return _page("index.html")
+    # -- the page shell (public, no data) ---------------------------------
+    @router.get("/config.js", include_in_schema=False)
+    def frontend_config() -> Response:
+        return Response(
+            content=_SAME_ORIGIN_CONFIG,
+            media_type="text/javascript",
+            headers={"Cache-Control": "no-cache"},
+        )
 
+    # The pages used to live at extension-less paths; keep old links working.
     @router.get("/files", include_in_schema=False)
-    def files_page() -> FileResponse:
-        return _page("files.html")
+    def files_page() -> RedirectResponse:
+        return RedirectResponse(url="/dash/files.html")
 
     @router.get("/office", include_in_schema=False)
-    def office_page() -> FileResponse:
-        return _page("office.html")
+    def office_page() -> RedirectResponse:
+        return RedirectResponse(url="/dash/office.html")
+
+    if web_root is None:
+
+        @router.get("/", include_in_schema=False)
+        def no_frontend() -> HTMLResponse:
+            return HTMLResponse(_NO_FRONTEND)
 
     # -- live state -------------------------------------------------------
     @router.get("/api/snapshot", dependencies=[auth])
@@ -193,13 +229,6 @@ def build_router(
         )
 
     return router
-
-
-def _page(name: str) -> FileResponse:
-    target = WEB_ROOT / name
-    if not target.is_file():  # pragma: no cover - packaging guard
-        raise HTTPException(status_code=404, detail=f"{name} is missing.")
-    return FileResponse(target, headers={"Cache-Control": "no-cache"})
 
 
 def _plain_transcript(text: str) -> Any:

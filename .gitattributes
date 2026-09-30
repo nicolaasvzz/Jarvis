@@ -1,0 +1,3 @@
+# Batch files need CRLF: cmd.exe mis-parses labels (goto) in LF-only files,
+# which is what a clone on a machine without core.autocrlf would give them.
+*.bat text eol=crlf

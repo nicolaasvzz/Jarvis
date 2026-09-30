@@ -15,16 +15,17 @@ agent state exists only in memory, so nothing outside that process could
 show it.
 """
 
+from jarvis.dashboard.frontend import find_frontend
 from jarvis.dashboard.hub import DashboardHub
 from jarvis.dashboard.mapping import ROOMS, file_action, room_for_tool, rooms_as_dicts
-from jarvis.dashboard.routes import WEB_ROOT, build_router
+from jarvis.dashboard.routes import build_router
 
 __all__ = [
     "ROOMS",
-    "WEB_ROOT",
     "DashboardHub",
     "build_router",
     "file_action",
+    "find_frontend",
     "room_for_tool",
     "rooms_as_dicts",
 ]

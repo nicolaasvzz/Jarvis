@@ -4,8 +4,12 @@ Reads the hook payload on stdin, picks out the edited file, and runs the same
 checks the project uses by hand:
 
 * ``ruff check`` on any Python file in the repo
-* ``mypy`` on files under ``src/`` (matching the ``mypy src`` command in the
-  README; the test suite is not type-checked)
+* ``mypy`` on files under ``backend/src/`` (matching the ``mypy src`` command
+  run from ``backend/``; the test suite is not type-checked)
+
+Both run from ``backend/``, where ``pyproject.toml`` holds their settings —
+run from the repo root, mypy would find no config and silently drop strict
+mode.
 
 Clean file -> exit 0, silent. Problems -> print them and exit 2, which feeds
 the output back to Claude so it fixes the file without re-reading it.
@@ -22,6 +26,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+BACKEND = ROOT / "backend"
 
 
 def edited_file(payload: dict) -> Path | None:
@@ -46,7 +51,7 @@ def run(tool: list[str], path: Path) -> str:
     try:
         proc = subprocess.run(
             [sys.executable, "-m", *tool, str(path)],
-            cwd=ROOT,
+            cwd=BACKEND,
             capture_output=True,
             text=True,
             timeout=110,
@@ -69,7 +74,7 @@ def main() -> int:
         return 0
 
     checks = [("ruff", ["ruff", "check"])]
-    if path.resolve().is_relative_to(ROOT / "src"):
+    if path.resolve().is_relative_to(BACKEND / "src"):
         checks.append(("mypy", ["mypy"]))
 
     problems = [(name, out) for name, cmd in checks if (out := run(cmd, path))]

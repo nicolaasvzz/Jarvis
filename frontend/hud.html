@@ -1,12 +1,11 @@
-"""Single-page HTML dashboard for Jarvis."""
-
-DASHBOARD_HTML = r"""\
 <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>J.A.R.V.I.S.</title>
+<script src="config.js"></script>
+<script src="js/connection.js"></script>
 <style>
 :root {
   --bg:#060610;--cyan:#00f0ff;--cyan20:rgba(0,240,255,.2);--cyan40:rgba(0,240,255,.4);
@@ -34,6 +33,10 @@ body::before{content:'';position:fixed;inset:0;
   border:1px solid var(--border);border-radius:4px;color:var(--text);
   font-family:inherit;font-size:13px;outline:none;margin-bottom:16px}
 .login-input:focus{border-color:var(--cyan)}
+.login-err{color:var(--pink);font-size:12px;min-height:16px;margin-top:12px}
+.hud-nav{position:fixed;top:10px;left:14px;z-index:100;font-size:11px;letter-spacing:2px}
+.hud-nav a{color:var(--dim);text-decoration:none}
+.hud-nav a:hover{color:var(--cyan)}
 .login-btn{display:block;width:280px;padding:10px;background:transparent;
   border:1px solid var(--cyan);color:var(--cyan);font-family:inherit;
   font-size:13px;cursor:pointer;letter-spacing:2px}
@@ -128,12 +131,15 @@ body::before{content:'';position:fixed;inset:0;
   <div class="login-box">
     <div class="login-title">J.A.R.V.I.S.</div>
     <div class="login-sub">Authentication Required</div>
-    <input id="login-token" class="login-input" type="password" placeholder="API Token" />
+    <input id="login-server" class="login-input" type="url" placeholder="Server (blank = this site)" autocomplete="off" />
+    <input id="login-token" class="login-input" type="password" placeholder="API Token" autocomplete="off" />
     <button id="login-btn" class="login-btn">CONNECT</button>
+    <div id="login-err" class="login-err"></div>
   </div>
 </div>
 
 <div id="dash" style="display:none">
+  <nav class="hud-nav"><a href="index.html">&larr; DASHBOARD</a></nav>
   <canvas id="neural-net"></canvas>
   <div id="conn" class="conn-dot"></div>
 
@@ -188,23 +194,27 @@ body::before{content:'';position:fixed;inset:0;
 <script>
 (function(){
 'use strict';
-var params=new URLSearchParams(location.search);
-var token=params.get('token')||localStorage.getItem('jarvis_token');
-var BASE=location.origin;
+// Which backend, and the token: see js/connection.js.
+var C=window.JarvisConnection;
+var token=C.token();
+var BASE=C.server();
 var $=function(id){return document.getElementById(id)};
 var login=$('login'),dash=$('dash'),conn=$('conn'),canvas=$('neural-net'),ctx=canvas.getContext('2d');
 
+function showLogin(message){login.style.display='flex';dash.style.display='none';
+  $('login-server').value=C.server();$('login-err').textContent=message||'';$('login-token').focus()}
 $('login-btn').onclick=function(){var t=$('login-token').value.trim();
-  if(t){token=t;localStorage.setItem('jarvis_token',t);location.search='?token='+encodeURIComponent(t)}};
-$('login-token').onkeydown=function(e){if(e.key==='Enter')$('login-btn').click()};
-if(!token){login.style.display='flex';return}
+  if(t){C.setServer($('login-server').value);C.setToken(t);location.reload()}};
+$('login-token').onkeydown=$('login-server').onkeydown=function(e){if(e.key==='Enter')$('login-btn').click()};
+if(!token){showLogin();return}
 login.style.display='none';dash.style.display='block';
 
-function api(path){return fetch(BASE+path,{headers:{'Authorization':'Bearer '+token}})
-  .then(function(r){if(!r.ok)throw new Error(r.status);return r.json()})}
+function checked(r){if(r.status===401){C.clearToken();showLogin('That token was not accepted.');
+  throw new Error('401')}if(!r.ok)throw new Error(r.status);return r.json()}
+function api(path){return fetch(BASE+path,{headers:{'Authorization':'Bearer '+token}}).then(checked)}
 function apiPost(path,body){return fetch(BASE+path,{method:'POST',
   headers:{'Authorization':'Bearer '+token,'Content-Type':'application/json'},
-  body:JSON.stringify(body)}).then(function(r){if(!r.ok)throw new Error(r.status);return r.json()})}
+  body:JSON.stringify(body)}).then(checked)}
 function esc(s){var d=document.createElement('div');d.textContent=s;return d.innerHTML}
 
 function dotClass(s){return s==='running'?'dot-cyan':s==='completed'?'dot-green':
@@ -245,7 +255,9 @@ function drawNN(){ctx.clearRect(0,0,canvas.width,canvas.height);
 
 initNN();requestAnimationFrame(drawNN);
 
+var everConnected=false;
 function fetchSystem(){api('/system').then(function(d){
+  everConnected=true;
   conn.classList.add('ok');
   $('nn-brain').textContent=d.brain.provider+' / '+d.brain.model;
   $('nn-tools').textContent=d.tools.length+' registered';
@@ -254,7 +266,9 @@ function fetchSystem(){api('/system').then(function(d){
     +'<div class="item"><div class="dot dot-purple"></div><div class="item-text"><span class="item-label">Tools</span><br><span class="item-val">'+d.tools.length+' available</span></div></div>'
     +'<div class="item"><div class="dot dot-amber"></div><div class="item-text"><span class="item-label">Active Tasks</span><br><span class="item-val">'+d.active_tasks+'</span></div></div>'
     +'<div class="item"><div class="dot dot-cyan"></div><div class="item-text"><span class="item-label">Total Tasks</span><br><span class="item-val">'+d.total_tasks+'</span></div></div>'
-}).catch(function(){conn.classList.remove('ok')})}
+}).catch(function(e){conn.classList.remove('ok');
+  // Never reached at all: most likely the wrong server, so ask again.
+  if(!everConnected&&e.message!=='401')showLogin('Could not reach Jarvis at '+C.describe()+'.')})}
 
 function fetchTasks(){api('/tasks').then(function(tasks){
   if(!tasks.length){$('t-body').innerHTML='<div class="empty">No tasks yet</div>';return}
@@ -309,4 +323,3 @@ setInterval(fetchActivity,5000);setInterval(fetchApprovals,5000);
 </script>
 </body>
 </html>
-"""

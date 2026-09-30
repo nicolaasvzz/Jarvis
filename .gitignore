@@ -14,11 +14,16 @@ venv/
 .coverage
 htmlcov/
 
-# Secrets — never commit these
+# Secrets — never commit these. Unanchored, so they match in backend/ and
+# anywhere else a copy ends up.
 .env
+.env.*
+!.env.example
 
-# Local (machine-specific) configuration; commit config.example.yaml instead
-config/config.yaml
+# Local (machine-specific) configuration; commit config.example.yaml instead.
+# "**/" because a pattern containing a slash is otherwise anchored to the repo
+# root, and the real file lives in backend/config/.
+**/config/config.yaml
 
 # Logs
 *.log

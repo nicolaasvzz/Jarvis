@@ -6,54 +6,36 @@
  * owns the connection to it — including reconnecting, which matters more than
  * it sounds: Jarvis runs for days, laptops sleep, and a HUD that silently
  * stopped updating is worse than one that says it is offline.
+ *
+ * Which backend to talk to, and the token, come from js/connection.js, which
+ * every page loads first.
  */
 
 export const Hud = (() => {
-  const TOKEN_KEY = "jarvis.token";
-
-  /* -- authentication ---------------------------------------------------- */
-
-  function readToken() {
-    // A token in the URL (from `jarvis dash`) wins once, then is stashed and
-    // scrubbed from the address bar so it does not linger in history.
-    const url = new URL(window.location.href);
-    const fromUrl = url.searchParams.get("token");
-    if (fromUrl) {
-      localStorage.setItem(TOKEN_KEY, fromUrl);
-      url.searchParams.delete("token");
-      window.history.replaceState({}, "", url.toString());
-      return fromUrl;
-    }
-    return localStorage.getItem(TOKEN_KEY) || "";
-  }
-
-  let token = readToken();
-
-  function setToken(value) {
-    token = value.trim();
-    localStorage.setItem(TOKEN_KEY, token);
-  }
-
-  function clearToken() {
-    token = "";
-    localStorage.removeItem(TOKEN_KEY);
-  }
+  const Connection = window.JarvisConnection;
 
   /* -- fetch ------------------------------------------------------------- */
 
   async function api(path, options = {}) {
-    const response = await fetch(path, {
-      ...options,
-      headers: {
-        ...(options.body && !(options.body instanceof FormData)
-          ? { "Content-Type": "application/json" }
-          : {}),
-        Authorization: `Bearer ${token}`,
-        ...(options.headers || {}),
-      },
-    });
+    let response;
+    try {
+      response = await fetch(Connection.url(path), {
+        ...options,
+        headers: {
+          ...(options.body && !(options.body instanceof FormData)
+            ? { "Content-Type": "application/json" }
+            : {}),
+          Authorization: `Bearer ${Connection.token()}`,
+          ...(options.headers || {}),
+        },
+      });
+    } catch (_) {
+      // The browser gives no detail for a refused connection or a CORS
+      // rejection; name the server so the fix is obvious.
+      throw new Error(`Could not reach Jarvis at ${Connection.describe()}.`);
+    }
     if (response.status === 401) {
-      clearToken();
+      Connection.clearToken();
       showGate("That token was not accepted.");
       throw new Error("unauthorised");
     }
@@ -82,8 +64,10 @@ export const Hud = (() => {
     gate.style.display = "grid";
     const err = gate.querySelector(".err");
     if (err) err.textContent = message;
-    const input = gate.querySelector("input");
-    if (input) setTimeout(() => input.focus(), 40);
+    const server = gate.querySelector("input[name=server]");
+    if (server && !server.value) server.value = Connection.server();
+    const token = gate.querySelector("input[name=token]");
+    if (token) setTimeout(() => token.focus(), 40);
   }
 
   function hideGate() {
@@ -94,11 +78,13 @@ export const Hud = (() => {
   function wireGate(onReady) {
     const gate = document.getElementById("gate");
     if (!gate) return;
-    const input = gate.querySelector("input");
+    const server = gate.querySelector("input[name=server]");
+    const input = gate.querySelector("input[name=token]");
     const button = gate.querySelector("button");
     const submit = async () => {
       if (!input.value.trim()) return;
-      setToken(input.value);
+      if (server) Connection.setServer(server.value);
+      Connection.setToken(input.value);
       try {
         await getJSON("/dash/api/snapshot");
         hideGate();
@@ -108,9 +94,12 @@ export const Hud = (() => {
       }
     };
     button.addEventListener("click", submit);
-    input.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") submit();
-    });
+    for (const field of [server, input]) {
+      if (!field) continue;
+      field.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") submit();
+      });
+    }
   }
 
   /* -- live stream ------------------------------------------------------- */
@@ -128,8 +117,9 @@ export const Hud = (() => {
 
   function connect() {
     if (source) source.close();
+    // EventSource cannot send headers, so the token rides in the query.
     source = new EventSource(
-      `/dash/api/stream?token=${encodeURIComponent(token)}`
+      Connection.url(`/dash/api/stream?token=${encodeURIComponent(Connection.token())}`)
     );
 
     source.onopen = () => {
@@ -175,16 +165,16 @@ export const Hud = (() => {
       connect();
       onReady();
     });
-    if (!token) {
+    if (!Connection.token()) {
       showGate();
       return;
     }
     try {
       await getJSON("/dash/api/snapshot");
     } catch (err) {
-      if (String(err.message) !== "unauthorised") {
-        toast(`Could not reach Jarvis: ${err.message}`, "bad");
-      }
+      // Unreachable is as likely as unauthorised when the frontend is opened
+      // on its own, so both lead back to the connect screen.
+      if (String(err.message) !== "unauthorised") showGate(err.message);
       return;
     }
     hideGate();
@@ -247,10 +237,18 @@ export const Hud = (() => {
   }
 
   function markNav() {
-    const here = window.location.pathname.replace(/\/$/, "");
+    // "/dash/", "/dash/index.html" and "/dash/files" vs "files.html" are
+    // the same pages, so compare on the page name alone.
+    const page = (path) =>
+      path.replace(/\/$/, "/index").split("/").pop().replace(/\.html$/, "") || "index";
+    const here = page(window.location.pathname);
     document.querySelectorAll(".nav a").forEach((link) => {
-      const target = new URL(link.href).pathname.replace(/\/$/, "");
-      if (target === here) link.classList.add("active");
+      if (page(new URL(link.href).pathname) === here) link.classList.add("active");
+    });
+    // Links into the backend itself (API docs) follow whichever server this
+    // page is connected to.
+    document.querySelectorAll("[data-api-link]").forEach((link) => {
+      link.href = Connection.url(link.dataset.apiLink);
     });
   }
 
@@ -268,8 +266,9 @@ export const Hud = (() => {
     escape,
     tone,
     setStatus,
+    url: (path) => Connection.url(path),
     get token() {
-      return token;
+      return Connection.token();
     },
   };
 })();

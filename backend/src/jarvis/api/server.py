@@ -8,19 +8,27 @@ Authentication: every route except ``/health`` requires the shared token,
 either as ``Authorization: Bearer <token>`` or — for the EventSource-based
 live stream, which cannot set headers — as a ``?token=`` query parameter.
 
+Cross-origin: the frontend can be opened on its own, from a different
+origin than this server, so CORS is enabled for localhost on any port plus
+whatever ``api.cors_origins`` lists. That only decides which pages the
+browser lets *try*; the token is still what authorises a request, and no
+cookies are involved, so there is no ambient credential to borrow.
+
 Note: this module deliberately does NOT use ``from __future__ import
 annotations`` — FastAPI needs to evaluate dependency annotations that
 reference closure locals (``bearer``), which postponed evaluation breaks.
 """
 
 import json
+import mimetypes
 import os
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, HTTPException, Query, UploadFile
-from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.staticfiles import StaticFiles
 
@@ -37,7 +45,6 @@ from jarvis.api.schemas import (
 from jarvis.config.schema import DashboardConfig
 from jarvis.core.models import ApprovalDecision
 from jarvis.dashboard.hub import DashboardHub
-from jarvis.dashboard.templates import DASHBOARD_HTML
 from jarvis.files.operations import FileManager
 from jarvis.logging import get_logger
 from jarvis.notifications import InMemoryChannel, NotificationService
@@ -49,6 +56,10 @@ from jarvis.voice.service import VoiceService
 _log = get_logger(__name__)
 
 _UPLOADS_DIR = "uploads"
+
+#: Any page served from this machine may call the API, on any port — that
+#: covers a frontend opened with a local static server.
+_LOCALHOST_ORIGINS = r"https?://(localhost|127\.0\.0\.1|\[::1\])(:\d+)?"
 
 
 def create_app(
@@ -64,14 +75,26 @@ def create_app(
     hub: DashboardHub | None = None,
     dashboard: DashboardConfig | None = None,
     voice: VoiceService | None = None,
+    web_root: Path | None = None,
+    cors_origins: list[str] | None = None,
 ) -> FastAPI:
     """Build the FastAPI app around already-wired components.
 
-    The dashboard is mounted only when a ``hub`` is supplied, so the API can
-    still be run headless — on a server, or by tests — without dragging in
-    the web assets.
+    The dashboard API is mounted only when a ``hub`` is supplied, and the
+    frontend's pages only when ``web_root`` points at them, so the API can
+    still run headless — on a server, by tests, or for someone who was given
+    the backend without the frontend.
     """
     app = FastAPI(title="Jarvis", version="0.1.0")
+    extra_origins = cors_origins or []
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"] if "*" in extra_origins else extra_origins,
+        allow_origin_regex=_LOCALHOST_ORIGINS,
+        allow_methods=["GET", "POST"],
+        allow_headers=["Authorization", "Content-Type"],
+        expose_headers=["X-Jarvis-Voice"],
+    )
     bearer = HTTPBearer(auto_error=False)
 
     def require_auth(
@@ -92,11 +115,6 @@ def create_app(
     @app.get("/health")
     def health() -> dict[str, str]:
         return {"status": "ok"}
-
-    # -- single-page HUD -------------------------------------------------
-    @app.get("/hud", response_class=HTMLResponse, include_in_schema=False)
-    def hud_page() -> HTMLResponse:
-        return HTMLResponse(content=DASHBOARD_HTML)
 
     # -- system ---------------------------------------------------------
     @app.get("/system", dependencies=[auth])
@@ -225,7 +243,7 @@ def create_app(
 
     # -- dashboard ----------------------------------------------------------
     if hub is not None:
-        from jarvis.dashboard.routes import WEB_ROOT, build_router
+        from jarvis.dashboard.routes import build_router
 
         app.include_router(
             build_router(
@@ -235,19 +253,26 @@ def create_app(
                 config=dashboard or DashboardConfig(),
                 voice=voice,
                 require_auth=require_auth,
+                web_root=web_root,
             )
         )
-        if WEB_ROOT.is_dir():
+        if web_root is not None:
+            # Windows can register .js as text/plain, and Python's mimetypes
+            # reads the registry; browsers refuse to run a module served
+            # that way, which leaves a blank page with no visible error.
+            mimetypes.add_type("text/javascript", ".js")
+            mimetypes.add_type("text/css", ".css")
+            # After the router, so /dash/api/* and /dash/config.js win over
+            # any file of the same name; everything else is the frontend.
             app.mount(
-                "/dash/static",
-                StaticFiles(directory=WEB_ROOT),
-                name="dashboard-static",
+                "/dash",
+                StaticFiles(directory=web_root, html=True),
+                name="frontend",
             )
-
 
     @app.get("/", include_in_schema=False)
     def home() -> RedirectResponse:
-        """Send a bare visit to a dashboard rather than a bare 404."""
-        return RedirectResponse(url="/dash/" if hub is not None else "/hud")
+        """Send a bare visit somewhere useful rather than a bare 404."""
+        return RedirectResponse(url="/dash/" if hub is not None else "/docs")
 
     return app

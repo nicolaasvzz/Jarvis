@@ -222,9 +222,9 @@ export class Voice {
       const form = new FormData();
       form.append("audio", blob, "utterance.webm");
       form.append("submit", "true");
-      const response = await fetch("/dash/api/listen", {
+      const response = await fetch(window.JarvisConnection.url("/dash/api/listen"), {
         method: "POST",
-        headers: { Authorization: `Bearer ${window.__jarvisToken || ""}` },
+        headers: { Authorization: `Bearer ${window.JarvisConnection.token()}` },
         body: form,
       });
       if (!response.ok) {
@@ -257,11 +257,11 @@ export class Voice {
     if (!text || !text.trim()) return;
     let blob;
     try {
-      const response = await fetch("/dash/api/speak", {
+      const response = await fetch(window.JarvisConnection.url("/dash/api/speak"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${window.__jarvisToken || ""}`,
+          Authorization: `Bearer ${window.JarvisConnection.token()}`,
         },
         body: JSON.stringify({ text }),
       });
