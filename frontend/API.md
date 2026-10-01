@@ -51,7 +51,8 @@ reconnecting.
   `status` is one of `pending`, `planning`, `running`, `waiting_approval`, `completed`, `failed`, `cancelled`.
 - **Approval** — `{id, task_id, tool, arguments, reason, created_at}`.
 - **voice** — `{"enabled": false}` hides the microphone. With speech:
-  `{enabled, can_speak, can_listen, voice, wake_word, wake_word_required, ...}`.
+  `{enabled, can_speak, can_listen, voice, provider, wake_word, wake_word_required, ...}`
+  (`provider` is `edge` or `openai`; `listen_provider` is `browser`, `whisper`, `wispr` or empty; with `browser` the page recognises speech itself and posts the text to `command`, using `listen_language`).
 - **Terminal** — see [Terminal routes](#terminal-routes); send `[]` if you
   have none.
 
@@ -119,7 +120,8 @@ Allow or deny a pending action. Request `{"decision": "allow"}` or
 
 ### `listen` / `speak` — voice (optional)
 
-- `POST /dash/api/listen` — multipart form: `audio` (a webm recording) and
+- `POST /dash/api/listen` (`whisper` and `wispr` only; the `browser` option never calls it) — multipart form: `audio` (a webm recording; a 16 kHz
+  mono WAV when `voice.listen_provider` is `wispr`) and
   `submit` (`"true"`). Responds like `command`. Answer `503` with a `detail`
   to switch the microphone off with that message.
 - `POST /dash/api/speak` — JSON `{"text": "..."}`. Responds with audio bytes

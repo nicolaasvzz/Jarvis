@@ -83,3 +83,11 @@ python -m mypy --strict --ignore-missing-imports jarvis.py
   "starts" only when Enter is pressed on a line beginning with the prompt.
 - Tests never start a real shell: `Jarvis.spawn_shell` is swapped for
   `FakeShell` in `test_jarvis.py`.
+
+## Pull requests
+
+- The GitHub repo is `nicolaasvzz/Jarvis` (it was `Jarvis.`, with a trailing dot;
+  the old name still redirects, and this checkout's `origin` may use it). Its
+  default branch is `claude/jarvis-ai-assistant-9hhbcu`, not `main`.
+- On Windows `gh` may not be on PATH in a fresh shell; it installs to
+  `C:\Program Files\GitHub CLI\gh.exe` (PowerShell: `& "C:\Program Files\GitHub CLI\gh.exe" ...`).

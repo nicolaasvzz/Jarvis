@@ -420,6 +420,9 @@ function setupVoice(capability) {
   }
 
   voice = new Voice({
+    wav: capability.listen_provider === "wispr",
+    browser: capability.listen_provider === "browser",
+    language: capability.listen_language,
     onTranscript: (heard) => {
       if (!heard.text) return;
       if (!heard.addressed) {
@@ -442,6 +445,11 @@ function setupVoice(capability) {
     },
     onAmplitude: (value) => core && core.setAmplitude(value),
     onError: (message) => Hud.toast(message, "bad"),
+    onNotice: (message) => Hud.toast(message, "ok"),
+    onInterim: (text) => {
+      transcript.classList.remove("hot");
+      transcript.textContent = `“${text}…”`;
+    },
   });
 
   if (!capability.can_listen) {

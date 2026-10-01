@@ -91,7 +91,15 @@ treat it like a password.
 | `NOTIFY_AFTER_SECONDS` | `20` | A command this long gets a "how it went" from Jarvis; `0` = never |
 | `STARTUP_TERMINALS` | `terminals.json` | Terminals to open when Jarvis starts |
 | `JARVIS_WORKSPACE` | `workspace` | Where commands start |
-| `JARVIS_VOICE` | `en-GB-RyanNeural` | `off` for silence |
+| `JARVIS_VOICE` | `en-GB-RyanNeural` | Edge voice name; `off` for silence |
+| `JARVIS_VOICE_PROVIDER` | `edge` | `openai` for ChatGPT's voices (needs `OPENAI_API_KEY`; falls back to `edge`) |
+| `JARVIS_VOICE_STYLE` | deep, refined British butler | plain-words accent/tone for the OpenAI voice |
+| `JARVIS_LISTEN_PROVIDER` | `browser` | `browser` (Chrome/Edge's own speech recognition, free), `whisper` (Whisper on this computer: free, private, any browser; needs `faster-whisper`), `wispr` (Wispr Flow, needs `WISPR_API_KEY`), or `off` |
+| `JARVIS_LISTEN_LANGUAGE` | `en-GB` | what you speak, for the `browser` option |
+| `WHISPER_MODEL` | `small.en` | Whisper size: `base.en` faster, `medium.en` more accurate |
+| `WISPR_API_KEY` / `WISPR_LANGUAGE` | / `en` | Wispr Flow key and language hint |
+| `OPENAI_API_KEY` | | key for the OpenAI voice |
+| `OPENAI_TTS_MODEL` / `OPENAI_TTS_VOICE` | `gpt-4o-mini-tts` / `onyx` | OpenAI voice model and voice |
 | `NEWS_COUNTRY` / `NEWS_LANGUAGE` | `US` / `en` | Google News edition |
 | `JARVIS_HOST` / `JARVIS_PORT` | `127.0.0.1` / `8765` | `0.0.0.0` to allow other devices |
 | `JARVIS_CORS_ORIGINS` | — | Extra web origins for a separately hosted dashboard |

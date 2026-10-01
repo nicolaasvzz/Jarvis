@@ -26,8 +26,60 @@ const MIN_SPEECH_MS = 260;        // shorter than this is a cough or a click
 const IDLE_CYCLE_MS = 7000;       // recycle the recorder during silence
 const MAX_UTTERANCE_MS = 15000;   // hard stop, so nothing records forever
 
+/**
+ * Re-encode a recording as 16 kHz mono 16-bit WAV, which is what Wispr Flow
+ * takes (the browser itself records webm/opus).
+ */
+export async function toWav16k(blob) {
+  const Ctx = window.AudioContext || window.webkitAudioContext;
+  const decoder = new Ctx();
+  let decoded;
+  try {
+    decoded = await decoder.decodeAudioData(await blob.arrayBuffer());
+  } finally {
+    decoder.close();
+  }
+  const rate = 16000;
+  const offline = new OfflineAudioContext(
+    1, Math.max(1, Math.ceil(decoded.duration * rate)), rate
+  );
+  const source = offline.createBufferSource();
+  source.buffer = decoded; // channels are mixed down to mono by the context
+  source.connect(offline.destination);
+  source.start();
+  const samples = (await offline.startRendering()).getChannelData(0);
+
+  const view = new DataView(new ArrayBuffer(44 + samples.length * 2));
+  const text = (at, value) =>
+    [...value].forEach((c, i) => view.setUint8(at + i, c.charCodeAt(0)));
+  text(0, "RIFF");
+  view.setUint32(4, 36 + samples.length * 2, true);
+  text(8, "WAVEfmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true); // PCM
+  view.setUint16(22, 1, true); // mono
+  view.setUint32(24, rate, true);
+  view.setUint32(28, rate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  text(36, "data");
+  view.setUint32(40, samples.length * 2, true);
+  samples.forEach((x, i) => {
+    const v = Math.max(-1, Math.min(1, x));
+    view.setInt16(44 + i * 2, v < 0 ? v * 0x8000 : v * 0x7fff, true);
+  });
+  return new Blob([view], { type: "audio/wav" });
+}
+
 export class Voice {
-  constructor({ onTranscript, onStateChange, onAmplitude, onError }) {
+  constructor({ onTranscript, onStateChange, onAmplitude, onError, wav, browser, language, onNotice, onInterim }) {
+    this.onNotice = onNotice || (() => {});
+    this.onInterim = onInterim || (() => {});
+    this.checkAfterMs = 8000; // how long to listen before judging the microphone
+    this.wav = Boolean(wav); // send WAV instead of the browser's webm
+    this.browser = Boolean(browser); // let the browser do the recognising
+    this.language = language || "en-GB";
+    this.recognition = null;
     this.onTranscript = onTranscript || (() => {});
     this.onStateChange = onStateChange || (() => {});
     this.onAmplitude = onAmplitude || (() => {});
@@ -61,6 +113,7 @@ export class Voice {
 
   async startListening() {
     if (this.listening) return;
+    if (this.browser) return this.startBrowserListening();
     try {
       this.stream = await navigator.mediaDevices.getUserMedia({
         audio: {
@@ -92,8 +145,174 @@ export class Voice {
     this.monitor();
   }
 
+  /**
+   * The browser's own speech recognition: free, no key, no upload of audio to
+   * Jarvis. Chrome and Edge ship it; it stops by itself every so often, so it
+   * is restarted while listening is on.
+   */
+  startBrowserListening() {
+    const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!Recognition) {
+      this.onError(
+        "This browser has no speech recognition. Open the dashboard in Chrome or Edge, or type."
+      );
+      return;
+    }
+    const recognition = new Recognition();
+    recognition.lang = this.language;
+    recognition.continuous = true;
+    recognition.interimResults = true; // live captions, so you can see it hearing you
+    recognition.onspeechstart = () => {
+      this.recognised = true;
+      if (!this.speaking) this.onStateChange("hearing");
+    };
+    recognition.onresult = (event) => {
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const result = event.results[i];
+        this.recognised = true;
+        // Ignore the room while Jarvis is talking, so it does not hear itself.
+        if (this.speaking) continue;
+        if (result.isFinal) this.sendText(result[0].transcript);
+        else this.onInterim(result[0].transcript);
+      }
+    };
+    recognition.onerror = (event) => {
+      if (event.error === "no-speech" || event.error === "aborted") return;
+      if (event.error === "not-allowed" || event.error === "service-not-allowed") {
+        this.stopListening();
+        this.onError("Microphone access was refused. Allow it in the browser to talk to Jarvis.");
+      } else if (event.error === "network") {
+        this.stopListening();
+        this.onError("Speech recognition needs an internet connection in this browser.");
+      } else {
+        // audio-capture (no microphone), language-not-supported, ... —
+        // never fail silently, and do not restart in a loop.
+        this.stopListening();
+        this.onError(
+          event.error === "audio-capture"
+            ? "No microphone was found. Plug one in or pick it in the browser's site settings."
+            : `Speech recognition stopped: ${event.error}`
+        );
+      }
+    };
+    recognition.onend = () => {
+      if (!this.listening) return;
+      try {
+        recognition.start();
+      } catch (_) {
+        /* already running */
+      }
+      if (!this.busy) this.onStateChange("armed");
+    };
+    this.recognition = recognition;
+    this.listening = true;
+    try {
+      recognition.start();
+    } catch (err) {
+      this.listening = false;
+      this.onError(`Could not start listening: ${err.message || err}`);
+      return;
+    }
+    this.onStateChange("armed");
+    this.onNotice("Listening — speak now.");
+    this.watchMicrophone();
+  }
+
+  /**
+   * Browser recognition never says what it is hearing, so open the microphone
+   * a second time just to read its level. That drives the core's pulse, and
+   * after a few seconds it tells you if the problem is the microphone (silent:
+   * wrong input device or muted) or the recogniser (sound but no words).
+   */
+  async watchMicrophone() {
+    this.recognised = false;
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (_) {
+      return; // recognition may still work; the level is only a diagnostic
+    }
+    if (!this.listening) {
+      stream.getTracks().forEach((track) => track.stop());
+      return;
+    }
+    this.stream = stream;
+    // Not awaited: a context that cannot resume (no user gesture yet) must not
+    // stop the check from judging the microphone.
+    const context = this.context || new (window.AudioContext || window.webkitAudioContext)();
+    this.context = context;
+    if (context.state === "suspended") context.resume().catch(() => {});
+    const analyser = context.createAnalyser();
+    analyser.fftSize = 1024;
+    context.createMediaStreamSource(stream).connect(analyser);
+    const buffer = new Float32Array(analyser.fftSize);
+    const startedAt = performance.now();
+    let loudest = 0;
+    let judged = false;
+    // A timer, not requestAnimationFrame: frames stop in a background tab,
+    // and a microphone that is listening should still be judged.
+    const timer = setInterval(() => {
+      if (!this.listening || this.stream !== stream) {
+        clearInterval(timer);
+        return;
+      }
+      analyser.getFloatTimeDomainData(buffer);
+      let peak = 0;
+      for (let i = 0; i < buffer.length; i++) peak = Math.max(peak, Math.abs(buffer[i]));
+      loudest = Math.max(loudest, peak);
+      if (!this.speaking) this.onAmplitude(Math.min(1, peak * 2.4));
+      if (!judged && performance.now() - startedAt > this.checkAfterMs) {
+        judged = true;
+        if (loudest < 0.01) {
+          this.onError(
+            "The microphone is open but silent. Check which input Chrome is using " +
+              "(padlock in the address bar, then Site settings, or the mic icon) and that it isn't muted."
+          );
+        } else if (!this.recognised) {
+          this.onError(
+            "I can hear sound, but the browser's speech recogniser returns no words. " +
+              "Use Chrome or Edge (not Brave or a built-in browser) and check you're online."
+          );
+        }
+      }
+    }, 60);
+  }
+
+  async sendText(text) {
+    const said = (text || "").trim();
+    if (!said) return;
+    this.busy = true;
+    this.onStateChange("thinking");
+    try {
+      const response = await fetch(window.HudConnection.endpoint("command"), {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${window.HudConnection.token()}`,
+        },
+        body: JSON.stringify({ text: said, submit: true }),
+      });
+      if (response.ok) this.onTranscript(await response.json());
+      else this.onError(`Jarvis could not take that (${response.status}).`);
+    } catch (err) {
+      this.onError(`Could not send what you said: ${err.message || err}`);
+    } finally {
+      this.busy = false;
+      if (this.listening) this.onStateChange("armed");
+    }
+  }
+
   stopListening() {
     this.listening = false;
+    if (this.recognition) {
+      this.recognition.onend = null;
+      try {
+        this.recognition.stop();
+      } catch (_) {
+        /* already stopped */
+      }
+      this.recognition = null;
+    }
     if (this.recorder && this.recorder.state !== "inactive") {
       this.recorder.onstop = null;
       this.recorder.stop();
@@ -220,7 +439,8 @@ export class Voice {
     this.onStateChange("thinking");
     try {
       const form = new FormData();
-      form.append("audio", blob, "utterance.webm");
+      if (this.wav) form.append("audio", await toWav16k(blob), "utterance.wav");
+      else form.append("audio", blob, "utterance.webm");
       form.append("submit", "true");
       const response = await fetch(window.HudConnection.endpoint("listen"), {
         method: "POST",
@@ -253,9 +473,21 @@ export class Voice {
 
   /* -- speaking ---------------------------------------------------------- */
 
-  async say(text) {
-    if (!text || !text.trim()) return;
-    let blob;
+  /**
+   * Speak `text` sentence by sentence: every sentence is requested at once and
+   * played in order, so the first one starts as soon as it is ready instead of
+   * after the whole answer has been synthesised. Calls queue up rather than
+   * talking over each other.
+   */
+  say(text) {
+    if (!text || !text.trim()) return Promise.resolve();
+    this.speechQueue = (this.speechQueue || Promise.resolve()).then(() =>
+      this.speakNow(text)
+    );
+    return this.speechQueue;
+  }
+
+  async fetchClip(text) {
     try {
       const response = await fetch(window.HudConnection.endpoint("speak"), {
         method: "POST",
@@ -265,12 +497,33 @@ export class Voice {
         },
         body: JSON.stringify({ text }),
       });
-      if (!response.ok) return; // speech is a nicety; never interrupt for it
-      blob = await response.blob();
+      return response.ok ? await response.blob() : null;
     } catch (_) {
-      return;
+      return null; // speech is a nicety; never interrupt for it
     }
+  }
 
+  async speakNow(text) {
+    // The first sentence is requested alone so nothing slows it down; the
+    // rest follow as soon as it is back, well ahead of when they are needed.
+    const [first, ...rest] = splitSpeech(text);
+    const head = this.fetchClip(first);
+    const tail = head.then(() => rest.map((part) => this.fetchClip(part)));
+    this.speaking = true;
+    try {
+      for (let i = 0; i <= rest.length; i++) {
+        const blob = await (i === 0 ? head : (await tail)[i - 1]);
+        if (!blob) continue;
+        await this.playClip(blob);
+      }
+    } finally {
+      this.speaking = false;
+      this.onAmplitude(0);
+      this.onStateChange(this.listening ? "armed" : "off");
+    }
+  }
+
+  async playClip(blob) {
     const context = await this.ensureContext();
     const url = URL.createObjectURL(blob);
     const audio = new Audio(url);
@@ -283,12 +536,11 @@ export class Voice {
     source.connect(analyser);
     analyser.connect(context.destination);
     const buffer = new Float32Array(analyser.fftSize);
+    let playing = true;
 
-    this.speaking = true;
     this.onStateChange("speaking");
-
     const follow = () => {
-      if (!this.speaking) return;
+      if (!playing) return;
       analyser.getFloatTimeDomainData(buffer);
       let peak = 0;
       for (let i = 0; i < buffer.length; i++) {
@@ -299,26 +551,45 @@ export class Voice {
       requestAnimationFrame(follow);
     };
 
-    const finish = () => {
-      this.speaking = false;
-      this.onAmplitude(0);
-      this.onStateChange(this.listening ? "armed" : "off");
-      URL.revokeObjectURL(url);
-      try {
-        source.disconnect();
-        analyser.disconnect();
-      } catch (_) {
-        /* already torn down */
-      }
-    };
-
-    audio.addEventListener("ended", finish);
-    audio.addEventListener("error", finish);
+    await new Promise((resolve) => {
+      audio.addEventListener("ended", resolve);
+      audio.addEventListener("error", resolve);
+      audio.play().then(follow, resolve); // autoplay blocked: not fatal
+    });
+    playing = false;
+    URL.revokeObjectURL(url);
     try {
-      await audio.play();
-      follow();
+      source.disconnect();
+      analyser.disconnect();
     } catch (_) {
-      finish(); // autoplay blocked until the user interacts; not fatal
+      /* already torn down */
     }
   }
+}
+
+/**
+ * Cut text into sentence-sized pieces for speaking. Short sentences are merged
+ * into the next one so the voice is not asked for a clip of two words, and the
+ * total stays within what the server will speak (1500 characters).
+ */
+export function splitSpeech(text, minLength = 40) {
+  const sentences = text
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 1500)
+    .split(/(?<=[.!?…])\s+/);
+  const parts = [];
+  let carry = "";
+  for (const sentence of sentences) {
+    carry = carry ? `${carry} ${sentence}` : sentence;
+    if (carry.length >= minLength) {
+      parts.push(carry);
+      carry = "";
+    }
+  }
+  if (carry) {
+    if (parts.length) parts[parts.length - 1] += ` ${carry}`;
+    else parts.push(carry);
+  }
+  return parts;
 }
