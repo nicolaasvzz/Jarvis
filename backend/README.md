@@ -41,9 +41,9 @@ it makes a dashboard token, saves it to `.env`, and opens
 | `get_weather` | Current weather + 3‑day forecast (Open‑Meteo, no key) |
 | `get_news` | Headlines, top or by topic (Google News RSS) |
 | `web_search` / `read_webpage` | DuckDuckGo results; a page's text (public sites only) |
-| `run_command` | A quick command, run out of sight — **waits for Allow** — returning its output |
+| `run_command` | A quick command, run out of sight — **waits for Allow** unless it is read-only — returning its output |
 | `terminal_open` | Opens a live terminal on the dashboard's **Terminal** tab, optionally running a command in it (that **waits for Allow**) |
-| `terminal_write` | Types into an open terminal — a command, an answer, or a key like ctrl+c — **waits for Allow**, then returns the screen |
+| `terminal_write` | Types into an open terminal — a command, an answer, or a key like ctrl+c — **waits for Allow** (not in a trusted terminal), then returns the screen |
 | `terminal_read` / `terminal_list` | What a terminal's screen shows; which terminals are open and what each is for |
 | `read_workspace_file` | Reads a file in the workspace |
 
@@ -55,6 +55,28 @@ keeps its title, purpose and a log of what was typed and by whom. All of it
 goes into Jarvis's prompt on every request, so *"carry on in the npm one"*
 lands in the right terminal. Terminals live as long as `jarvis.py` does.
 
+**Less asking.** Read-only commands (`git status`, `git log`, `dir`, `ls`,
+`pwd`, `where …`, anything `--version`, …) run without asking; anything that
+chains, redirects or substitutes (`;`, `|`, `>`, `$(…)`) never counts. On
+the Terminal tab, **Jarvis types freely** trusts one terminal so Jarvis can
+type there without asking. It's off for every new terminal.
+
+**When commands finish.** Each shell's prompt marks every finished command
+with its exit status, invisibly. A failed command lights up **Explain the
+error** on the Terminal tab. One that took `NOTIFY_AFTER_SECONDS` or longer,
+which Jarvis wasn't already watching, gets a short spoken word from Jarvis on
+how it went.
+
+**Start-up terminals.** Copy `terminals.example.json` to `terminals.json`
+(not committed) and list the terminals to open whenever Jarvis starts, each
+with a `title`, `purpose` and optional `command`. You wrote those commands
+yourself, so they run without asking.
+
+**From your phone.** `approve.html` is an Allow/Deny page for a phone. Set
+`JARVIS_HOST=0.0.0.0` and `jarvis.py` prints its address on your Wi-Fi at
+start-up, token included. Anyone who has that link can approve commands, so
+treat it like a password.
+
 ## Settings (`.env`)
 
 | Key | Default | |
@@ -65,6 +87,9 @@ lands in the right terminal. Terminals live as long as `jarvis.py` does.
 | `JARVIS_API_TOKEN` | made on first run | The dashboard's password |
 | `HOME_LOCATION` | — | Where "the weather" means |
 | `AUTO_APPROVE` | `false` | `true` runs commands, and lets Jarvis type into terminals, without asking |
+| `ALLOW_SAFE_COMMANDS` | `true` | Read-only commands run without asking; `false` asks for those too |
+| `NOTIFY_AFTER_SECONDS` | `20` | A command this long gets a "how it went" from Jarvis; `0` = never |
+| `STARTUP_TERMINALS` | `terminals.json` | Terminals to open when Jarvis starts |
 | `JARVIS_WORKSPACE` | `workspace` | Where commands start |
 | `JARVIS_VOICE` | `en-GB-RyanNeural` | `off` for silence |
 | `NEWS_COUNTRY` / `NEWS_LANGUAGE` | `US` / `en` | Google News edition |

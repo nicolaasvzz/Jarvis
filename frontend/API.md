@@ -7,9 +7,9 @@ paths are defaults — rename any of them under `routes` in `config.js`.
 
 | Page | Routes it uses |
 |---|---|
-| `index.html` (Core) | `snapshot`, `stream`, `stats`, `command`, `approval`, optionally `listen`, `speak`, `docs` |
-| `terminal.html` | `snapshot`, `stream`, `terminals`, `terminalStream`, `terminalInput`, `terminalClose`, `approvals`, `approval`, `command` |
-| `hud.html` | `system`, `tasks`, `notifications`, `approvals`, `approval`, `events` |
+| `index.html` (Core) | `snapshot`, `stream`, `stats`, `command`, `approval`, optionally `system`, `listen`, `speak`, `docs` |
+| `terminal.html` | `snapshot`, `stream`, `terminals`, `terminalStream`, `terminalInput`, `terminalClose`, `terminalExplain`, `terminalTrust`, `approvals`, `approval`, `command` |
+| `approve.html` | `snapshot`, `stream`, `approvals`, `approval` |
 
 The smallest useful backend is `snapshot` + `stream` + `command`: that gives
 the Core page live activity and a working command bar.
@@ -77,10 +77,13 @@ Only `type` and `message` are required. The types the pages react to:
 `task.created`, `task.planning`, `task.started`, `task.progress`,
 `task.completed`, `task.failed`, `task.cancelled`, `step.started`,
 `step.completed`, `step.failed`, `step.retrying`, `approval.required`,
-`approval.resolved`, `error`, `heard`, and for the Terminal page
-`terminal.opened`, `terminal.exited`, `terminal.closed` (`data` carries the
-`terminal`, or its `terminal_id`) and `terminal.input` (the assistant typed
-into `data.terminal_id`). `speak: true` asks the Core page to read `message`
+`approval.resolved`, `approval.auto` (ran without asking — a read-only
+command or a trusted terminal), `error`, `heard`, and for the Terminal page
+`terminal.opened`, `terminal.exited`, `terminal.updated`,
+`terminal.failed` (a command failed), `terminal.finished` (a long command
+worked), `terminal.closed` (`data` carries the `terminal`, or its
+`terminal_id`) and `terminal.input` (the assistant typed into
+`data.terminal_id`). `speak: true` asks the Core page to read `message`
 aloud.
 
 ### `stats` — `GET /dash/api/stats`
@@ -139,12 +142,18 @@ terminals, so both see the same screen.
 {"id": "term-2", "title": "npm install", "purpose": "install the app's packages",
  "opened_by": "jarvis", "status": "running", "state": "at its prompt",
  "at_prompt": true, "exit_code": null, "created_at": "...", "cols": 120, "rows": 30,
+ "trusted": false, "running": null,
+ "last_result": {"command": "npm install", "by": "jarvis", "ok": true, "seconds": 41,
+                 "started_at": "...", "finished_at": "...", "watched": false},
  "log": [{"at": "...", "by": "jarvis", "text": "npm install"},
          {"at": "...", "by": "you", "text": "npm run dev"}]}
 ```
 
-`status` is `running` or `exited`; `opened_by` and `log[].by` are `you` or
-`jarvis`. `log` is the last few lines typed and who typed them. `cols` and
+`status` is `running` or `exited`; `opened_by` and `log[].by` are `you`,
+`jarvis` or `startup` (opened from the backend's start-up list). `log` is
+the last few lines typed and who typed them. `running` is the command in
+progress (`{command, by, started_at}`) or `null`; `last_result` is how the
+last one went. `trusted` means the assistant may type there without asking. `cols` and
 `rows` are fixed when the terminal opens: shrinking a terminal would cut its
 lines. Show it at exactly that size, scaling the font to fit.
 
@@ -155,6 +164,8 @@ lines. Show it at exactly that size, scaling the font to fit.
 | `terminalStream` | `GET /dash/api/terminals/{id}/stream?token=…` | Server-sent events, below |
 | `terminalInput` | `POST /dash/api/terminals/{id}/input` | `{"data": "<keystrokes, as xterm.js sends them>"}`. `409` if the shell has exited. |
 | `terminalClose` | `POST /dash/api/terminals/{id}/close` | Stops the shell and forgets it |
+| `terminalExplain` | `POST /dash/api/terminals/{id}/explain` | Asks the assistant what the screen shows and what went wrong → the new Task; its answer arrives as `task.completed` |
+| `terminalTrust` | `POST /dash/api/terminals/{id}/trust` | `{"trusted": true}` lets the assistant type there without asking; `false` takes that back → the Terminal |
 
 Every terminal route answers `404` for a terminal that is closed.
 
@@ -168,17 +179,13 @@ The stream's messages, each `data: <JSON>\n\n`:
   until closed.
 - `{"type": "closed"}` — the terminal was closed; the stream then ends.
 
-## HUD routes (`hud.html`)
-
-The single-page HUD polls these plain REST routes instead of the dashboard
-API above.
+## Other routes
 
 | Route | Default | Returns |
 |---|---|---|
-| `system` | `GET /system` | `{"brain": {"provider": "gemini", "model": "gemini-3.8-flash", "connected": true}, "tools": ["read_file", ...], "active_tasks": 1, "total_tasks": 5, "workspace": "..."}` |
-| `tasks` | `GET /tasks` | `[Task, ...]`, newest first |
-| `tasks` | `POST /tasks` | Request `{"request": "..."}` → the new Task |
-| `notifications` | `GET /notifications` | `[{"type": "info", "message": "...", "task_id": "t1", "created_at": "..."}]` |
-| `approvals` | `GET /approvals` | `[Approval, ...]` still pending |
-| `approval` | `POST /approvals/{id}` | as above |
-| `events` | `GET /events?token=…` | server-sent events; any message makes the HUD refresh |
+| `approvals` | `GET /approvals` | `[Approval, ...]` still pending — the Terminal and Approvals pages |
+| `system` | `GET /system` | `{"brain": {"provider": "gemini", "model": "gemini-3.5-flash-lite", "connected": true}, "tools": ["run_command", ...], "active_tasks": 1, "total_tasks": 5, "workspace": "..."}` — the model line on the Core page |
+
+`jarvis.py` also has plain REST routes no page uses, for scripts and curl:
+`GET`/`POST /tasks`, `GET /tasks/{id}`, `GET /notifications` and
+`GET /events` (the event stream again).

@@ -11,8 +11,8 @@ other projects too.
 | Page | What it shows |
 |---|---|
 | `index.html` — **Core** | A particle sphere that reacts to what the agent is doing (cyan idle, amber thinking, pulsing while it speaks, red on failure), machine vitals, running tasks, live activity, approval buttons, a command bar, and voice |
-| `terminal.html` — **Terminal** | Live terminals on the backend's machine, shared with the assistant: you both see them and type in them. Its approval requests show here too |
-| `hud.html` — **HUD** | A classic single-page heads-up display: system status, tasks, activity, approvals |
+| `terminal.html` — **Terminal** | Live terminals on the backend's machine, shared with the assistant: you both see them and type in them. Its approval requests show here too, a failed command lights up **Explain**, and a terminal can be trusted so the assistant types there without asking |
+| `approve.html` — **Approvals** | Built for a phone: Allow/Deny what the assistant wants to run, with the exact command, and what happened recently |
 
 ## Open it
 
@@ -71,8 +71,8 @@ friends); the Core page also takes its accent from the backend's snapshot.
    `server`.
 3. Implement the routes in [API.md](API.md) on your backend — or map
    `routes` in `config.js` onto endpoints you already have. `snapshot` +
-   `stream` + `command` is enough for a working Core page; `hud.html` needs
-   only plain REST routes.
+   `stream` + `command` is enough for a working Core page, and adding
+   `approvals` + `approval` makes `approve.html` work.
 4. Allow CORS for wherever the pages are opened from (methods `GET, POST`;
    headers `Authorization, Content-Type`), unless your backend serves the
    folder itself.
@@ -107,16 +107,16 @@ running, the server address is wrong, or the page's address isn't in
 
 ```
 frontend/
-├── index.html  terminal.html  hud.html
+├── index.html  terminal.html  approve.html
 ├── config.js              project settings: server, name, routes
 ├── API.md                 the backend routes these pages use
 ├── start.bat  serve.py    serve the folder (Windows / any OS with Python)
-├── css/                   hud.css (theme + layout), terminal.css (Terminal page)
+├── css/                   hud.css (theme + layout), terminal.css, approve.css
 └── js/
     ├── lib/
     │   ├── connection.js  settings, server, token, routes, branding (every page loads it first)
     │   └── hud.js         fetch + auth, the live event stream, connect screen, helpers
-    ├── pages/             core.js, terminal.js — one per page
+    ├── pages/             core.js, terminal.js, approve.js — one per page
     └── components/        core-visual.js (the sphere),
                            voice.js (wake-word listening, speech playback)
 ```

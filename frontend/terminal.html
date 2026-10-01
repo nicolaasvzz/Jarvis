@@ -18,7 +18,7 @@
     <nav class="nav">
       <a href="index.html">Core</a>
       <a href="terminal.html">Terminal</a>
-      <a href="hud.html">HUD</a>
+      <a href="approve.html">Approvals</a>
     </nav>
     <div class="status-strip">
       <span id="term-total"></span>
@@ -56,6 +56,12 @@
         <span class="term-id" id="term-id"></span>
       </div>
       <div class="term-purpose" id="term-purpose"></div>
+      <label class="term-trust" id="term-trust-wrap"
+             title="Let Jarvis type into this terminal without asking each time" hidden>
+        <input type="checkbox" id="term-trust"> Jarvis types freely
+      </label>
+      <button class="term-explain" id="term-explain" hidden
+              title="Ask Jarvis what the screen shows and what went wrong">Explain</button>
       <button class="term-close" id="term-close" title="Close this terminal" hidden>Close</button>
     </div>
     <div class="term-screen" id="term-screen"></div>

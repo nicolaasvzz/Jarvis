@@ -38,7 +38,11 @@ python -m mypy --strict --ignore-missing-imports jarvis.py
    a command) and `terminal_write` call `_approve`, which waits for Allow/Deny
    from the dashboard unless `AUTO_APPROVE=true`. Any new tool that changes
    the machine must be `risky=True` and go through `_approve` too. What the
-   user types into a terminal on the dashboard is never gated.
+   user types into a terminal on the dashboard is never gated. The only
+   skips, both user-requested: `is_safe` read-only commands (`free=` on
+   `_approve`, off with `ALLOW_SAFE_COMMANDS=false`) and terminals the user
+   marked trusted. Keep `SAFE_COMMANDS` strictly read-only, and keep
+   `NEVER_SAFE` rejecting anything that chains, redirects or substitutes.
 2. **Tools return dicts, never raise out.** `_call_tool` turns exceptions into
    `{"error": ...}` so Gemini can react; a failed tool must not end the task.
 3. **Gemini's model turns go back verbatim.** Gemini 3 requires the
@@ -72,5 +76,10 @@ python -m mypy --strict --ignore-missing-imports jarvis.py
   draws them.
 - Press Enter in a PTY with `\r`, not `\r\n`: PowerShell reads the `\n` as
   a second line and shows a `>>` continuation prompt.
+- Shells start with a prompt wrapper (`PS_PROMPT_MARK`, or `PROMPT_COMMAND`
+  for bash) that prints an invisible OSC 633 mark with the last exit status.
+  That is how a command's finish and failure are known (`Terminal._finished`)
+  — long ones get a spoken notice, failed ones light up Explain. A command
+  "starts" only when Enter is pressed on a line beginning with the prompt.
 - Tests never start a real shell: `Jarvis.spawn_shell` is swapped for
   `FakeShell` in `test_jarvis.py`.

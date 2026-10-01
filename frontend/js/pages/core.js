@@ -56,6 +56,7 @@ Hud.start(async () => {
   setupConsole();
   setupMute();
 
+  showBrain();
   pollStats(snapshot.settings.stats_interval || 2);
   Hud.onEvent(onFrame);
   el("reply-close").addEventListener("click", () => (el("reply").hidden = true));
@@ -305,6 +306,23 @@ function renderTerminalSummary() {
 }
 
 /* -- machine vitals --------------------------------------------------------- */
+
+/** Which model is thinking, and with how many tools — from the `system` route. */
+async function showBrain() {
+  try {
+    const system = await Hud.getJSON(Hud.route("system"));
+    const brain = system.brain || {};
+    const host = el("brain");
+    host.innerHTML = `
+      <span class="dot ${brain.connected ? "live" : "down"}"></span>
+      <span class="who">${Hud.escape(brain.model || brain.provider || "unknown model")}</span>
+      <span class="meta">${(system.tools || []).length} tools</span>`;
+    host.title = (system.tools || []).join(", ");
+    host.hidden = false;
+  } catch (_) {
+    /* an optional route; the panel works without it */
+  }
+}
 
 function pollStats(intervalSeconds) {
   const run = async () => {

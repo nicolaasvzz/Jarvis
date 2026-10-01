@@ -211,6 +211,12 @@ function onFrame(frame) {
     else renderList();
   } else if (frame.type === "terminal.input") {
     flash(data.terminal_id);
+  } else if (frame.type === "terminal.failed" && data.terminal) {
+    update(data.terminal);
+    flash(data.terminal.id);
+    if (data.terminal.id !== selected) Hud.toast(frame.message, "bad");
+  } else if (data.terminal) {
+    update(data.terminal); // finished, updated
   }
   // The log of what was typed lives on the server; re-read it.
   refreshList();
@@ -267,10 +273,14 @@ function renderList() {
           <span class="dot ${dotFor(t)}"></span>
           <span class="name">${Hud.escape(t.title)}</span>
           <span class="who ${t.opened_by === "jarvis" ? "jarvis" : ""}">${Hud.escape(t.id)} · ${
-            t.opened_by === "jarvis" ? "Jarvis" : "You"
+            who(t.opened_by)
           }</span>
         </div>
-        <div class="sub">${Hud.escape(t.purpose || t.state || "")}</div>
+        <div class="sub ${t.last_result && !t.last_result.ok ? "bad" : ""}">${Hud.escape(
+          t.last_result && !t.last_result.ok
+            ? `✕ ${t.last_result.command} failed`
+            : t.purpose || t.state || ""
+        )}</div>
       </button>`
     )
     .join("");
@@ -283,6 +293,11 @@ function renderList() {
   });
 }
 
+/** "jarvis" → "Jarvis", "startup" → "Startup", anyone else → "You". */
+function who(by) {
+  return { jarvis: "Jarvis", startup: "Startup" }[by] || "You";
+}
+
 function renderHeader() {
   const t = terminals.find((x) => x.id === selected);
   el("term-name").textContent = t ? t.title : "No terminal";
@@ -290,6 +305,15 @@ function renderHeader() {
   el("term-purpose").textContent = t && t.purpose ? t.purpose : "";
   el("term-dot").className = `dot ${t ? dotFor(t) : ""}`;
   el("term-close").hidden = !t;
+  el("term-trust-wrap").hidden = !t;
+  el("term-trust").checked = Boolean(t && t.trusted);
+
+  // Explain is always there; after a failed command it turns red and says so.
+  const explain = el("term-explain");
+  const failed = Boolean(t && t.last_result && !t.last_result.ok);
+  explain.hidden = !t;
+  explain.classList.toggle("failed", failed);
+  explain.textContent = failed ? "Explain the error" : "Explain";
 
   const log = el("term-log");
   const lines = t ? (t.log || []).slice().reverse() : [];
@@ -298,7 +322,7 @@ function renderHeader() {
         .map(
           (line) => `
         <div class="term-line ${line.by === "jarvis" ? "jarvis" : ""}">
-          <span class="by">${line.by === "jarvis" ? "Jarvis" : "You"}</span>
+          <span class="by">${who(line.by)}</span>
           <span class="what">${Hud.escape(line.text)}</span>
         </div>`
         )
@@ -393,24 +417,62 @@ function setupControls() {
     showReply(text, "Thinking…", "thinking");
     try {
       const heard = await Hud.postJSON(Hud.route("command"), { text: about + text, submit: true });
-      awaiting = heard.task_id || null;
+      waitFor(heard.task_id);
     } catch (err) {
       showReply(text, String(err.message || err), "bad");
     }
   });
   el("term-reply-close").addEventListener("click", () => (el("term-reply").hidden = true));
+
+  el("term-explain").addEventListener("click", async () => {
+    if (!selected) return;
+    try {
+      const task = await Hud.postJSON(Hud.route("terminalExplain", { id: selected }), {});
+      showReply(task.request, "Thinking…", "thinking");
+      waitFor(task.id);
+    } catch (err) {
+      Hud.toast(String(err.message || err), "bad");
+    }
+  });
+
+  const trust = el("term-trust");
+  trust.addEventListener("change", async () => {
+    if (!selected) return;
+    try {
+      update(await Hud.postJSON(Hud.route("terminalTrust", { id: selected }), {
+        trusted: trust.checked,
+      }));
+    } catch (err) {
+      trust.checked = !trust.checked;
+      Hud.toast(String(err.message || err), "bad");
+    }
+  });
 }
 
-/* The answer to a question asked here is shown here, under the terminal. */
+/* The answer to a question asked here is shown here, under the terminal.
+   A quick answer can arrive on the stream before the request that asked for
+   it returns, so recent answers are kept until someone waits for them. */
 let awaiting = null;
+const answers = new Map();
 
 Hud.onEvent((frame) => {
-  if (!awaiting || frame.task_id !== awaiting) return;
-  if (frame.type === "task.completed" || frame.type === "task.failed") {
-    showReply(el("term-reply-q").textContent, frame.message, frame.type === "task.failed" ? "bad" : "");
-    awaiting = null;
-  }
+  if (frame.type !== "task.completed" && frame.type !== "task.failed") return;
+  answers.set(frame.task_id, frame);
+  if (answers.size > 20) answers.delete(answers.keys().next().value);
+  if (frame.task_id === awaiting) answer();
 });
+
+function waitFor(taskId) {
+  awaiting = taskId || null;
+  if (answers.has(awaiting)) answer();
+}
+
+function answer() {
+  const frame = answers.get(awaiting);
+  awaiting = null;
+  showReply(el("term-reply-q").textContent, frame.message,
+    frame.type === "task.failed" ? "bad" : "");
+}
 
 function showReply(question, answer, kind) {
   el("term-reply").hidden = false;

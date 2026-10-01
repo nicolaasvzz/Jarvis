@@ -18,8 +18,8 @@
  * `server: ""` (same origin) to config.js, so its own pages always talk back
  * to it.
  *
- * A classic script rather than a module, so the single-page HUD (plain
- * script) and the dashboard pages (modules) share one implementation.
+ * A classic script rather than a module, so a plain-script page could use
+ * it as well as the dashboard pages (modules).
  */
 (function () {
   "use strict";
@@ -46,12 +46,11 @@
       terminalStream: "/dash/api/terminals/{id}/stream",
       terminalInput: "/dash/api/terminals/{id}/input",
       terminalClose: "/dash/api/terminals/{id}/close",
+      terminalExplain: "/dash/api/terminals/{id}/explain",
+      terminalTrust: "/dash/api/terminals/{id}/trust",
       approval: "/approvals/{id}",
-      system: "/system",
-      tasks: "/tasks",
-      notifications: "/notifications",
       approvals: "/approvals",
-      events: "/events",
+      system: "/system",
       docs: "/docs",
     },
   };

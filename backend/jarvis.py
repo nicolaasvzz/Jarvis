@@ -18,6 +18,7 @@ unless AUTO_APPROVE=true. What you type yourself goes straight through.
 """
 
 import asyncio
+import base64
 import contextlib
 import hmac
 import html
@@ -102,6 +103,9 @@ class Settings:
     port: int = 8765
     workspace: Path = HERE / "workspace"
     auto_approve: bool = False
+    allow_safe: bool = True
+    notify_after: int = 20
+    startup_terminals: Path = HERE / "terminals.json"
     home_location: str = ""
     voice: str = "en-GB-RyanNeural"
     news_country: str = "US"
@@ -136,6 +140,9 @@ class Settings:
             port=int(get("JARVIS_PORT", "8765")),
             workspace=path("JARVIS_WORKSPACE", HERE / "workspace"),
             auto_approve=flag("AUTO_APPROVE", False),
+            allow_safe=flag("ALLOW_SAFE_COMMANDS", True),
+            notify_after=int(get("NOTIFY_AFTER_SECONDS", "20") or 0),
+            startup_terminals=path("STARTUP_TERMINALS", HERE / "terminals.json"),
             home_location=get("HOME_LOCATION"),
             voice=get("JARVIS_VOICE", "en-GB-RyanNeural"),
             news_country=get("NEWS_COUNTRY", "US").upper(),
@@ -182,6 +189,9 @@ class Step:
 @dataclass
 class Task:
     request: str
+    #: What Gemini is sent, when it isn't simply `request` — a notice or an
+    #: "explain this" carries the terminal's screen, too long to show as asked.
+    prompt: str | None = None
     id: str = field(default_factory=lambda: short_id("t"))
     status: str = "pending"
     steps: list[Step] = field(default_factory=list)
@@ -230,18 +240,23 @@ class Pty(Protocol):
 
 
 def spawn_shell(cwd: Path, cols: int, rows: int) -> Pty:
-    """A real interactive shell — colours, prompts and REPLs all work."""
+    """A real interactive shell — colours, prompts and REPLs all work — whose
+    prompt marks each finished command (see MARK). Your own prompt is kept."""
+    env = dict(os.environ)
     try:
         if WINDOWS:
             from winpty import PtyProcess
-            argv = ["powershell.exe", "-NoLogo", "-ExecutionPolicy", "Bypass"]
+            script = base64.b64encode(PS_PROMPT_MARK.encode("utf-16-le")).decode()
+            argv = ["powershell.exe", "-NoLogo", "-NoExit", "-ExecutionPolicy", "Bypass",
+                    "-EncodedCommand", script]
         else:
             from ptyprocess import PtyProcessUnicode as PtyProcess
             argv = [os.environ.get("SHELL") or "bash", "-l"]
+            env["PROMPT_COMMAND"] = BASH_PROMPT_MARK
     except ImportError as exc:
         raise JarvisError("Terminals need pywinpty (or ptyprocess) and pyte — "
                           "run: pip install -r requirements.txt") from exc
-    process: Pty = PtyProcess.spawn(argv, cwd=str(cwd), dimensions=(rows, cols))
+    process: Pty = PtyProcess.spawn(argv, cwd=str(cwd), env=env, dimensions=(rows, cols))
     return process
 
 
@@ -258,6 +273,40 @@ CONTROL = re.compile(r"\x1b\[[0-9;?]*[A-Za-z~]|[\x00-\x1f\x7f]")
 #: isn't sent twice.
 QUERIES = re.compile(r"\x1b\[0?c|\x1b\[6n")
 DA_REPLY = "\x1b[?1;2c"  # a VT100 with advanced video, as xterm.js says
+
+#: The prompt's invisible "a command just finished" mark, with its exit
+#: status (0 = it worked). The shells are started with a prompt that prints
+#: it — the same OSC 633 sequence VS Code's shell integration uses.
+MARK = re.compile(r"\x1b\]633;D;(\d+)\x07")
+PS_PROMPT_MARK = r"""
+$global:__jarvisPrompt = $function:prompt
+function global:prompt {
+  $code = if ($global:?) { 0 } else { 1 }
+  "$([char]27)]633;D;$code$([char]7)" + (& $global:__jarvisPrompt)
+}
+"""
+BASH_PROMPT_MARK = r'printf "\033]633;D;%s\007" $?'
+
+#: Read-only commands that run without asking (ALLOW_SAFE_COMMANDS=false to
+#: ask anyway). Matched against the whole command, and anything that could
+#: chain, redirect or substitute another command is never "safe".
+SAFE_COMMANDS = [re.compile(p, re.I) for p in (
+    r"git (status|diff|log|show)( [\w./~^@:+-]+)*",
+    r"git (branch|remote|tag|stash list)( (-a|-v|-vv|--list))*",
+    r"(dir|ls|gci|Get-ChildItem)( [\w./\\:*~-]+)*",
+    r"(pwd|cd|whoami|hostname|Get-Location|Get-Date|ipconfig|systeminfo|nvidia-smi)",
+    r"(where|where\.exe|which|Get-Command|gcm) [\w.-]+",
+    r"[\w.-]+ (--version|-v|-V|version)",
+)]
+NEVER_SAFE = re.compile(r"[;&|<>`\n\r]|\$\(|--output|-o\b", re.I)
+
+
+def is_safe(command: str) -> bool:
+    """True for a read-only command that may run without asking."""
+    command = command.strip()
+    return bool(command) and not NEVER_SAFE.search(command) and any(
+        pattern.fullmatch(command) for pattern in SAFE_COMMANDS)
+
 
 #: Keys Jarvis may press by name in terminal_write.
 KEYS = {"enter": "\r", "ctrl+c": "\x03", "ctrl+d": "\x04", "ctrl+z": "\x1a", "tab": "\t",
@@ -305,14 +354,25 @@ class Terminal:
     browser opening the tab later is painted from (`redraw`).
     `log` remembers what was typed and by whom, so Jarvis keeps the thread of
     each terminal.
+
+    A command starts when Enter is pressed on a line that begins with the
+    prompt, and finishes when the prompt's mark (MARK) comes back, carrying
+    its exit status; `on_finish` then hears how it went.
     """
 
     def __init__(self, id: str, title: str, purpose: str, opened_by: str, process: Pty,
-                 cols: int, rows: int, on_exit: Callable[["Terminal"], None]) -> None:
+                 cols: int, rows: int, on_exit: Callable[["Terminal"], None],
+                 on_finish: Callable[["Terminal", dict[str, Any]], None] | None = None,
+                 ) -> None:
         import pyte
 
         self.id, self.title, self.purpose, self.opened_by = id, title, purpose, opened_by
         self.process, self.cols, self.rows, self.on_exit = process, cols, rows, on_exit
+        self.on_finish = on_finish
+        self.running: dict[str, Any] | None = None  # the command in progress
+        self.last_result: dict[str, Any] | None = None  # how the last one went
+        self.trusted = False  # Jarvis may type here without asking
+        self.watchers = 0  # Jarvis tools waiting on this terminal right now
         self.screen = pyte.HistoryScreen(cols, rows, history=3000)
         self.stream = pyte.Stream(self.screen)
         self.listeners: set[asyncio.Queue[dict[str, Any]]] = set()
@@ -346,9 +406,12 @@ class Terminal:
     def _output(self, data: str) -> None:
         self.last_output = time.monotonic()
         queries = QUERIES.findall(data)
-        data = QUERIES.sub("", data)
+        marks = MARK.findall(data)
+        data = MARK.sub("", QUERIES.sub("", data))
         with contextlib.suppress(Exception):  # an odd escape code must not stop the pump
             self.stream.feed(data)
+        for code in marks:
+            self._finished(int(code))
         for query in queries:
             cursor = self.screen.cursor
             reply = DA_REPLY if query.endswith("c") else f"\x1b[{cursor.y + 1};{cursor.x + 1}R"
@@ -417,11 +480,32 @@ class Terminal:
             rows.pop()
         return self.status == "running" and bool(PROMPT.match(self._unwrap(rows)))
 
+    # -- commands, start to finish -----------------------------------------
+    def _line(self) -> str:
+        """The line the cursor is on, unwrapped."""
+        return self._unwrap(self.screen.display[:self.screen.cursor.y + 1]).strip()
+
+    def _start(self, command: str, by: str) -> None:
+        self.running = {"command": command, "by": by, "started": time.monotonic(),
+                        "started_at": now()}
+
+    def _finished(self, code: int) -> None:
+        if self.running is None:
+            return  # a prompt with no command before it: start-up, or a bare Enter
+        started = self.running.pop("started")
+        result = {**self.running, "ok": code == 0, "seconds": round(time.monotonic() - started),
+                  "finished_at": now(), "watched": self.watchers > 0}
+        self.running, self.last_result = None, result
+        if self.on_finish:
+            self.on_finish(self, result)
+
     # -- input -------------------------------------------------------------
-    def send(self, data: str, shown: str) -> None:
-        """Jarvis typing: `shown` is what goes in the log."""
+    def send(self, data: str, shown: str, by: str = "jarvis") -> None:
+        """Jarvis (or a start-up command) typing: `shown` goes in the log."""
+        if data.endswith("\r") and PROMPT_PREFIX.match(self._line()):
+            self._start(shown, by)
         self._write(data)
-        self.note("jarvis", shown)
+        self.note(by, shown)
 
     async def keys(self, data: str) -> None:
         """Your keystrokes, from the dashboard. On Enter, the command is noted
@@ -433,12 +517,14 @@ class Terminal:
             if before:
                 self._write(before)
             await self._echoed()
-            line = self._unwrap(self.screen.display[:self.screen.cursor.y + 1]).strip()
+            line = self._line()
             typed = PROMPT_PREFIX.sub("", line, count=1).strip()
             if not typed:  # a shell still starting up may not have echoed it
                 typed = CONTROL.sub("", before).strip()
             if typed and not PROMPT.match(typed):
                 self.note("you", typed)
+                if PROMPT_PREFIX.match(line):  # a new command, not an answer
+                    self._start(typed, "you")
             self._write("\r")
         if data:
             self._write(data)
@@ -469,12 +555,16 @@ class Terminal:
         """Wait for a command's output to pause: back at the prompt and quiet,
         quiet for a few seconds (it may want input), or `limit` seconds."""
         start = time.monotonic()
-        await asyncio.sleep(0.3)
-        while time.monotonic() - start < limit and self.status == "running":
-            quiet = time.monotonic() - self.last_output
-            if (quiet >= 0.5 and self.at_prompt) or quiet >= 3:
-                return
-            await asyncio.sleep(0.1)
+        self.watchers += 1  # what finishes now, Jarvis sees — no separate notice
+        try:
+            await asyncio.sleep(0.3)
+            while time.monotonic() - start < limit and self.status == "running":
+                quiet = time.monotonic() - self.last_output
+                if (quiet >= 0.5 and self.at_prompt) or quiet >= 3:
+                    return
+                await asyncio.sleep(0.1)
+        finally:
+            self.watchers -= 1
 
     async def ready(self, limit: float = 10) -> None:
         """Wait for a new shell's first prompt."""
@@ -489,21 +579,41 @@ class Terminal:
     def state(self) -> str:
         if self.status != "running":
             return "exited" if self.exit_code is None else f"exited with code {self.exit_code}"
-        return "at its prompt" if self.at_prompt else "busy or waiting for input"
+        if self.at_prompt:
+            return "at its prompt"
+        if self.running:
+            return f"running {self.running['command'][:60]}"
+        return "busy or waiting for input"
+
+    def result_text(self) -> str | None:
+        r = self.last_result
+        if r is None:
+            return None
+        how = "worked" if r["ok"] else "failed"
+        return f"{r['command'][:80]} — {how} after {duration(r['seconds'])}"
 
     def summary(self) -> dict[str, Any]:
         """For Jarvis: what this terminal is, what it's for, and what was typed."""
-        return {"terminal_id": self.id, "title": self.title, "purpose": self.purpose,
+        info: dict[str, Any] = {"terminal_id": self.id, "title": self.title,
+                                "purpose": self.purpose,
                 "opened_by": self.opened_by, "state": self.state,
                 "recent_input": [f"{e['by']}: {e['text']}" for e in list(self.log)[-6:]]}
+        if self.last_result:
+            info["last_command"] = self.result_text()
+        if self.trusted:
+            info["trusted"] = "the user lets you type here without asking"
+        return info
 
     def out(self) -> dict[str, Any]:
         """For the dashboard."""
+        last = self.last_result
         return {"id": self.id, "title": self.title, "purpose": self.purpose,
                 "opened_by": self.opened_by, "status": self.status, "state": self.state,
                 "at_prompt": self.at_prompt, "exit_code": self.exit_code,
                 "created_at": self.created_at, "cols": self.cols, "rows": self.rows,
-                "log": list(self.log)[-10:]}
+                "trusted": self.trusted, "running": self.running and {
+                    k: v for k, v in self.running.items() if k != "started"},
+                "last_result": last, "log": list(self.log)[-10:]}
 
 
 class Hub:
@@ -592,6 +702,17 @@ def slug(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")[:40] or "job"
 
 
+def duration(seconds: float) -> str:
+    seconds = round(seconds)
+    if seconds < 60:
+        return f"{seconds}s"
+    minutes, seconds = divmod(seconds, 60)
+    if minutes < 60:
+        return f"{minutes}m {seconds:02d}s"
+    hours, minutes = divmod(minutes, 60)
+    return f"{hours}h {minutes:02d}m"
+
+
 def trim(text: str, limit: int = 6000) -> str:
     """Keep the start and the end of long output — errors tend to be at the end."""
     if len(text) <= limit:
@@ -649,8 +770,8 @@ class Jarvis:
         return importlib.util.find_spec("edge_tts") is not None
 
     # -- requests -------------------------------------------------------
-    def submit(self, request: str) -> Task:
-        task = Task(request=request.strip())
+    def submit(self, request: str, prompt: str | None = None) -> Task:
+        task = Task(request=request.strip(), prompt=prompt)
         self.tasks[task.id] = task
         self.hub.emit("task.created", task.request, task_id=task.id)
         asyncio.get_running_loop().create_task(self._run(task))
@@ -678,7 +799,7 @@ class Jarvis:
 
     async def _converse(self, task: Task) -> str:
         """Gemini's tool loop: run the tools it asks for until it answers in words."""
-        user_turn = {"role": "user", "parts": [{"text": task.request}]}
+        user_turn = {"role": "user", "parts": [{"text": task.prompt or task.request}]}
         contents = [*self.chat[-24:], user_turn]
         declarations = [t.declaration() for t in self.tools.values()]
         for _ in range(10):
@@ -1007,7 +1128,8 @@ class Jarvis:
         if not command:
             return {"error": "The command was empty."}
         if not await self._approve(task, "run_command", {"command": command},
-                                   f"Run and wait for the output: {command}"):
+                                   f"Run and wait for the output: {command}",
+                                   free=self._safe(command)):
             return {"denied": True,
                     "note": "The user did not allow this command. Don't retry unless asked."}
         timeout = max(5, min(int(timeout_seconds or 60), 600))
@@ -1035,8 +1157,14 @@ class Jarvis:
 
     # -- approvals ----------------------------------------------------------
     async def _approve(self, task: Task, tool: str, arguments: dict[str, Any],
-                       reason: str) -> bool:
+                       reason: str, free: str | None = None) -> bool:
+        """Wait for Allow/Deny — unless AUTO_APPROVE is on, or `free` says why
+        this one needs no asking (a read-only command, a trusted terminal)."""
         if self.settings.auto_approve:
+            return True
+        if free:
+            self.hub.emit("approval.auto", f"Didn't ask ({free}): {reason}", task_id=task.id,
+                          tool=tool)
             return True
         approval = Approval(task_id=task.id, tool=tool, arguments=arguments, reason=reason,
                             future=asyncio.get_running_loop().create_future())
@@ -1053,6 +1181,10 @@ class Jarvis:
         verdict = "Allowed" if decision == "allow" else "Denied"
         self.hub.emit("approval.resolved", f"{verdict}: {reason}", task_id=task.id, tool=tool)
         return decision == "allow"
+
+    def _safe(self, command: str) -> str | None:
+        """Why `command` needs no asking, or None if it does."""
+        return "read-only" if self.settings.allow_safe and is_safe(command) else None
 
     def decide(self, approval_id: str, decision: str) -> None:
         approval = self.approvals.get(approval_id)
@@ -1080,9 +1212,10 @@ class Jarvis:
         title = " ".join(title.split())[:60] or f"Terminal {self._terminal_count}"
         process = self.spawn_shell(self.settings.workspace, cols, rows)
         terminal = Terminal(terminal_id, title, " ".join(purpose.split())[:300], opened_by,
-                            process, cols, rows, self._terminal_exited)
+                            process, cols, rows, self._terminal_exited,
+                            on_finish=self._terminal_finished)
         self.terminals[terminal_id] = terminal
-        who = "Jarvis opened" if opened_by == "jarvis" else "Opened"
+        who = {"jarvis": "Jarvis opened", "startup": "Started"}.get(opened_by, "Opened")
         self.hub.emit("terminal.opened", f"{who} a terminal: {title}",
                       data={"terminal": terminal.out()})
         return terminal
@@ -1090,6 +1223,81 @@ class Jarvis:
     def _terminal_exited(self, terminal: Terminal) -> None:
         self.hub.emit("terminal.exited", f"{terminal.title}: the shell {terminal.state}.",
                       data={"terminal": terminal.out()})
+
+    def _terminal_finished(self, terminal: Terminal, result: dict[str, Any]) -> None:
+        """A command came back to the prompt. A failure is flagged (the page
+        offers Explain); a long one Jarvis wasn't already watching gets a
+        spoken word on how it went."""
+        long = 0 < self.settings.notify_after <= result["seconds"]
+        if not result["ok"]:
+            self.hub.emit("terminal.failed", f"{terminal.title}: {terminal.result_text()}",
+                          data={"terminal": terminal.out()})
+        elif long:
+            self.hub.emit("terminal.finished", f"{terminal.title}: {terminal.result_text()}",
+                          data={"terminal": terminal.out()})
+        if long and not result["watched"]:
+            how = "worked" if result["ok"] else "failed"
+            self.submit(
+                f'{terminal.title}: "{result["command"][:60]}" {how}',
+                prompt=(f"(An automatic notice, not typed by the user.) In terminal "
+                        f"{terminal.id} \"{terminal.title}\", `{result['command']}` just "
+                        f"finished after {duration(result['seconds'])} and "
+                        f"{'worked' if result['ok'] else 'failed'}. The end of its screen:\n"
+                        f"```\n{chr(10).join(terminal.lines(40))}\n```\n"
+                        "Tell the user how it went in one or two short sentences — mention "
+                        "errors or warnings that matter. Don't run anything."))
+
+    def explain_terminal(self, terminal_id: str) -> Task:
+        """Ask Jarvis what went wrong in a terminal, with its screen attached."""
+        terminal = self._terminal(terminal_id)
+        last = terminal.last_result
+        if last and not last["ok"]:
+            asked = f'Why did "{last["command"][:60]}" fail?'
+            about = f"`{last['command']}` failed there."
+        else:
+            asked = f"What's going on in {terminal.title}?"
+            about = "The user wants to know what its screen shows and whether anything is wrong."
+        return self.submit(asked, prompt=(
+            f"Look at terminal {terminal.id} \"{terminal.title}\". {about} Its screen:\n"
+            f"```\n{chr(10).join(terminal.lines(80))}\n```\n"
+            "Explain briefly and plainly what went wrong and how to fix it. If a command "
+            "would fix it, give it — and offer to run it rather than running it."))
+
+    def trust_terminal(self, terminal_id: str, trusted: bool) -> Terminal:
+        terminal = self._terminal(terminal_id)
+        terminal.trusted = trusted
+        self.hub.emit("terminal.updated",
+                      f"Jarvis {'may type freely' if trusted else 'must ask to type'} in "
+                      f"{terminal.title}.", data={"terminal": terminal.out()})
+        return terminal
+
+    async def open_startup_terminals(self) -> None:
+        """Open the terminals listed in terminals.json, running their commands.
+        You wrote those commands yourself, so they don't wait for approval."""
+        path = self.settings.startup_terminals
+        if not path.is_file():
+            return
+        try:
+            entries = json.loads(path.read_text(encoding="utf-8-sig"))
+        except (ValueError, OSError):
+            entries = None
+        if not isinstance(entries, list):
+            self.hub.emit("error", f"{path.name} isn't a JSON list of terminals — skipped.")
+            return
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            try:
+                terminal = self.open_terminal(str(entry.get("title", "")),
+                                              str(entry.get("purpose", "")), "startup")
+            except JarvisError as exc:
+                self.hub.emit("error", str(exc))
+                return
+            command = str(entry.get("command", "")).strip()
+            if command:
+                await terminal.ready()
+                with contextlib.suppress(JarvisError):
+                    terminal.send(command + "\r", shown=command, by="startup")
 
     def close_terminal(self, terminal_id: str) -> None:
         terminal = self.terminals.pop(terminal_id)
@@ -1112,6 +1320,10 @@ class Jarvis:
             line = f'- `{t.id}` "{t.title}" — opened by {t.opened_by}, {t.state}.'
             if t.purpose:
                 line += f" For: {t.purpose}."
+            if t.trusted:
+                line += " The user lets you type here without asking."
+            if t.last_result:
+                line += f" Last command: {t.result_text()}."
             recent = "; ".join(f"{e['by']}: {e['text']}" for e in list(t.log)[-3:])
             if recent:
                 line += f" Last typed — {recent}"
@@ -1134,7 +1346,7 @@ class Jarvis:
         command = command.strip()
         if command and not await self._approve(
                 task, "terminal_open", {"title": title, "command": command},
-                f'Open a terminal "{title}" and run: {command}'):
+                f'Open a terminal "{title}" and run: {command}', free=self._safe(command)):
             return {"denied": True,
                     "note": "The user did not allow this command. Don't retry unless asked."}
         terminal = self.open_terminal(title, purpose, opened_by="jarvis")
@@ -1162,10 +1374,12 @@ class Jarvis:
                 return {"error": "Nothing to type — give text or a key."}
             data = text.replace("\r\n", "\r").replace("\n", "\r") + ("\r" if press_enter else "")
             shown = text
+        free = "you trust this terminal" if terminal.trusted else (
+            self._safe(text) if text and press_enter and not key else None)
         if not await self._approve(
                 task, "terminal_write",
                 {"terminal_id": terminal.id, "title": terminal.title, "text": shown},
-                f'Type into "{terminal.title}" ({terminal.id}): {shown}'):
+                f'Type into "{terminal.title}" ({terminal.id}): {shown}', free=free):
             return {"denied": True,
                     "note": "The user did not allow this. Don't retry unless asked."}
         terminal.send(data, shown=shown)
@@ -1274,6 +1488,10 @@ class TerminalInputIn(BaseModel):
     data: str = Field(min_length=1, max_length=65536)
 
 
+class TrustIn(BaseModel):
+    trusted: bool
+
+
 def create_app(jarvis: Jarvis) -> FastAPI:
     """The HTTP API the dashboard uses — frontend/API.md describes each route."""
     settings = jarvis.settings
@@ -1380,6 +1598,16 @@ def create_app(jarvis: Jarvis) -> FastAPI:
         jarvis.close_terminal(terminal_id)
         return {"ok": True}
 
+    @app.post("/dash/api/terminals/{terminal_id}/explain", dependencies=guard)
+    async def terminal_explain(terminal_id: str) -> dict[str, Any]:
+        terminal(terminal_id)
+        return jarvis.explain_terminal(terminal_id).out()
+
+    @app.post("/dash/api/terminals/{terminal_id}/trust", dependencies=guard)
+    async def terminal_trust(terminal_id: str, body: TrustIn) -> dict[str, Any]:
+        terminal(terminal_id)
+        return jarvis.trust_terminal(terminal_id, body.trusted).out()
+
     @app.get("/dash/api/stats", dependencies=guard)
     async def stats() -> dict[str, Any]:
         return machine_stats()
@@ -1407,7 +1635,7 @@ def create_app(jarvis: Jarvis) -> FastAPI:
             raise HTTPException(status_code=503, detail=f"Speech failed: {exc}") from exc
         return Response(audio, media_type="audio/mpeg", headers={"Cache-Control": "no-store"})
 
-    # -- plain REST, for the HUD page and anything else ----------------------
+    # -- plain REST, for scripts, curl and anything else ----------------------
     @app.get("/system", dependencies=guard)
     async def system() -> dict[str, Any]:
         active = sum(t.status in {"pending", "running"} for t in jarvis.tasks.values())
@@ -1488,7 +1716,8 @@ async def serve(settings: Settings) -> None:
     async with httpx.AsyncClient() as http:
         jarvis = Jarvis(settings, http)
         approvals = ("automatic (AUTO_APPROVE=true)" if settings.auto_approve
-                     else "asked on the dashboard")
+                     else "asked on the dashboard"
+                     + (", read-only ones run straight away" if settings.allow_safe else ""))
         print(f"  Gemini     {settings.gemini_model}: {await jarvis.check_gemini()}")
         print(f"  Workspace  {settings.workspace}")
         print(f"  Commands   {approvals}")
@@ -1498,15 +1727,39 @@ async def serve(settings: Settings) -> None:
         url = f"http://{host}:{settings.port}/dash/?token={settings.api_token}"
         has_frontend = (settings.frontend / "index.html").is_file()
         print(f"\n  Dashboard  {url if has_frontend else '(no frontend folder — API only)'}")
+        if has_frontend:
+            print(f"  Approvals  {phone_link(settings)}")
         print(f"  API docs   http://{host}:{settings.port}/docs\n  Ctrl-C to stop.\n", flush=True)
         if settings.open_browser and has_frontend:
             asyncio.get_running_loop().call_later(1.5, lambda: webbrowser.open(url))
         config = uvicorn.Config(create_app(jarvis), host=settings.host, port=settings.port,
                                 log_level="warning")
+        startup = asyncio.get_running_loop().create_task(jarvis.open_startup_terminals())
         try:
             await uvicorn.Server(config).serve()
         finally:
+            startup.cancel()
             jarvis.close_all_terminals()
+
+
+def lan_address() -> str | None:
+    """This PC's address on the local network, as a phone would reach it."""
+    with contextlib.suppress(OSError), socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
+        probe.connect(("192.0.2.1", 9))  # no packet is sent; this only picks a route
+        address: str = probe.getsockname()[0]
+        return address
+    return None
+
+
+def phone_link(settings: Settings) -> str:
+    """Where to approve from a phone — or how to make that possible."""
+    page = f"/dash/approve.html?token={settings.api_token}"
+    if settings.host in {"0.0.0.0", "::"}:
+        address = lan_address()
+        if address:
+            return f"http://{address}:{settings.port}{page}  (from your phone, same Wi-Fi)"
+    return (f"http://127.0.0.1:{settings.port}{page}  — for your phone too, set "
+            "JARVIS_HOST=0.0.0.0")
 
 
 def main() -> int:

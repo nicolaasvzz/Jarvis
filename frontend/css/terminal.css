@@ -65,6 +65,44 @@
 }
 
 .term-close:hover { color: var(--red); border-color: rgba(244, 63, 94, 0.5); }
+
+.term-explain {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--accent);
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.term-explain:hover { background: var(--accent-faint); }
+.term-explain.failed {
+  color: var(--red);
+  border-color: rgba(244, 63, 94, 0.6);
+  background: rgba(244, 63, 94, 0.1);
+  animation: pulse 1.6s infinite;
+}
+
+.term-trust {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.term-trust[hidden] { display: none; }
+.term-trust input { accent-color: var(--amber); }
+.term-trust:has(input:checked) { color: var(--amber); }
+.term-item .sub.bad { color: var(--red); }
 .term-new { margin-top: 10px; }
 .term-new:hover { color: var(--accent); border-color: var(--line); background: var(--accent-faint); }
 
