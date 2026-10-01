@@ -87,10 +87,17 @@ their status file (any JSON — numbers, curves and tables are drawn
 automatically), their controls, an ideas board and their terminals. A fresh
 install starts from `mothership.example.json`.
 
-**From your phone.** `approve.html` is an Allow/Deny page for a phone. Set
-`JARVIS_HOST=0.0.0.0` and `jarvis.py` prints its address on your Wi-Fi at
-start-up, token included. Anyone who has that link can approve commands, so
-treat it like a password.
+**From your phone, anywhere.** Every page works on a phone and installs as
+an app (`frontend/manifest.webmanifest`). The phone reaches this PC through
+[Tailscale](https://tailscale.com/download), a private network of your own
+devices, while Jarvis keeps listening on `127.0.0.1`. `tailscale serve --bg
+8765` passes `https://<pc>.<tailnet>.ts.net` through to Jarvis, and https is
+what lets a phone install the app and use its microphone. **Mothership →
+Connections → Your phone** checks each step (`tailscale status` and `tailscale
+serve status`), runs that command for you in a terminal, and shows a QR code
+to scan. At start-up `jarvis.py` prints the phone's link, token included.
+Anyone who has that link can use Jarvis, so treat it like a password.
+`JARVIS_HOST=0.0.0.0` still works for the same Wi-Fi, over plain http.
 
 ## Brains and connections
 
@@ -103,8 +110,8 @@ tools, through the same approvals, and picks up the same conversation.
 
 **Mothership → Connections** is where they're managed: paste a key, pick a
 model, press **Test** (a model lookup — no tokens spent), **Use this brain**.
-Voice and listening providers and dashboard access (token, phone access,
-port) live there too. Everything is written to `.env` and applied **live** —
+Voice and listening providers, your phone, and dashboard access (token,
+Wi-Fi access, port) live there too. Everything is written to `.env` and applied **live** —
 open terminals and the conversation carry on. Only the host and port need a
 restart, and the page offers one (it closes open terminals). Keys only ever
 come back masked (`…1a2b`). Jarvis doesn't switch brains by itself: when one
@@ -138,7 +145,7 @@ runs out, the error says so and you switch.
 | `OPENAI_API_KEY` | | key for the OpenAI voice |
 | `OPENAI_TTS_MODEL` / `OPENAI_TTS_VOICE` | `gpt-4o-mini-tts` / `onyx` | OpenAI voice model and voice |
 | `NEWS_COUNTRY` / `NEWS_LANGUAGE` | `US` / `en` | Google News edition |
-| `JARVIS_HOST` / `JARVIS_PORT` | `127.0.0.1` / `8765` | `0.0.0.0` to allow other devices |
+| `JARVIS_HOST` / `JARVIS_PORT` | `127.0.0.1` / `8765` | `0.0.0.0` to allow other devices on your Wi-Fi (your phone through Tailscale doesn't need it) |
 | `JARVIS_CORS_ORIGINS` | — | Extra web origins for a separately hosted dashboard |
 | `JARVIS_OPEN_BROWSER` | `true` | Open the dashboard on start |
 

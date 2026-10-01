@@ -1,8 +1,8 @@
 # Jarvis — frontend
 
 A live web dashboard for an AI-agent backend. Plain HTML, CSS and JavaScript
-— no build step, no npm. The one library, xterm.js for the Terminal
-page, is loaded from a CDN. It holds no data and no secrets
+— no build step, no npm. The two libraries, xterm.js for the Terminal
+page and a QR-code maker for Connections, are loaded from a CDN. It holds no data and no secrets
 of its own: everything it shows comes from a backend over HTTP, described in
 [API.md](API.md). It was built for Jarvis, but nothing in it is tied to
 Jarvis beyond the defaults in one settings file, so it works as the UI for
@@ -14,6 +14,15 @@ other projects too.
 | `mothership.html` — **Mothership** | The control centre, laid out like an admin dashboard: KPIs, a week of requests, recent activity, and every request as a clickable stack (the answer and each step in a side drawer). **Controls** are buttons you make for anything — the assistant can press them too — and an unbuilt one has **Build with Claude**. **Projects** get a page each: a live view of their status file, their controls, an ideas board and their terminals |
 | `terminal.html` — **Terminal** | Live terminals on the backend's machine, shared with the assistant: you both see them and type in them. Its approval requests show here too, a failed command lights up **Explain**, and a terminal can be trusted so the assistant types there without asking |
 | `approve.html` — **Approvals** | Built for a phone: Allow/Deny what the assistant wants to run, with the exact command, and what happened recently |
+
+**On a phone** every page has a layout of its own, with a tab bar along the
+bottom (Mothership, Core, Terminal, Approve) that shows how many approvals
+are waiting. The Terminal page keeps each terminal at a readable size and
+scrolls it sideways. It adds the keys a phone keyboard hasn't got (Esc, Tab,
+arrows, Ctrl+C) and a line to type commands on. The folder is also an
+installable web app (`manifest.webmanifest`, `icons/`). Over https, *Add to
+Home Screen* gives it its own icon and window. Its name is in the manifest,
+which `config.js` doesn't reach.
 
 ## Open it
 
@@ -109,6 +118,7 @@ running, the server address is wrong, or the page's address isn't in
 ```
 frontend/
 ├── index.html  mothership.html  terminal.html  approve.html
+├── manifest.webmanifest   what a phone installs: name, start page, colours, icons/
 ├── config.js              project settings: server, name, routes
 ├── API.md                 the backend routes these pages use
 ├── start.bat  serve.py    serve the folder (Windows / any OS with Python)
@@ -116,7 +126,7 @@ frontend/
 └── js/
     ├── lib/
     │   ├── connection.js  settings, server, token, routes, branding (every page loads it first)
-    │   └── hud.js         fetch + auth, the live event stream, connect screen, helpers
+    │   └── hud.js         fetch + auth, the live event stream, connect screen, the phone's tab bar
     ├── pages/             core.js, terminal.js, approve.js — one per page
     ├── mothership/        app.js (routing, live updates), state.js, overview.js,
     │                      requests.js, controls.js, projects.js, status.js, ui.js

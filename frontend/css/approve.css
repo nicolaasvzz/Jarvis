@@ -121,3 +121,9 @@ body.approve-page {
 .ask-buttons .deny { color: var(--red); border: 1px solid rgba(244, 63, 94, 0.7); }
 .ask-buttons button:active { transform: scale(0.98); }
 .ask-buttons button:disabled { opacity: 0.5; }
+
+@media (max-width: 760px) {
+  body.approve-page { padding-bottom: var(--tabs-h); }
+  .approve-top .nav { display: none; }
+  .approve-top { padding-top: max(14px, env(safe-area-inset-top)); }
+}

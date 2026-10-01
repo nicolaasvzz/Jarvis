@@ -7,10 +7,11 @@ paths are defaults — rename any of them under `routes` in `config.js`.
 
 | Page | Routes it uses |
 |---|---|
-| `mothership.html` | `snapshot`, `stream`, `tasks`, `approvals`, `approval`, `terminals`, `stats`, `system`, `command`, `mothership` and the `ms…` routes below |
+| `mothership.html` | `snapshot`, `stream`, `tasks`, `approvals`, `approval`, `terminals`, `stats`, `system`, `command`, `mothership`, the `ms…` routes, and `connections…` and `phone…` below |
 | `index.html` (Core) | `snapshot`, `stream`, `stats`, `command`, `approval`, optionally `system`, `listen`, `speak`, `docs` |
 | `terminal.html` | `snapshot`, `stream`, `terminals`, `terminalStream`, `terminalInput`, `terminalClose`, `terminalExplain`, `terminalTrust`, `approvals`, `approval`, `command` |
 | `approve.html` | `snapshot`, `stream`, `approvals`, `approval` |
+| every page, on a phone | `approvals` (the tab bar's count) |
 
 The smallest useful backend is `snapshot` + `stream` + `command`: that gives
 the Core page live activity and a working command bar.
@@ -226,13 +227,29 @@ and applied live; none is ever sent back whole — only a `key_hint` like
 
 | Route | Default | |
 |---|---|---|
-| `connections` | `GET /dash/api/connections` | `{brain: {active, brains: [{id, name, maker, configured, key_hint, model, models, key_env, model_env, key_url, note}], gemini_slot, gemini_keys: [{slot, configured, key_hint}], thinking}, voice: {...}, listen: {...}, access: {token_hint, host, port, phone, phone_link}, restart_needed: {host?, port?}, can_restart, env_file, overridden: [env names set outside .env]}` |
+| `connections` | `GET /dash/api/connections` | `{brain: {active, brains: [{id, name, maker, configured, key_hint, model, models, key_env, model_env, key_url, note}], gemini_slot, gemini_keys: [{slot, configured, key_hint}], thinking}, voice: {...}, listen: {...}, access: {token_hint, host, port, phone}, restart_needed: {host?, port?}, can_restart, env_file, overridden: [env names set outside .env]}` |
 | `connections` | `POST /dash/api/connections` | `{"values": {"GROQ_API_KEY": "…", "JARVIS_BRAIN": "groq"}}` — `null` clears one. Only the backend's whitelisted names; `422` with a `detail` otherwise. → the view above |
 | `connectionsTest` | `POST /dash/api/connections/test` | `{"brain": "groq"}` → `{"ok": true, "detail": "connected — …"}`; a lookup, no tokens spent |
 | `connectionsToken` | `POST /dash/api/connections/token` | A new dashboard token → `{"token": "…"}` — the one route that returns a secret, so the asking page stays logged in |
 | `restart` | `POST /dash/api/restart` | Restarts the backend (for host/port); `409` when it can't restart itself |
 
 Saving emits `connections.updated` on the stream (names of what changed, never values).
+
+## Phone routes
+
+How a phone reaches the backend, for the Connections tab's **Your phone**
+card. Nothing here carries the token: the page adds its own to the link it
+shows.
+
+| Route | Default | |
+|---|---|---|
+| `phone` | `GET /dash/api/phone` | `{port, wifi, tailscale: {installed, state, signed_in, name, address, https, url, phones: [{name, os, online}], download}, links: [{via, url, anywhere, secure}]}`. `links` are best first: `via` is `tailscale` (its https address, from `tailscale serve`), `tailscale-ip` or `wifi`. `state` is Tailscale's own (`Running`, `NeedsLogin`, …) or `NotRunning` |
+| `phoneTailscale` | `POST /dash/api/phone/tailscale` | `{"share": true}` runs `tailscale serve --bg <port>` in a new terminal; `false` turns it off → the Terminal. `409` with a `detail` when Tailscale isn't installed |
+
+`GET /dash/manifest.webmanifest` is the installable app's manifest: the
+static file, plus the token in `start_url` when the request carries the
+right `?token=`. Only iPhones and iPads ask for that, because their
+home-screen apps don't share Safari's storage and would open logged out.
 
 ## Other routes
 

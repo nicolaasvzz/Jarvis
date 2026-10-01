@@ -95,6 +95,15 @@ export class Voice {
     this.lastLoudAt = 0;
     this.segmentStartedAt = 0;
     this.busy = false;
+
+    // Phones only let a page make sound after a tap — iPhones only from
+    // inside the tap itself — and replies are spoken long after it. So the
+    // audio is switched on at the first tap or key, ready for later.
+    // (A touch counts as a tap when it ends, not when it starts.)
+    const unlock = () => this.ensureContext().catch(() => {});
+    for (const event of ["touchend", "click", "keydown"]) {
+      window.addEventListener(event, unlock, { once: true, capture: true });
+    }
   }
 
   /* -- audio context ----------------------------------------------------- */
@@ -104,8 +113,14 @@ export class Voice {
       const Ctx = window.AudioContext || window.webkitAudioContext;
       this.context = new Ctx();
     }
-    // Browsers start contexts suspended until a real user gesture.
-    if (this.context.state === "suspended") await this.context.resume();
+    // Browsers start contexts suspended until a real user gesture. Outside
+    // one an iPhone may never answer, so don't wait on it forever.
+    if (this.context.state === "suspended") {
+      await Promise.race([
+        this.context.resume(),
+        new Promise((resolve) => setTimeout(resolve, 1500)),
+      ]);
+    }
     return this.context;
   }
 
@@ -525,12 +540,20 @@ export class Voice {
 
   async playClip(blob) {
     const context = await this.ensureContext();
-    const url = URL.createObjectURL(blob);
-    const audio = new Audio(url);
-    audio.crossOrigin = "anonymous";
+    if (context.state !== "running") return; // no tap yet, so no sound: not fatal
+    // Played through the audio context rather than an <audio> element: a
+    // phone allows an element to play only straight after a tap, but a
+    // context, once started, can play whenever the reply comes in.
+    let clip;
+    try {
+      clip = await context.decodeAudioData(await blob.arrayBuffer());
+    } catch (_) {
+      return; // not audio after all — skip it
+    }
+    const source = context.createBufferSource();
+    source.buffer = clip;
 
     // Route through an analyser so the core can pulse with the waveform.
-    const source = context.createMediaElementSource(audio);
     const analyser = context.createAnalyser();
     analyser.fftSize = 512;
     source.connect(analyser);
@@ -552,12 +575,11 @@ export class Voice {
     };
 
     await new Promise((resolve) => {
-      audio.addEventListener("ended", resolve);
-      audio.addEventListener("error", resolve);
-      audio.play().then(follow, resolve); // autoplay blocked: not fatal
+      source.onended = resolve;
+      source.start();
+      follow();
     });
     playing = false;
-    URL.revokeObjectURL(url);
     try {
       source.disconnect();
       analyser.disconnect();
