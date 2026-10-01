@@ -1,6 +1,9 @@
 fastapi>=0.110
 uvicorn>=0.29
 httpx>=0.27
+# Claude as a brain (the other brains need nothing extra). Kept below 1.0:
+# 1.x moves to httpx2, and Jarvis shares one httpx client across all brains.
+anthropic>=0.40,<1
 # The dashboard's live terminals: a real shell in a pseudo-terminal, and a
 # virtual screen so Jarvis can read it.
 pywinpty>=2.0; sys_platform == "win32"

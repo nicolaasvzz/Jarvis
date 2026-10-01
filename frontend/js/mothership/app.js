@@ -15,6 +15,7 @@ import * as overview from "./overview.js";
 import * as requests from "./requests.js";
 import * as controls from "./controls.js";
 import * as projects from "./projects.js";
+import * as connections from "./connections.js";
 import { editProject } from "./projects.js";
 import { openTask } from "./requests.js";
 
@@ -47,6 +48,7 @@ const VIEWS = {
   approvals: { module: approvals, parts: ["all", "approvals", "events"] },
   controls: { module: controls, parts: ["all", "mothership", "terminals"] },
   projects: { module: projects, parts: ["all", "mothership", "terminals"] },
+  connections: { module: connections, parts: ["all", "connections"] },
 };
 
 let current = { name: null, params: {}, cleanup: null };
@@ -117,7 +119,14 @@ function sidebar() {
   badge("#ms-bell-count", state.approvals.length);
   badge("#nav-controls", state.controls.length);
   badge("#nav-terminals", state.terminals.length);
-  if (state.system && state.system.brain) $("#ms-model").textContent = state.system.brain.model || "Jarvis";
+  const brain = state.system && state.system.brain;
+  if (brain) {
+    $("#ms-model").textContent = `${brain.name || "Jarvis"} · ${brain.model || ""}`;
+    const tag = $("#nav-brain");
+    tag.hidden = false;
+    tag.textContent = brain.name || brain.provider || "";
+    tag.classList.toggle("hot", !brain.connected);
+  }
   markNav();
   waitingBanner();
 }

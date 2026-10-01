@@ -26,12 +26,22 @@ def reply(*parts: dict[str, Any]) -> dict[str, Any]:
 class FakeWeb:
     """Answers Gemini with scripted replies, and anything else from `pages`."""
 
-    def __init__(self, *gemini: Any, pages: dict[str, Any] | None = None) -> None:
+    def __init__(self, *gemini: Any, pages: dict[str, Any] | None = None,
+                 brains: dict[str, list[Any]] | None = None) -> None:
         self.gemini = list(gemini)
         self.pages = pages or {}
         self.gemini_bodies: list[dict[str, Any]] = []
+        # Other brains, by host: scripted replies, and the requests they got.
+        self.brains = brains or {}
+        self.brain_requests: list[httpx.Request] = []
 
     def handler(self, request: httpx.Request) -> httpx.Response:
+        if request.url.host in self.brains:
+            self.brain_requests.append(request)
+            answer = self.brains[request.url.host].pop(0)
+            if isinstance(answer, httpx.Response):
+                return answer
+            return httpx.Response(200, json=answer)
         if request.url.host == "generativelanguage.googleapis.com":
             if request.method == "GET":
                 return httpx.Response(200, json={"displayName": "Fake Flash-Lite"})
@@ -931,3 +941,140 @@ async def test_requests_survive_a_restart(tmp_path: Path) -> None:
     restored = again.tasks[task.id]
     assert (restored.request, restored.result, restored.kind) == (
         "remember this", "Noted, sir.", "asked")
+
+
+# -- connections: other brains, keys in .env, applied live ----------------------------
+
+
+def openai_reply(content: str | None = None, calls: list[dict[str, Any]] | None = None,
+                 ) -> dict[str, Any]:
+    message: dict[str, Any] = {"role": "assistant", "content": content}
+    if calls:
+        message["tool_calls"] = calls
+    return {"choices": [{"index": 0, "message": message, "finish_reason": "stop"}]}
+
+
+def claude_reply(*content: dict[str, Any], stop: str = "end_turn") -> dict[str, Any]:
+    return {"id": "msg_1", "type": "message", "role": "assistant", "model": "claude-opus-5-5",
+            "content": list(content), "stop_reason": stop, "stop_sequence": None,
+            "usage": {"input_tokens": 1, "output_tokens": 1}}
+
+
+@pytest.mark.asyncio
+async def test_switching_brains_writes_env_and_applies_live(tmp_path: Path) -> None:
+    env = tmp_path / ".env"
+    env.write_text("GEMINI_API_KEY=gem-secret-1234\nJARVIS_API_TOKEN=secret-token\n",
+                   encoding="utf-8")
+    call = {"id": "call_1", "type": "function",
+            "function": {"name": "terminal_list", "arguments": "{}"}}
+    web = FakeWeb(brains={"api.groq.com": [openai_reply(calls=[call]),
+                                           openai_reply("Groq here, sir.")]})
+    jarvis = make(tmp_path, web, env_file=env)
+    jarvis.reload_settings()  # as at startup: from the .env above
+    auth = {"Authorization": "Bearer secret-token"}
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=J.create_app(jarvis)),
+                                 base_url="http://jarvis") as client:
+        view = (await client.get("/dash/api/connections", headers=auth)).json()
+        gemini = next(b for b in view["brain"]["brains"] if b["id"] == "gemini")
+        assert gemini["key_hint"] == "…1234" and "gem-secret" not in json.dumps(view)
+        changed = await client.post("/dash/api/connections", headers=auth, json={"values": {
+            "JARVIS_BRAIN": "groq", "GROQ_API_KEY": "gsk-new-key-9999",
+            "GROQ_MODEL": "llama-3.3-70b-versatile"}})
+        assert changed.status_code == 200 and changed.json()["brain"]["active"] == "groq"
+        refused = await client.post("/dash/api/connections", headers=auth,
+                                    json={"values": {"JARVIS_DATA": "C:/elsewhere"}})
+        assert refused.status_code == 422
+        bad = await client.post("/dash/api/connections", headers=auth,
+                                json={"values": {"JARVIS_BRAIN": "skynet"}})
+        assert bad.status_code == 422
+    saved = J.read_env_file(env)
+    assert saved["JARVIS_BRAIN"] == "groq" and saved["GROQ_API_KEY"] == "gsk-new-key-9999"
+    assert jarvis.settings.brain == "groq"  # live: no restart
+    task = await finished(jarvis, jarvis.submit("which terminals are open?"))
+    assert task.result == "Groq here, sir."
+    first, second = web.brain_requests
+    assert first.headers["authorization"] == "Bearer gsk-new-key-9999"
+    sent = json.loads(second.content)
+    assert sent["model"] == "llama-3.3-70b-versatile"
+    assert sent["messages"][0]["role"] == "system"
+    last = sent["messages"][-1]
+    assert last["role"] == "tool" and last["tool_call_id"] == "call_1"
+    assert "connections.updated" in [f["type"] for f in jarvis.hub.history]
+    assert all("gsk-new" not in json.dumps(f) for f in jarvis.hub.history)
+
+
+@pytest.mark.asyncio
+async def test_a_used_up_brain_says_to_switch(tmp_path: Path) -> None:
+    busy = httpx.Response(429, headers={"retry-after": "3600"},
+                          json={"error": {"message": "Rate limit reached"}})
+    web = FakeWeb(brains={"api.groq.com": [busy]})
+    jarvis = make(tmp_path, web, brain="groq", brain_keys={"groq": "gsk"})
+    task = await finished(jarvis, jarvis.submit("hello"))
+    assert task.status == "failed" and "Connections" in (task.error or "")
+
+
+@pytest.mark.asyncio
+async def test_claude_as_the_brain_runs_tools_through_the_sdk(tmp_path: Path) -> None:
+    pytest.importorskip("anthropic")
+    web = FakeWeb(brains={"api.anthropic.com": [
+        claude_reply({"type": "tool_use", "id": "toolu_1", "name": "terminal_list", "input": {}},
+                     stop="tool_use"),
+        claude_reply({"type": "text", "text": "No terminals are open, sir."})]})
+    jarvis = make(tmp_path, web, brain="anthropic", brain_keys={"anthropic": "sk-ant-test"})
+    task = await finished(jarvis, jarvis.submit("any terminals?"))
+    assert task.result == "No terminals are open, sir."
+    first, second = web.brain_requests
+    assert first.headers["x-api-key"] == "sk-ant-test"
+    assert "server-side-fallback-2026-07-01" in first.headers.get("anthropic-beta", "")
+    body = json.loads(first.content)
+    assert body["model"] == "claude-opus-5-5" and body["fallbacks"] == "default"
+    assert body["tools"][0]["input_schema"]["type"] == "object"
+    follow = json.loads(second.content)["messages"]
+    assert follow[-2]["role"] == "assistant" and follow[-2]["content"][0]["type"] == "tool_use"
+    (result,) = follow[-1]["content"]
+    assert result["type"] == "tool_result" and result["tool_use_id"] == "toolu_1"
+
+
+@pytest.mark.asyncio
+async def test_no_key_for_the_chosen_brain_is_explained(tmp_path: Path) -> None:
+    jarvis = make(tmp_path, FakeWeb(), brain="deepseek")
+    task = await finished(jarvis, jarvis.submit("hello"))
+    assert "DeepSeek key" in (task.error or "") and "Connections" in (task.error or "")
+
+
+@pytest.mark.asyncio
+async def test_testing_a_key_lists_models_without_spending_tokens(tmp_path: Path) -> None:
+    models = {"data": [{"id": "llama-3.3-70b-versatile"}]}
+    web = FakeWeb(brains={"api.groq.com": [models, models]})
+    jarvis = make(tmp_path, web, brain_keys={"groq": "gsk"})
+    ok, detail = await jarvis.check_brain("groq")
+    assert ok and "connected" in detail
+    jarvis.settings.brain_models["groq"] = "no-such-model"
+    ok, detail = await jarvis.check_brain("groq")
+    assert not ok and "no-such-model" in detail
+    assert all(r.method == "GET" for r in web.brain_requests)
+
+
+@pytest.mark.asyncio
+async def test_gemini_key_slots_and_token_rotation(tmp_path: Path) -> None:
+    env = tmp_path / ".env"
+    env.write_text("GEMINI_API_KEY=first-key-aaaa\nGEMINI_API_KEY_2=second-key-bbbb\n"
+                   "JARVIS_API_TOKEN=secret-token\n", encoding="utf-8")
+    jarvis = make(tmp_path, FakeWeb(), env_file=env)
+    jarvis.reload_settings()
+    assert jarvis.settings.gemini_api_key == "first-key-aaaa"
+    jarvis.change_connections({"GEMINI_KEY": "2"})
+    assert jarvis.settings.gemini_api_key == "second-key-bbbb"  # the other account, live
+    auth = {"Authorization": "Bearer secret-token"}
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=J.create_app(jarvis)),
+                                 base_url="http://jarvis") as client:
+        token = (await client.post("/dash/api/connections/token", headers=auth)).json()["token"]
+        assert (await client.get("/dash/api/connections", headers=auth)).status_code == 401
+        fresh = {"Authorization": f"Bearer {token}"}
+        assert (await client.get("/dash/api/connections", headers=fresh)).status_code == 200
+        # Host and port need a restart; tests have no server to restart.
+        view = (await client.post("/dash/api/connections", headers=fresh,
+                                  json={"values": {"JARVIS_PORT": "9999"}})).json()
+        assert view["restart_needed"] == {"port": 9999} and jarvis.settings.port == 8765
+        assert (await client.post("/dash/api/restart", headers=fresh)).status_code == 409
+    assert J.read_env_file(env)["JARVIS_API_TOKEN"] == token

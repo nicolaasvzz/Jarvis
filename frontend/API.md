@@ -218,6 +218,22 @@ assistant run a command control without asking. `project` is a project id or `""
 | `msIdeaDelete` | `POST …/projects/{id}/ideas/{idea}/delete` | |
 | `msIdeaBuild` | `POST …/projects/{id}/ideas/{idea}/build` | Claude Code in the folder, briefed on the idea → the Terminal |
 
+## Connections routes
+
+The Mothership's Connections tab. Keys are written to the backend's `.env`
+and applied live; none is ever sent back whole — only a `key_hint` like
+`"…1a2b"`.
+
+| Route | Default | |
+|---|---|---|
+| `connections` | `GET /dash/api/connections` | `{brain: {active, brains: [{id, name, maker, configured, key_hint, model, models, key_env, model_env, key_url, note}], gemini_slot, gemini_keys: [{slot, configured, key_hint}], thinking}, voice: {...}, listen: {...}, access: {token_hint, host, port, phone, phone_link}, restart_needed: {host?, port?}, can_restart, env_file, overridden: [env names set outside .env]}` |
+| `connections` | `POST /dash/api/connections` | `{"values": {"GROQ_API_KEY": "…", "JARVIS_BRAIN": "groq"}}` — `null` clears one. Only the backend's whitelisted names; `422` with a `detail` otherwise. → the view above |
+| `connectionsTest` | `POST /dash/api/connections/test` | `{"brain": "groq"}` → `{"ok": true, "detail": "connected — …"}`; a lookup, no tokens spent |
+| `connectionsToken` | `POST /dash/api/connections/token` | A new dashboard token → `{"token": "…"}` — the one route that returns a secret, so the asking page stays logged in |
+| `restart` | `POST /dash/api/restart` | Restarts the backend (for host/port); `409` when it can't restart itself |
+
+Saving emits `connections.updated` on the stream (names of what changed, never values).
+
 ## Other routes
 
 | Route | Default | Returns |

@@ -14,6 +14,7 @@ export const state = {
   controls: [],
   projects: [],
   claude: false,
+  connections: null,
   events: [],
   stats: null,
   system: null,
@@ -51,6 +52,9 @@ const loaders = {
     state.controls = data.controls || [];
     state.projects = data.projects || [];
     state.claude = Boolean(data.claude);
+  },
+  async connections() {
+    state.connections = await Hud.getJSON(Hud.route("connections"));
   },
   async stats() {
     state.stats = await Hud.getJSON(Hud.route("stats"));
@@ -94,6 +98,10 @@ export function hear(frame) {
   if (type.startsWith("approval.")) reload("approvals", 80);
   if (type.startsWith("terminal.")) reload("terminals");
   if (type === "mothership.updated") reload("mothership", 80);
+  if (type === "connections.updated") {
+    reload("connections", 80);
+    reload("system", 80);
+  }
   changed("events");
 }
 

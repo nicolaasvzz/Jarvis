@@ -42,7 +42,7 @@ import webbrowser
 import xml.etree.ElementTree as ET
 from collections import deque
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Any, Literal, Protocol
@@ -68,6 +68,53 @@ def have_module(name: str) -> bool:
 
 GEMINI_API = "https://generativelanguage.googleapis.com/v1beta"
 KEY_URL = "https://aistudio.google.com/apikey"
+
+#: The brains Jarvis can think with. Switch on Mothership → Connections (or
+#: JARVIS_BRAIN in .env). "openai"-kind brains all speak the OpenAI chat
+#: format at their own address; Claude speaks Anthropic's (via its SDK).
+BRAINS: dict[str, dict[str, Any]] = {
+    "gemini": {"name": "Gemini", "maker": "Google", "kind": "gemini",
+               "key_env": "GEMINI_API_KEY", "model_env": "GEMINI_MODEL",
+               "model": "gemini-3.5-flash-lite",
+               "models": ["gemini-3.5-flash-lite", "gemini-3.8-flash"],
+               "key_url": KEY_URL, "note": "Free tier — the default."},
+    "anthropic": {"name": "Claude", "maker": "Anthropic", "kind": "anthropic",
+                  "key_env": "ANTHROPIC_API_KEY", "model_env": "ANTHROPIC_MODEL",
+                  "model": "claude-opus-5-5",
+                  "models": ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-4-5"],
+                  "key_url": "https://console.anthropic.com/settings/keys",
+                  "note": "Paid per use. Opus 5.5 is the most capable; Sonnet 5.5 is cheaper "
+                          "and Haiku 4.5 cheapest."},
+    "openai": {"name": "OpenAI", "maker": "OpenAI", "kind": "openai",
+               "base": "https://api.openai.com/v1",
+               "key_env": "OPENAI_API_KEY", "model_env": "OPENAI_MODEL",
+               "model": "gpt-4o-mini", "models": ["gpt-4o-mini", "gpt-4o"],
+               "key_url": "https://platform.openai.com/api-keys",
+               "note": "Paid per use. The same key powers the OpenAI voice."},
+    "groq": {"name": "Groq", "maker": "Groq", "kind": "openai",
+             "base": "https://api.groq.com/openai/v1",
+             "key_env": "GROQ_API_KEY", "model_env": "GROQ_MODEL",
+             "model": "llama-3.3-70b-versatile",
+             "models": ["llama-3.3-70b-versatile", "openai/gpt-oss-120b"],
+             "key_url": "https://console.groq.com/keys",
+             "note": "Free tier, very fast — a good backup when Gemini runs out."},
+    "openrouter": {"name": "OpenRouter", "maker": "OpenRouter", "kind": "openai",
+                   "base": "https://openrouter.ai/api/v1",
+                   "key_env": "OPENROUTER_API_KEY", "model_env": "OPENROUTER_MODEL",
+                   "model": "openrouter/auto", "models": ["openrouter/auto"],
+                   "key_url": "https://openrouter.ai/keys",
+                   "note": "One key, hundreds of models — some free (ids ending in :free)."},
+    "deepseek": {"name": "DeepSeek", "maker": "DeepSeek", "kind": "openai",
+                 "base": "https://api.deepseek.com/v1",
+                 "key_env": "DEEPSEEK_API_KEY", "model_env": "DEEPSEEK_MODEL",
+                 "model": "deepseek-chat", "models": ["deepseek-chat"],
+                 "key_url": "https://platform.deepseek.com/api_keys",
+                 "note": "Paid, but very cheap."},
+}
+
+#: Claude models that take Anthropic's server-side refusal fallback: a
+#: declined request is re-run on a fallback model instead of just stopping.
+CLAUDE_FALLBACK = {"claude-opus-5-5", "claude-opus-5", "claude-sonnet-5-5", "claude-fable-5-1"}
 BROWSER_UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/140.0 Safari/537.36"
@@ -105,8 +152,13 @@ def read_env_file(path: Path) -> dict[str, str]:
 
 @dataclass
 class Settings:
-    gemini_api_key: str = ""
+    brain: str = "gemini"
+    gemini_api_key: str = ""  # the key in use: the chosen one of gemini_keys
+    gemini_keys: tuple[str, str, str] = ("", "", "")
+    gemini_slot: int = 1
     gemini_model: str = "gemini-3.5-flash-lite"
+    brain_keys: dict[str, str] = field(default_factory=dict)  # the other brains
+    brain_models: dict[str, str] = field(default_factory=dict)
     thinking: str = ""
     api_token: str = ""
     host: str = "127.0.0.1"
@@ -135,6 +187,19 @@ class Settings:
     open_browser: bool = True
     frontend: Path = HERE.parent / "frontend"
     persona_file: Path = HERE / "persona.md"
+    env_file: Path = HERE / ".env"
+
+    def key_for(self, brain: str) -> str:
+        if brain == "gemini":
+            return self.gemini_api_key
+        if brain == "openai":
+            return self.openai_api_key  # one OpenAI key, for the brain and the voice
+        return self.brain_keys.get(brain, "")
+
+    def model_for(self, brain: str) -> str:
+        if brain == "gemini":
+            return self.gemini_model
+        return self.brain_models.get(brain) or str(BRAINS.get(brain, {}).get("model", ""))
 
     @classmethod
     def load(cls, env_file: Path) -> "Settings":
@@ -152,8 +217,20 @@ class Settings:
             value = Path(get(name, str(default)))
             return value if value.is_absolute() else HERE / value
 
+        keys = (get("GEMINI_API_KEY") or get("GOOGLE_API_KEY"), get("GEMINI_API_KEY_2"),
+                get("GEMINI_API_KEY_3"))
+        slot = int(get("GEMINI_KEY", "1")) if get("GEMINI_KEY", "1").isdigit() else 1
+        slot = slot if 1 <= slot <= 3 else 1
+        others = [b for b, spec in BRAINS.items() if spec["kind"] != "gemini"]
+        brain = get("JARVIS_BRAIN", "gemini").lower()
         return cls(
-            gemini_api_key=get("GEMINI_API_KEY") or get("GOOGLE_API_KEY"),
+            brain=brain if brain in BRAINS else "gemini",
+            gemini_api_key=keys[slot - 1],
+            gemini_keys=keys,
+            gemini_slot=slot,
+            brain_keys={b: get(BRAINS[b]["key_env"]) for b in others if b != "openai"},
+            brain_models={b: get(BRAINS[b]["model_env"], BRAINS[b]["model"]) for b in others},
+            env_file=env_file,
             gemini_model=get("GEMINI_MODEL", "gemini-3.5-flash-lite"),
             thinking=get("GEMINI_THINKING").lower(),
             api_token=get("JARVIS_API_TOKEN"),
@@ -828,6 +905,23 @@ def slug(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")[:40] or "job"
 
 
+def error_detail(response: httpx.Response) -> str:
+    """The message in an API's error reply: {"error": {"message": …}} or close."""
+    try:
+        body = response.json()
+    except ValueError:
+        return response.text[:300]
+    error = body.get("error") if isinstance(body, dict) else None
+    if isinstance(error, dict):
+        return str(error.get("message") or error)[:300]
+    return str(error or body)[:300]
+
+
+def mask(secret: str) -> str:
+    """Enough of a key to recognise it — never enough to use it."""
+    return f"…{secret[-4:]}" if len(secret) > 8 else ("set" if secret else "")
+
+
 def duration(seconds: float) -> str:
     seconds = round(seconds)
     if seconds < 60:
@@ -980,6 +1074,30 @@ class Jarvis:
                 self._save_history()
 
     async def _converse(self, task: Task) -> str:
+        """Answer with whichever brain is switched on (Mothership → Connections)."""
+        brain = self.settings.brain if self.settings.brain in BRAINS else "gemini"
+        spec = BRAINS[brain]
+        if not self.settings.key_for(brain):
+            raise JarvisError(f"There's no {spec['name']} key yet — add one in the Mothership, "
+                              "under Connections.")
+        if spec["kind"] == "anthropic":
+            return await self._converse_claude(task)
+        if spec["kind"] == "openai":
+            return await self._converse_openai(task, brain)
+        return await self._converse_gemini(task)
+
+    def _remember(self, task: Task, answer: str) -> None:
+        """Keep the exchange as plain text, so any brain can pick up the thread."""
+        self.chat += [{"role": "user", "parts": [{"text": task.prompt or task.request}]},
+                      {"role": "model", "parts": [{"text": answer}]}]
+
+    def _history(self) -> list[dict[str, str]]:
+        """The recent conversation as user/assistant text turns."""
+        return [{"role": "assistant" if turn["role"] == "model" else "user",
+                 "content": "".join(p.get("text", "") for p in turn["parts"])}
+                for turn in self.chat[-24:]]
+
+    async def _converse_gemini(self, task: Task) -> str:
         """Gemini's tool loop: run the tools it asks for until it answers in words."""
         user_turn = {"role": "user", "parts": [{"text": task.prompt or task.request}]}
         contents = [*self.chat[-24:], user_turn]
@@ -999,7 +1117,7 @@ class Jarvis:
                 answer = "".join(p["text"] for p in parts
                                  if isinstance(p.get("text"), str) and not p.get("thought"))
                 answer = answer.strip() or self._no_answer(data, candidate)
-                self.chat += [user_turn, {"role": "model", "parts": [{"text": answer}]}]
+                self._remember(task, answer)
                 return answer
             # The model turn goes back verbatim: Gemini 3 needs its
             # thoughtSignature parts returned exactly as they came.
@@ -1013,6 +1131,143 @@ class Jarvis:
                     reply["id"] = call["id"]
                 replies.append({"functionResponse": reply})
             contents.append({"role": "user", "parts": replies})
+        raise JarvisError("I went round in circles on that one — try asking more specifically.")
+
+    # -- the OpenAI chat format: OpenAI, Groq, OpenRouter, DeepSeek -----------
+    async def _converse_openai(self, task: Task, brain: str) -> str:
+        spec = BRAINS[brain]
+        model = self.settings.model_for(brain)
+        messages: list[dict[str, Any]] = [
+            {"role": "system", "content": self.persona()}, *self._history(),
+            {"role": "user", "content": task.prompt or task.request}]
+        tools = [{"type": "function", "function": {"name": t.name, "description": t.description,
+                                                   "parameters": t.parameters}}
+                 for t in self.tools.values()]
+        for _ in range(10):
+            data = await self._brain_post(
+                brain, f"{spec['base']}/chat/completions",
+                {"model": model, "messages": messages, "tools": tools},
+                {"Authorization": f"Bearer {self.settings.key_for(brain)}"})
+            message = ((data.get("choices") or [{}])[0]).get("message") or {}
+            calls = [c for c in message.get("tool_calls") or [] if isinstance(c, dict)]
+            if not calls:
+                content = message.get("content")
+                answer = (content if isinstance(content, str) else "").strip()
+                if not answer:
+                    raise JarvisError(f"{spec['name']} gave an empty answer.")
+                self._remember(task, answer)
+                return answer
+            messages.append(message)  # verbatim, tool calls and all
+            for call in calls:
+                function = call.get("function") or {}
+                try:
+                    args = json.loads(function.get("arguments") or "{}")
+                except ValueError:
+                    args = {}
+                result = await self._call_tool(task, {"name": function.get("name", ""),
+                                                      "args": args if isinstance(args, dict)
+                                                      else {}})
+                messages.append({"role": "tool", "tool_call_id": call.get("id", ""),
+                                 "content": json.dumps(result, ensure_ascii=False, default=str)})
+        raise JarvisError("I went round in circles on that one — try asking more specifically.")
+
+    async def _brain_post(self, brain: str, url: str, body: dict[str, Any],
+                          headers: dict[str, str]) -> dict[str, Any]:
+        name = BRAINS[brain]["name"]
+        for attempt in range(3):
+            try:
+                response = await self.http.post(url, json=body, headers=headers, timeout=120)
+            except httpx.TimeoutException as exc:
+                raise JarvisError(f"{name} didn't answer within two minutes.") from exc
+            except httpx.RequestError as exc:
+                raise JarvisError(f"Can't reach {name} — check the internet connection.") from exc
+            if response.status_code in {429, 500, 502, 503} and attempt < 2:
+                wait = response.headers.get("retry-after", "")
+                seconds = float(wait) if wait.replace(".", "", 1).isdigit() else 2.0 ** attempt
+                if seconds <= 20:
+                    self.hub.emit("step.retrying", f"{name} is busy — retrying in {seconds:.0f}s.")
+                    await asyncio.sleep(seconds)
+                    continue
+            if response.status_code >= 400:
+                raise JarvisError(self._brain_error(brain, response.status_code,
+                                                    error_detail(response)))
+            result: dict[str, Any] = response.json()
+            return result
+        raise JarvisError(f"{name} stayed busy — try again in a minute, or switch brain.")
+
+    def _brain_error(self, brain: str, status: int, detail: str) -> str:
+        name = BRAINS[brain]["name"]
+        if status in {401, 403}:
+            return f"{name} rejected the key — check it in the Mothership, under Connections."
+        if status == 404:
+            return (f"{name} has no model {self.settings.model_for(brain)!r} — pick another "
+                    "under Connections.")
+        if status in {402, 429}:
+            return (f"{name}'s usage limit is used up for now — wait a little, or switch "
+                    "brain in the Mothership, under Connections.")
+        return f"{name} error {status}: {detail}"
+
+    # -- Claude, through Anthropic's SDK ----------------------------------------------
+    def _claude(self) -> Any:
+        try:
+            import anthropic
+        except ImportError as exc:
+            raise JarvisError("Claude needs the anthropic package — run: "
+                              "pip install -r requirements.txt") from exc
+        # Jarvis's own HTTP client: one connection pool, and the tests' fake web.
+        return anthropic.AsyncAnthropic(api_key=self.settings.key_for("anthropic"),
+                                        http_client=self.http, max_retries=2)
+
+    async def _converse_claude(self, task: Task) -> str:
+        import anthropic
+
+        client = self._claude()
+        model = self.settings.model_for("anthropic")
+        messages: list[dict[str, Any]] = [
+            *self._history(), {"role": "user", "content": task.prompt or task.request}]
+        tools = [{"name": t.name, "description": t.description, "input_schema": t.parameters}
+                 for t in self.tools.values()]
+        options: dict[str, Any] = {}
+        if model in CLAUDE_FALLBACK:  # a declined request goes to a fallback model
+            options = {"betas": ["server-side-fallback-2026-07-01"],
+                       "extra_body": {"fallbacks": "default"}}
+        for _ in range(10):
+            try:
+                response = await client.beta.messages.create(
+                    model=model, max_tokens=16000, system=self.persona(), messages=messages,
+                    tools=tools, **options)
+            except anthropic.AuthenticationError as exc:
+                raise JarvisError(self._brain_error("anthropic", 401, "")) from exc
+            except anthropic.NotFoundError as exc:
+                raise JarvisError(self._brain_error("anthropic", 404, "")) from exc
+            except anthropic.RateLimitError as exc:
+                raise JarvisError(self._brain_error("anthropic", 429, "")) from exc
+            except anthropic.APIStatusError as exc:
+                raise JarvisError(self._brain_error("anthropic", exc.status_code,
+                                                    exc.message)) from exc
+            except anthropic.APIConnectionError as exc:
+                raise JarvisError("Can't reach Claude — check the internet connection.") from exc
+            if response.stop_reason == "refusal":
+                return "I'm afraid I can't help with that one."
+            uses = [b for b in response.content if b.type == "tool_use"]
+            if not uses:
+                answer = "".join(b.text for b in response.content if b.type == "text").strip()
+                if not answer:
+                    raise JarvisError(f"Claude gave an empty answer ({response.stop_reason}).")
+                self._remember(task, answer)
+                return answer
+            messages.append({"role": "assistant", "content": response.content})
+            results = []
+            for block in uses:
+                result = await self._call_tool(task, {"name": block.name, "id": block.id,
+                                                      "args": dict(block.input or {})})
+                reply: dict[str, Any] = {"type": "tool_result", "tool_use_id": block.id,
+                                         "content": json.dumps(result, ensure_ascii=False,
+                                                               default=str)}
+                if "error" in result:
+                    reply["is_error"] = True
+                results.append(reply)
+            messages.append({"role": "user", "content": results})  # all results, one message
         raise JarvisError("I went round in circles on that one — try asking more specifically.")
 
     @staticmethod
@@ -1095,11 +1350,13 @@ class Jarvis:
             detail = response.text[:300]
         status = response.status_code
         if status in {401, 403} or "api key" in detail.lower():
-            return f"Gemini rejected the API key — check GEMINI_API_KEY in .env ({KEY_URL})."
+            return ("Gemini rejected the API key — check GEMINI_API_KEY (Mothership → "
+                    f"Connections, or .env; {KEY_URL}).")
         if status == 404:
             return f"Gemini has no model {self.settings.gemini_model!r} — check GEMINI_MODEL."
         if status == 429:
-            return "Gemini's free-tier limit is used up for now — wait a minute and try again."
+            return ("Gemini's free-tier limit is used up for now — wait a minute, or switch "
+                    "brain in the Mothership, under Connections.")
         if "thinking" in detail.lower():
             return f"This model doesn't take GEMINI_THINKING={self.settings.thinking!r}: {detail}"
         return f"Gemini error {status}: {detail}"
@@ -1116,6 +1373,134 @@ class Jarvis:
             return self._gemini_error(response)
         name = response.json().get("displayName", self.settings.gemini_model)
         return f"connected — {name}"
+
+    async def check_brain(self, brain: str) -> tuple[bool, str]:
+        """Prove a brain's key and model with a lookup — no tokens, no quota."""
+        spec = BRAINS[brain]
+        key, model = self.settings.key_for(brain), self.settings.model_for(brain)
+        if not key:
+            return False, f"No {spec['name']} key yet."
+        if spec["kind"] == "gemini":
+            detail = await self.check_gemini()
+            return detail.startswith("connected"), detail
+        if spec["kind"] == "anthropic":
+            import anthropic
+
+            try:
+                found = await self._claude().models.retrieve(model)
+            except anthropic.APIStatusError as exc:
+                return False, self._brain_error(brain, exc.status_code, exc.message)
+            except anthropic.APIConnectionError:
+                return False, "not reachable (offline?)"
+            return True, f"connected — {found.display_name}"
+        try:
+            response = await self.http.get(f"{spec['base']}/models", timeout=15,
+                                           headers={"Authorization": f"Bearer {key}"})
+        except httpx.RequestError:
+            return False, "not reachable (offline?)"
+        if response.status_code >= 400:
+            return False, self._brain_error(brain, response.status_code, error_detail(response))
+        with contextlib.suppress(ValueError, AttributeError, TypeError):
+            ids = {str(m.get("id")) for m in response.json().get("data", [])}
+            if ids and model not in ids and not model.startswith("openrouter/"):
+                return False, (f"The key works, but {spec['name']} has no model {model!r} — "
+                               "pick another.")
+        return True, f"connected — {model}"
+
+    # -- connections: keys and providers, kept in .env, applied live ---------------
+    #: What the dashboard may change in .env — nothing else, ever.
+    EDITABLE = {
+        "JARVIS_BRAIN", "GEMINI_API_KEY", "GEMINI_API_KEY_2", "GEMINI_API_KEY_3", "GEMINI_KEY",
+        "GEMINI_MODEL", "GEMINI_THINKING", "ANTHROPIC_API_KEY", "ANTHROPIC_MODEL",
+        "OPENAI_API_KEY", "OPENAI_MODEL", "GROQ_API_KEY", "GROQ_MODEL", "OPENROUTER_API_KEY",
+        "OPENROUTER_MODEL", "DEEPSEEK_API_KEY", "DEEPSEEK_MODEL", "JARVIS_VOICE",
+        "JARVIS_VOICE_PROVIDER", "OPENAI_TTS_MODEL", "OPENAI_TTS_VOICE", "JARVIS_VOICE_STYLE",
+        "JARVIS_LISTEN_PROVIDER", "JARVIS_LISTEN_LANGUAGE", "WHISPER_MODEL", "WISPR_API_KEY",
+        "WISPR_LANGUAGE", "JARVIS_HOST", "JARVIS_PORT",
+    }
+    #: Settings that only a restart can change (the server is already bound).
+    RESTART_ONLY = ("host", "port", "data_dir", "frontend", "cors_origins", "workspace",
+                    "persona_file", "env_file", "startup_terminals")
+    restart: Callable[[], None] | None = None  # set by serve(): stop and start again
+
+    def connections_out(self) -> dict[str, Any]:
+        s = self.settings
+        brains = []
+        for brain, spec in BRAINS.items():
+            key = s.key_for(brain)
+            brains.append({"id": brain, "name": spec["name"], "maker": spec["maker"],
+                           "configured": bool(key), "key_hint": mask(key),
+                           "model": s.model_for(brain), "models": spec["models"],
+                           "key_env": spec["key_env"], "model_env": spec["model_env"],
+                           "key_url": spec["key_url"], "note": spec["note"]})
+        slots = s.gemini_keys if any(s.gemini_keys) else (s.gemini_api_key, "", "")
+        fresh = Settings.load(s.env_file) if s.env_file.is_file() else s
+        restart = {name: getattr(fresh, name) for name in ("host", "port")
+                   if getattr(fresh, name) != getattr(s, name)}
+        return {
+            "brain": {"active": s.brain, "brains": brains, "gemini_slot": s.gemini_slot,
+                      "gemini_keys": [{"slot": i + 1, "configured": bool(k), "key_hint": mask(k)}
+                                      for i, k in enumerate(slots)],
+                      "thinking": s.thinking},
+            "voice": {"provider": s.voice_provider, "voice": s.voice,
+                      "speaking": self.voice_provider,
+                      "openai_voice": s.openai_tts_voice, "openai_model": s.openai_tts_model,
+                      "style": s.voice_style, "openai_configured": bool(s.openai_api_key),
+                      "edge_installed": have_module("edge_tts")},
+            "listen": {"provider": s.listen_provider, "listening": self.listen_provider,
+                       "language": s.listen_language, "whisper_model": s.whisper_model,
+                       "whisper_installed": have_module("faster_whisper"),
+                       "wispr_configured": bool(s.wispr_api_key),
+                       "wispr_hint": mask(s.wispr_api_key), "wispr_language": s.wispr_language},
+            "access": {"token_hint": mask(s.api_token), "host": s.host, "port": s.port,
+                       "phone": s.host in {"0.0.0.0", "::"}, "phone_link": phone_link(s)},
+            "restart_needed": restart,
+            "can_restart": self.restart is not None,
+            "env_file": str(s.env_file),
+            "overridden": sorted(k for k in self.EDITABLE if os.environ.get(k)),
+        }
+
+    def change_connections(self, values: dict[str, str | None]) -> None:
+        """Write the given .env keys (None clears one) and apply them now."""
+        unknown = set(values) - self.EDITABLE
+        if unknown:
+            raise JarvisError(f"Those can't be changed here: {', '.join(sorted(unknown))}.")
+        for key, value in values.items():
+            text = "" if value is None else str(value).strip()
+            if "\n" in text or "\r" in text or len(text) > 2000:
+                raise JarvisError(f"{key} doesn't look right.")
+            check = {"JARVIS_BRAIN": set(BRAINS), "GEMINI_KEY": {"1", "2", "3"},
+                     "JARVIS_HOST": {"127.0.0.1", "0.0.0.0"},
+                     "JARVIS_VOICE_PROVIDER": {"edge", "openai"},
+                     "JARVIS_LISTEN_PROVIDER": {"browser", "whisper", "wispr", "off"},
+                     "GEMINI_THINKING": {"", "minimal", "low", "medium", "high"}}.get(key)
+            if check is not None and text not in check:
+                raise JarvisError(f"{key} must be one of: {', '.join(sorted(check))}.")
+            if key == "JARVIS_PORT" and not (text.isdigit() and 1 <= int(text) <= 65535):
+                raise JarvisError("The port must be a number from 1 to 65535.")
+        for key, value in values.items():
+            save_env_value(self.settings.env_file, key, "" if value is None else str(value).strip())
+        self.reload_settings()
+        # Names only: a key's value never goes into the event stream or the log.
+        self.hub.emit("connections.updated", f"Saved {', '.join(sorted(values))}.",
+                      data={"keys": sorted(values)})
+
+    def reload_settings(self) -> None:
+        """Re-read .env into the running settings — everything a restart isn't
+        needed for, so open terminals and the conversation carry on."""
+        fresh = Settings.load(self.settings.env_file)
+        for item in fields(Settings):
+            if item.name not in self.RESTART_ONLY:
+                setattr(self.settings, item.name, getattr(fresh, item.name))
+        self.hub.voice_enabled = self.can_speak
+
+    def rotate_token(self) -> str:
+        token = secrets.token_urlsafe(32)
+        save_env_value(self.settings.env_file, "JARVIS_API_TOKEN", token)
+        self.settings.api_token = token
+        self.hub.emit("connections.updated", "Made a new dashboard token.",
+                      data={"keys": ["JARVIS_API_TOKEN"]})
+        return token
 
     # -- tools ------------------------------------------------------------
     def _tools(self) -> list[Tool]:
@@ -2016,6 +2401,15 @@ class TrustIn(BaseModel):
     trusted: bool
 
 
+class ConnectionsIn(BaseModel):
+    #: .env keys to set; null clears one. Only Jarvis.EDITABLE keys are accepted.
+    values: dict[str, str | None] = Field(max_length=40)
+
+
+class BrainTestIn(BaseModel):
+    brain: str = Field(min_length=1, max_length=40)
+
+
 class ControlIn(BaseModel):
     name: str = Field(min_length=1, max_length=80)
     group: str = Field(default="", max_length=60)
@@ -2301,6 +2695,39 @@ def create_app(jarvis: Jarvis) -> FastAPI:
         with answers():
             return (await jarvis.build_idea(project_id, idea_id)).out()
 
+    # -- connections: brains, voice, access — written to .env, applied live --------
+    @app.get("/dash/api/connections", dependencies=guard)
+    async def connections() -> dict[str, Any]:
+        return jarvis.connections_out()
+
+    @app.post("/dash/api/connections", dependencies=guard)
+    async def change_connections(body: ConnectionsIn) -> dict[str, Any]:
+        try:
+            jarvis.change_connections(body.values)
+        except JarvisError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return jarvis.connections_out()
+
+    @app.post("/dash/api/connections/test", dependencies=guard)
+    async def test_connection(body: BrainTestIn) -> dict[str, Any]:
+        if body.brain not in BRAINS:
+            raise HTTPException(status_code=404, detail="No such brain.")
+        ok, detail = await jarvis.check_brain(body.brain)
+        return {"ok": ok, "detail": detail}
+
+    @app.post("/dash/api/connections/token", dependencies=guard)
+    async def rotate_token() -> dict[str, str]:
+        # The only route that returns a whole secret: the page that asked
+        # needs the new token to stay connected.
+        return {"token": jarvis.rotate_token()}
+
+    @app.post("/dash/api/restart", dependencies=guard)
+    async def restart() -> dict[str, str]:
+        if jarvis.restart is None:
+            raise HTTPException(status_code=409, detail="Restart Jarvis by hand this time.")
+        asyncio.get_running_loop().call_later(0.5, jarvis.restart)
+        return {"detail": "Restarting — back in a few seconds."}
+
     @app.get("/dash/api/stats", dependencies=guard)
     async def stats() -> dict[str, Any]:
         return machine_stats()
@@ -2349,8 +2776,10 @@ def create_app(jarvis: Jarvis) -> FastAPI:
     @app.get("/system", dependencies=guard)
     async def system() -> dict[str, Any]:
         active = sum(t.status in {"pending", "running"} for t in jarvis.tasks.values())
-        return {"brain": {"provider": "gemini", "model": settings.gemini_model,
-                          "connected": bool(settings.gemini_api_key)},
+        brain = settings.brain
+        return {"brain": {"provider": brain, "name": BRAINS[brain]["name"],
+                          "model": settings.model_for(brain),
+                          "connected": bool(settings.key_for(brain))},
                 "tools": sorted(jarvis.tools), "active_tasks": active,
                 "total_tasks": len(jarvis.tasks), "workspace": str(settings.workspace)}
 
@@ -2420,7 +2849,8 @@ def create_app(jarvis: Jarvis) -> FastAPI:
 # ================================================================== main ===
 
 
-async def serve(settings: Settings) -> None:
+async def serve(settings: Settings) -> bool:
+    """Run until Ctrl-C (False) or the dashboard's Restart button (True)."""
     import uvicorn
 
     async with httpx.AsyncClient() as http:
@@ -2428,7 +2858,9 @@ async def serve(settings: Settings) -> None:
         approvals = ("automatic (AUTO_APPROVE=true)" if settings.auto_approve
                      else "asked on the dashboard"
                      + (", read-only ones run straight away" if settings.allow_safe else ""))
-        print(f"  Gemini     {settings.gemini_model}: {await jarvis.check_gemini()}")
+        brain = BRAINS[settings.brain]["name"]
+        _, status = await jarvis.check_brain(settings.brain)
+        print(f"  Brain      {brain} {settings.model_for(settings.brain)}: {status}")
         print(f"  Workspace  {settings.workspace}")
         print(f"  Commands   {approvals}")
         voice = (f"{jarvis.voice_info()['provider']} / {jarvis.voice_info()['voice']}"
@@ -2449,12 +2881,22 @@ async def serve(settings: Settings) -> None:
             asyncio.get_running_loop().call_later(1.5, lambda: webbrowser.open(url))
         config = uvicorn.Config(create_app(jarvis), host=settings.host, port=settings.port,
                                 log_level="warning")
+        server = uvicorn.Server(config)
+        restarting = False
+
+        def restart() -> None:
+            nonlocal restarting
+            restarting = True
+            server.should_exit = True
+
+        jarvis.restart = restart
         startup = asyncio.get_running_loop().create_task(jarvis.open_startup_terminals())
         try:
-            await uvicorn.Server(config).serve()
+            await server.serve()
         finally:
             startup.cancel()
             jarvis.close_all_terminals()
+        return restarting
 
 
 def lan_address() -> str | None:
@@ -2488,16 +2930,23 @@ def main() -> int:
         print(f"Created {env_file} from .env.example.")
     settings = Settings.load(env_file)
     print("\n  J.A.R.V.I.S.\n")
-    if not settings.gemini_api_key:
-        print(f"  No Gemini key yet. Get a free one at {KEY_URL}\n"
-              f"  and paste it into {env_file} as GEMINI_API_KEY=...  then run this again.\n")
-        return 1
+    if not settings.key_for(settings.brain):
+        # Start anyway: the dashboard's Connections tab is where keys go now.
+        print(f"  No {BRAINS[settings.brain]['name']} key yet. Add one in the dashboard "
+              f"(Mothership → Connections) or in {env_file}.\n"
+              f"  A free Gemini key: {KEY_URL}\n")
     if not settings.api_token:
         settings.api_token = secrets.token_urlsafe(32)
         save_env_value(env_file, "JARVIS_API_TOKEN", settings.api_token)
         print(f"  Made a dashboard token and saved it to {env_file}.")
+    restart = False
     with contextlib.suppress(KeyboardInterrupt):
-        asyncio.run(serve(settings))
+        restart = asyncio.run(serve(settings))
+    if restart:
+        # A fresh process picks up host and port; it reuses this console.
+        print("\n  Restarting…\n", flush=True)
+        child = dict(os.environ, JARVIS_OPEN_BROWSER="false")
+        return subprocess.call([sys.executable, str(Path(__file__).resolve())], env=child)
     return 0
 
 
