@@ -54,6 +54,9 @@ from pydantic import BaseModel, Field
 
 HERE = Path(__file__).resolve().parent
 WINDOWS = platform.system() == "Windows"
+VOICE_STYLE = ("A deep, refined British voice in a Received Pronunciation accent, calm and "
+               "measured, dry and understated, like a butler AI. Warm, brief and precise; "
+               "never theatrical.")
 OPENAI_SPEECH_URL = "https://api.openai.com/v1/audio/speech"
 WISPR_URL = "https://platform-api.wisprflow.ai/api/v1/dash/api"
 GEMINI_API = "https://generativelanguage.googleapis.com/v1beta"
@@ -112,6 +115,7 @@ class Settings:
     openai_api_key: str = ""
     openai_tts_model: str = "gpt-4o-mini-tts"
     openai_tts_voice: str = "onyx"
+    voice_style: str = VOICE_STYLE
     news_country: str = "US"
     news_language: str = "en"
     cors_origins: list[str] = field(default_factory=list)
@@ -150,6 +154,7 @@ class Settings:
             listen_provider=get("JARVIS_LISTEN_PROVIDER", "off").lower(),
             wispr_api_key=get("WISPR_API_KEY"),
             wispr_language=get("WISPR_LANGUAGE", "en").lower(),
+            voice_style=get("JARVIS_VOICE_STYLE", VOICE_STYLE),
             openai_api_key=get("OPENAI_API_KEY"),
             openai_tts_model=get("OPENAI_TTS_MODEL", "gpt-4o-mini-tts"),
             openai_tts_voice=get("OPENAI_TTS_VOICE", "onyx").lower(),
@@ -1034,8 +1039,7 @@ class Jarvis:
                                 "voice": self.settings.openai_tts_voice,
                                 "input": text, "response_format": "mp3"}
         if self.settings.openai_tts_model.startswith("gpt-"):  # tts-1 ignores instructions
-            body["instructions"] = ("Speak as a calm, dry-witted British butler: "
-                                    "warm, brief and precise, never theatrical.")
+            body["instructions"] = self.settings.voice_style
         response = await self.http.post(
             OPENAI_SPEECH_URL, json=body, timeout=60,
             headers={"Authorization": f"Bearer {self.settings.openai_api_key}"})

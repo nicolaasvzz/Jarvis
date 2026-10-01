@@ -311,7 +311,10 @@ async def test_openai_voice_speaks_through_the_speech_endpoint(tmp_path: Path) -
     body = json.loads(seen[0].content)
     assert body["model"] == "gpt-4o-mini-tts" and body["voice"] == "onyx"
     assert body["input"] == "Good evening, sir. See "  # markdown and links stripped
-    assert "instructions" in body
+    assert "British" in body["instructions"]
+    jarvis.settings.voice_style = "Whisper like a pirate."
+    await jarvis.speak("hi")
+    assert json.loads(seen[1].content)["instructions"] == "Whisper like a pirate."
 
 
 @pytest.mark.asyncio

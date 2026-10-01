@@ -62,6 +62,7 @@ read it; its output is also saved to `workspace/jobs/<time>-<name>/output.txt`.
 | `JARVIS_WORKSPACE` | `workspace` | Where commands start |
 | `JARVIS_VOICE` | `en-GB-RyanNeural` | Edge voice name; `off` for silence |
 | `JARVIS_VOICE_PROVIDER` | `edge` | `openai` for ChatGPT's voices (needs `OPENAI_API_KEY`; falls back to `edge`) |
+| `JARVIS_VOICE_STYLE` | deep, refined British butler | plain-words accent/tone for the OpenAI voice |
 | `OPENAI_API_KEY` | | key for the OpenAI voice |
 | `OPENAI_TTS_MODEL` / `OPENAI_TTS_VOICE` | `gpt-4o-mini-tts` / `onyx` | OpenAI voice model and voice |
 | `NEWS_COUNTRY` / `NEWS_LANGUAGE` | `US` / `en` | Google News edition |
