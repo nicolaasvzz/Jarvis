@@ -22,7 +22,7 @@ const state = {
   tasks: [],
   approvals: [],
   events: [],
-  agents: [],
+  terminals: [],
   history: { cpu: [], memory: [] },
 };
 
@@ -43,19 +43,20 @@ Hud.start(async () => {
 
   state.tasks = snapshot.tasks || [];
   state.approvals = snapshot.approvals || [];
-  state.agents = snapshot.agents || [];
+  state.terminals = snapshot.terminals || [];
   state.events = (snapshot.events || []).slice(-40);
 
   renderTasks();
   renderApprovals();
   renderFeed();
-  renderAgentSummary();
+  renderTerminalSummary();
   refreshState();
 
   setupVoice(snapshot.voice);
   setupConsole();
   setupMute();
 
+  showBrain();
   pollStats(snapshot.settings.stats_interval || 2);
   Hud.onEvent(onFrame);
   el("reply-close").addEventListener("click", () => (el("reply").hidden = true));
@@ -75,11 +76,11 @@ function onFrame(frame) {
   if (
     frame.type.startsWith("task.") ||
     frame.type.startsWith("step.") ||
-    frame.type.startsWith("approval.")
+    frame.type.startsWith("approval.") ||
+    frame.type.startsWith("terminal.")
   ) {
     refreshCollections();
   }
-  if (frame.type.startsWith("agent.")) refreshAgents();
 
   if (frame.type === "task.failed" || frame.type === "error") {
     Hud.toast(frame.message, "bad");
@@ -104,8 +105,8 @@ let awaiting = null; // the task id of the request just typed, if any
 function showReply(frame) {
   const task = state.tasks.find((t) => t.id === frame.task_id);
   const asked = (frame.data && frame.data.request) || (task && task.request) || "";
-  // Background terminal windows finish whenever they finish; only let them
-  // replace the panel when nothing newer is being waited on.
+  // Only a request's own answer replaces the panel while another is being
+  // waited on.
   if (awaiting && frame.task_id !== awaiting && !asked) return;
   if (frame.task_id === awaiting) awaiting = null;
   paintReply(asked, frame.message, frame.type === "task.failed");
@@ -154,23 +155,13 @@ async function refreshCollections() {
     const snapshot = await Hud.getJSON(Hud.route("snapshot"));
     state.tasks = snapshot.tasks || [];
     state.approvals = snapshot.approvals || [];
-    state.agents = snapshot.agents || [];
+    state.terminals = snapshot.terminals || [];
     renderTasks();
     renderApprovals();
-    renderAgentSummary();
+    renderTerminalSummary();
     refreshState();
   } catch (_) {
     /* a dropped refresh is harmless; the next event will try again */
-  }
-}
-
-async function refreshAgents() {
-  try {
-    const snapshot = await Hud.getJSON(Hud.route("snapshot"));
-    state.agents = snapshot.agents || [];
-    renderAgentSummary();
-  } catch (_) {
-    /* ignore */
   }
 }
 
@@ -182,7 +173,6 @@ function refreshState() {
     ["running", "planning", "pending"].includes(t.status)
   );
   const failed = state.tasks.some((t) => t.status === "failed");
-  const busy = state.agents.filter((a) => a.status === "working");
 
   let mood = "idle";
   let line = "Standing by";
@@ -196,10 +186,6 @@ function refreshState() {
     mood = "thinking";
     line = running[0].status === "planning" ? "Working out a plan" : "Working";
     detail = running[0].request || "";
-    if (busy.length) {
-      const names = busy.map((a) => a.name).join(", ");
-      detail = `${names} — ${detail}`;
-    }
   } else if (failed && state.tasks[0] && state.tasks[0].status === "failed") {
     mood = "error";
     line = "Last task failed";
@@ -299,8 +285,7 @@ function renderFeed() {
   }
   host.innerHTML = items
     .map((frame) => {
-      const who = frame.data && frame.data.agent ? frame.data.agent.name : null;
-      const bits = [frame.type, who, Hud.ago(frame.created_at)].filter(Boolean);
+      const bits = [frame.type, Hud.ago(frame.created_at)];
       return `
         <div class="feed-item">
           <span class="pip ${Hud.tone(frame.type)}"></span>
@@ -313,14 +298,31 @@ function renderFeed() {
     .join("");
 }
 
-function renderAgentSummary() {
-  const busy = state.agents.filter((a) => a.status === "working").length;
-  document.querySelector("[data-agents-summary]").textContent = state.agents.length
-    ? `${busy}/${state.agents.length} agents`
+function renderTerminalSummary() {
+  const open = state.terminals.length;
+  document.querySelector("[data-terminals-summary]").textContent = open
+    ? `${open} terminal${open === 1 ? "" : "s"}`
     : "";
 }
 
 /* -- machine vitals --------------------------------------------------------- */
+
+/** Which model is thinking, and with how many tools — from the `system` route. */
+async function showBrain() {
+  try {
+    const system = await Hud.getJSON(Hud.route("system"));
+    const brain = system.brain || {};
+    const host = el("brain");
+    host.innerHTML = `
+      <span class="dot ${brain.connected ? "live" : "down"}"></span>
+      <span class="who">${Hud.escape(brain.model || brain.provider || "unknown model")}</span>
+      <span class="meta">${(system.tools || []).length} tools</span>`;
+    host.title = (system.tools || []).join(", ");
+    host.hidden = false;
+  } catch (_) {
+    /* an optional route; the panel works without it */
+  }
+}
 
 function pollStats(intervalSeconds) {
   const run = async () => {

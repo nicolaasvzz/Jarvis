@@ -24,6 +24,8 @@ htmlcov/
 # "**/" because a pattern containing a slash is otherwise anchored to the repo
 # root, and the real file lives in backend/config/.
 **/config/config.yaml
+# Your own start-up terminals; terminals.example.json is the template.
+backend/terminals.json
 
 # Logs
 *.log

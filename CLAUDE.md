@@ -8,8 +8,8 @@ Two halves that only talk over HTTP:
 
 - **`backend/jarvis.py`** — the whole backend in one file: a Gemini tool loop
   (`GEMINI_MODEL`, `gemini-3.5-flash-lite` by default), a handful of tools
-  (weather, news, web search/read, terminal commands, job status, workspace
-  file reads), and the FastAPI routes the dashboard uses. `persona.md` is the
+  (weather, news, web search/read, terminal commands, live dashboard
+  terminals, workspace file reads), and the FastAPI routes the dashboard uses. `persona.md` is the
   system prompt; `.env` holds settings and secrets.
 - **`frontend/`** — static HTML/JS/CSS dashboard, no build step, reusable by
   other projects. [`frontend/API.md`](frontend/API.md) is the contract between
@@ -18,7 +18,8 @@ Two halves that only talk over HTTP:
 The old multi-module system (planner, agent pool, Telegram, local models) was
 deliberately removed; it lives under the git tag `full-agent-v1`. Don't
 reintroduce it piecemeal — and the user asked for no Ollama/local-model
-worker, only terminal commands.
+worker, only terminal commands. The Files and Agent Office pages were removed
+too, at the user's request: Jarvis works through terminals, not files.
 
 ## Commands
 
@@ -33,10 +34,15 @@ python -m mypy --strict --ignore-missing-imports jarvis.py
 
 ## Invariants
 
-1. **Terminal commands need approval.** `run_command` calls `_approve`, which
-   waits for Allow/Deny from the dashboard unless `AUTO_APPROVE=true`. Any new
-   tool that changes the machine must be `risky=True` and go through
-   `_approve` too.
+1. **Terminal commands need approval.** `run_command`, `terminal_open` (with
+   a command) and `terminal_write` call `_approve`, which waits for Allow/Deny
+   from the dashboard unless `AUTO_APPROVE=true`. Any new tool that changes
+   the machine must be `risky=True` and go through `_approve` too. What the
+   user types into a terminal on the dashboard is never gated. The only
+   skips, both user-requested: `is_safe` read-only commands (`free=` on
+   `_approve`, off with `ALLOW_SAFE_COMMANDS=false`) and terminals the user
+   marked trusted. Keep `SAFE_COMMANDS` strictly read-only, and keep
+   `NEVER_SAFE` rejecting anything that chains, redirects or substitutes.
 2. **Tools return dicts, never raise out.** `_call_tool` turns exceptions into
    `{"error": ...}` so Gemini can react; a failed tool must not end the task.
 3. **Gemini's model turns go back verbatim.** Gemini 3 requires the
@@ -56,15 +62,32 @@ python -m mypy --strict --ignore-missing-imports jarvis.py
 
 - Google Search grounding is **not** on Gemini's free tier — hence the
   key-free weather/news/search tools instead.
-- Long commands (`new_window=true`) run `workspace/jobs/<name>/job.ps1` in a new
-  PowerShell window with `-NoExit`; completion is detected by a `.done` file,
-  not by the process exiting.
-- `.ps1` files are written with a UTF-8 BOM so Windows PowerShell 5.1 reads
-  non-ASCII correctly.
+- Dashboard terminals (`Terminal`) are real shells in a pseudo-terminal:
+  `pywinpty` (ConPTY) on Windows, `ptyprocess` elsewhere. A reader thread
+  pumps output into the event loop with `call_soon_threadsafe`, onto a
+  `pyte` virtual screen: Jarvis reads it as plain text, and a browser opening
+  the tab is painted from it (`Terminal.redraw`).
+- A terminal's size is fixed when it opens; the page scales its font to fit.
+  Don't add resizing: pyte doesn't reflow, so shrinking cuts lines, and
+  ConPTY's absolute cursor moves make raw output from one width garble at
+  another.
+- The user's typed commands are logged from the screen on Enter, after
+  waiting for the echo (`Terminal.keys`). Keys reach the shell before it
+  draws them.
+- Press Enter in a PTY with `\r`, not `\r\n`: PowerShell reads the `\n` as
+  a second line and shows a `>>` continuation prompt.
+- Shells start with a prompt wrapper (`PS_PROMPT_MARK`, or `PROMPT_COMMAND`
+  for bash) that prints an invisible OSC 633 mark with the last exit status.
+  That is how a command's finish and failure are known (`Terminal._finished`)
+  — long ones get a spoken notice, failed ones light up Explain. A command
+  "starts" only when Enter is pressed on a line beginning with the prompt.
+- Tests never start a real shell: `Jarvis.spawn_shell` is swapped for
+  `FakeShell` in `test_jarvis.py`.
 
 ## Pull requests
 
-- The GitHub repo is literally named `nicolaasvzz/Jarvis.` (trailing dot) and its
+- The GitHub repo is `nicolaasvzz/Jarvis` (it was `Jarvis.`, with a trailing dot;
+  the old name still redirects, and this checkout's `origin` may use it). Its
   default branch is `claude/jarvis-ai-assistant-9hhbcu`, not `main`.
 - On Windows `gh` may not be on PATH in a fresh shell; it installs to
   `C:\Program Files\GitHub CLI\gh.exe` (PowerShell: `& "C:\Program Files\GitHub CLI\gh.exe" ...`).

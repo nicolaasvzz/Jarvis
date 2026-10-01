@@ -6,6 +6,8 @@
 
 import asyncio
 import json
+import queue
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -69,7 +71,7 @@ async def test_a_plain_question_is_answered(tmp_path: Path) -> None:
     body = web.gemini_bodies[0]
     assert body["contents"][-1] == {"role": "user", "parts": [{"text": "hello"}]}
     assert "thinkingConfig" not in body["generationConfig"]  # model default: fastest
-    assert [f["type"] for f in jarvis.hub.history][-2:] == ["task.completed", "agent.idle"]
+    assert jarvis.hub.history[-1]["type"] == "task.completed"
 
 
 @pytest.mark.asyncio
@@ -179,7 +181,7 @@ async def test_the_api_needs_the_token_and_serves_the_dashboard(tmp_path: Path) 
                                  base_url="http://jarvis") as client:
         assert (await client.get("/dash/api/snapshot")).status_code == 401
         snapshot = (await client.get("/dash/api/snapshot", headers=auth)).json()
-        assert [a["name"] for a in snapshot["agents"]][0] == "Jarvis"
+        assert snapshot["terminals"] == [] and "agents" not in snapshot
         assert (await client.get("/dash/")).status_code == 200
         config = (await client.get("/dash/config.js")).text
         assert 'appName: "EDITH"' in config and config.rstrip().endswith('{ server: "" });')
@@ -243,43 +245,339 @@ def test_a_console_that_cannot_print_never_breaks_an_event(
 
     monkeypatch.setattr("builtins.print", broken_print)
     hub = J.Hub(voice_enabled=False)
-    frame = hub.emit("agent.assigned", "Terminal 1 \u2192 build")
-    assert frame["message"] == "Terminal 1 \u2192 build"
+    frame = hub.emit("terminal.opened", "Opened a terminal \u2192 build")
+    assert frame["message"] == "Opened a terminal \u2192 build"
     assert list(hub.history) == [frame]
 
 
-class FakeProcess:
-    """Stands in for a terminal window, so tests never open one."""
+def mark(code: int) -> str:
+    """The prompt's "a command finished" mark, as the real shells print it."""
+    return f"\x1b]633;D;{code}\x07"
 
-    def poll(self) -> int | None:
-        return None
+
+class FakeShell:
+    """A pretend PowerShell in a pseudo-terminal: echoes keys and answers each
+    line with "ran: <line>", so tests never start a real shell. Like ConPTY,
+    it first asks what terminal it's talking to, and waits for the answer
+    before showing its prompt."""
+
+    PROMPT = "PS C:\\ws> "
+    SLOW = 1.2  # seconds a "slow…" command takes
+
+    def __init__(self, cwd: Path, cols: int, rows: int) -> None:
+        self.output: queue.Queue[str | None] = queue.Queue()
+        self.output.put("\x1b[c")
+        self.answered = False
+        self.line = ""
+        self.written: list[str] = []
+        self.size = (rows, cols)
+        self.alive = True
+        self.exitstatus: int | None = None
+
+    def read(self, size: int) -> str:
+        try:
+            chunk = self.output.get(timeout=0.05)
+        except queue.Empty:
+            return ""
+        if chunk is None:
+            raise EOFError
+        return chunk
+
+    lag = 0.0  # seconds before the echo appears, as with a real shell
+
+    def write(self, data: str) -> int:
+        if data == J.DA_REPLY and not self.answered:
+            self.answered = True
+            self.output.put(mark(0) + self.PROMPT)
+            return len(data)
+        self.written.append(data)
+        if self.lag:
+            threading.Timer(self.lag, self._answer, [data]).start()
+        else:
+            self._answer(data)
+        return len(data)
+
+    def _answer(self, data: str) -> None:
+        for ch in data:
+            if ch == "\r":
+                line, self.line = self.line, ""
+                if line == "exit":
+                    self.exitstatus, self.alive = 0, False
+                    self.output.put("\r\n")
+                    self.output.put(None)
+                elif line.startswith("slow"):  # takes a while, like a build
+                    self.output.put(f"\r\nworking on {line}...")
+                    threading.Timer(self.SLOW, self.output.put,
+                                    [f"\r\ndone\r\n{mark(0)}{self.PROMPT}"]).start()
+                else:  # "bad…" fails, anything else works
+                    code = 1 if line.startswith("bad") else 0
+                    self.output.put(f"\r\nran: {line}\r\n{mark(code)}{self.PROMPT}")
+            elif ch == "\x03":
+                self.output.put(f"^C\r\n{mark(1)}{self.PROMPT}")
+            else:
+                self.line += ch
+                self.output.put(ch)
+
+    def isalive(self) -> bool:
+        return self.alive
+
+    def terminate(self, force: bool = False) -> bool:
+        self.alive = False
+        self.output.put(None)
+        return True
+
+
+def with_fake_shells(jarvis: J.Jarvis) -> list[FakeShell]:
+    shells: list[FakeShell] = []
+
+    def spawn(cwd: Path, cols: int, rows: int) -> FakeShell:
+        shells.append(FakeShell(cwd, cols, rows))
+        return shells[-1]
+
+    jarvis.spawn_shell = spawn  # type: ignore[assignment]
+    return shells
+
+
+def tool_result(web: FakeWeb, index: int) -> dict[str, Any]:
+    reply_part = web.gemini_bodies[index]["contents"][-1]["parts"][0]["functionResponse"]
+    result: dict[str, Any] = reply_part["response"]["result"]
+    return result
 
 
 @pytest.mark.asyncio
-async def test_a_window_job_is_marked_done_by_its_done_file(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    real_sleep = asyncio.sleep
+async def test_jarvis_opens_a_terminal_and_keeps_working_in_it(tmp_path: Path) -> None:
+    opening = {"functionCall": {"name": "terminal_open", "args": {
+        "title": "build", "purpose": "build the app", "command": "npm run build"}}}
+    carrying_on = {"functionCall": {"name": "terminal_write", "args": {
+        "terminal_id": "term-1", "text": "npm test", "wait_seconds": 5}}}
+    web = FakeWeb(reply(opening), reply({"text": "Building."}),
+                  reply(carrying_on), reply({"text": "Testing."}))
+    jarvis = make(tmp_path, web, auto_approve=True)
+    shells = with_fake_shells(jarvis)
+    (tmp_path / "persona.md").write_text("Terminals:\n{{terminals}}", encoding="utf-8")
+    await finished(jarvis, jarvis.submit("build the app"))
+    opened = tool_result(web, 1)
+    assert opened["terminal_id"] == "term-1" and opened["state"] == "at its prompt"
+    assert "ran: npm run build" in opened["screen"]
 
-    async def quick(_: float) -> None:
-        await real_sleep(0)
+    await finished(jarvis, jarvis.submit("now run the tests in the build terminal"))
+    # The next turn's system prompt carries each terminal's purpose and history.
+    persona = web.gemini_bodies[2]["systemInstruction"]["parts"][0]["text"]
+    assert '`term-1` "build"' in persona and "build the app" in persona
+    assert "jarvis: npm run build" in persona
+    written = tool_result(web, 3)
+    assert "ran: npm test" in written["screen"]
+    assert shells[0].written == ["npm run build\r", "npm test\r"]
+    assert [e["text"] for e in jarvis.terminals["term-1"].log] == ["npm run build", "npm test"]
+    assert "terminal.input" in [f["type"] for f in jarvis.hub.history]
+    jarvis.close_all_terminals()
 
-    monkeypatch.setattr(J.asyncio, "sleep", quick)
+
+@pytest.mark.asyncio
+async def test_typing_into_a_terminal_waits_for_approval(tmp_path: Path) -> None:
+    write = {"functionCall": {"name": "terminal_write", "args": {
+        "terminal_id": "term-1", "key": "ctrl+c"}}}
+    web = FakeWeb(reply(write), reply({"text": "Very well, I'll leave it."}))
+    jarvis = make(tmp_path, web)
+    shells = with_fake_shells(jarvis)
+    jarvis.open_terminal("server", "the dev server")
+    task = jarvis.submit("stop the server")
+    for _ in range(100):
+        if jarvis.approvals:
+            break
+        await asyncio.sleep(0.05)
+    (approval,) = jarvis.approvals.values()
+    assert approval.arguments == {"terminal_id": "term-1", "title": "server", "text": "[ctrl+c]"}
+    jarvis.decide(approval.id, "deny")
+    await finished(jarvis, task)
+    assert tool_result(web, 1)["denied"] is True
+    assert shells[0].written == []
+    jarvis.close_all_terminals()
+
+
+@pytest.mark.asyncio
+async def test_the_terminal_tab_routes(tmp_path: Path) -> None:
     jarvis = make(tmp_path, FakeWeb())
-    folder = tmp_path / "ws" / "jobs" / "demo"
-    folder.mkdir(parents=True)
-    task = J.Task(request="Terminal: build", status="running")
-    task.steps.append(J.Step(description="build", tool="terminal"))
-    window = jarvis.windows[0]
-    window.move("library", "working", task, "terminal", "build")
-    job = J.Job(command="build", folder=folder, task=task, process=FakeProcess(),  # type: ignore[arg-type]
-                agent=window)
-    (folder / "output.txt").write_text("all good\n", encoding="utf-8")
-    (folder / ".done").write_text("0\n", encoding="utf-8")
-    await jarvis._watch(job)
-    assert job.status == "completed" and task.status == "completed"
-    assert window.status == "idle"
-    assert jarvis.hub.history[-2]["files"] == {"action": "write", "paths": ["jobs/demo/output.txt"]}
+    shells = with_fake_shells(jarvis)
+    auth = {"Authorization": "Bearer secret-token"}
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=J.create_app(jarvis)),
+                                 base_url="http://jarvis") as client:
+        assert (await client.get("/dash/api/terminals")).status_code == 401
+        made = (await client.post("/dash/api/terminals", headers=auth,
+                                  json={"title": "Main", "cols": 100, "rows": 20})).json()
+        assert made["id"] == "term-1" and made["opened_by"] == "you"
+        base = f"/dash/api/terminals/{made['id']}"
+        for keys in ("dir", "\r", "git status\r"):  # typed, then pasted
+            sent = await client.post(f"{base}/input", headers=auth, json={"data": keys})
+            assert sent.status_code == 200
+            await asyncio.sleep(0.2)
+        assert [e["text"] for e in jarvis.terminals["term-1"].log] == ["dir", "git status"]
+
+        async def close_soon() -> None:
+            await asyncio.sleep(0.3)
+            await client.post(f"{base}/close", headers=auth)
+
+        closer = asyncio.create_task(close_soon())
+        stream = await client.get(f"{base}/stream?token=secret-token")
+        await closer
+        messages = [json.loads(line[6:]) for line in stream.text.splitlines()
+                    if line.startswith("data: ")]
+        assert messages[0]["type"] == "replay" and "ran: git status" in messages[0]["data"]
+        assert messages[-1]["type"] == "closed"
+        assert (await client.get(f"{base}/stream", headers=auth)).status_code == 404
+        assert (await client.get("/dash/api/terminals", headers=auth)).json() == []
+    # A terminal keeps the size it opened at; Jarvis's take the page's last size.
+    jarvis.open_terminal("for jarvis", opened_by="jarvis")
+    assert shells[0].size == shells[1].size == (20, 100)
+    jarvis.close_all_terminals()
+
+
+@pytest.mark.asyncio
+async def test_a_shell_that_exits_is_reported(tmp_path: Path) -> None:
+    jarvis = make(tmp_path, FakeWeb())
+    with_fake_shells(jarvis)
+    terminal = jarvis.open_terminal("short-lived")
+    await terminal.ready()
+    await terminal.keys("exit\r")
+    for _ in range(100):
+        if terminal.status == "exited":
+            break
+        await asyncio.sleep(0.02)
+    assert terminal.status == "exited" and terminal.exit_code == 0
+    assert jarvis.hub.history[-1]["type"] == "terminal.exited"
+    with pytest.raises(J.JarvisError):
+        await terminal.keys("dir\r")
+    missing = await jarvis._call_tool(J.Task(request="x"), {
+        "name": "terminal_read", "args": {"terminal_id": "term-9"}})
+    assert "term-1" in missing["error"]
+
+
+@pytest.mark.asyncio
+async def test_a_long_prompt_that_wraps_is_still_a_prompt(tmp_path: Path) -> None:
+    jarvis = make(tmp_path, FakeWeb())
+    shells = with_fake_shells(jarvis)
+    FakeShell.PROMPT = r"PS C:\Users\someone\a-deeply-nested-workspace> "
+    try:
+        terminal = jarvis.open_terminal("narrow", cols=20, rows=6)
+        await terminal.ready(limit=2)
+        assert terminal.at_prompt
+        await terminal.keys("dir\r")
+        assert [e["text"] for e in terminal.log] == ["dir"]
+        assert shells[0].written == ["dir", "\r"]
+    finally:
+        FakeShell.PROMPT = r"PS C:\ws> "
+        jarvis.close_all_terminals()
+
+
+@pytest.mark.asyncio
+async def test_enter_waits_for_the_echo_before_noting_the_command(tmp_path: Path) -> None:
+    jarvis = make(tmp_path, FakeWeb())
+    shells = with_fake_shells(jarvis)
+    terminal = jarvis.open_terminal("slow echo")
+    await terminal.ready()
+    shells[0].lag = 0.15  # keys arrive faster than the screen shows them
+    await terminal.keys("Get-Date")
+    await terminal.keys("\r")
+    assert [e["text"] for e in terminal.log] == ["Get-Date"]
+    jarvis.close_all_terminals()
+
+
+def test_only_read_only_commands_count_as_safe() -> None:
+    for command in ("git status", "git log --oneline -5", "dir", "python --version",
+                    "Get-Date", "where git"):
+        assert J.is_safe(command), command
+    for command in ("git branch -D old", "git status; Remove-Item x", "dir > out.txt",
+                    "git diff --output=a", "npm install", "echo $(whoami)", "git log | more"):
+        assert not J.is_safe(command), command
+
+
+@pytest.mark.asyncio
+async def test_a_safe_command_runs_without_asking(tmp_path: Path) -> None:
+    call = {"functionCall": {"name": "run_command", "args": {"command": "hostname"}}}
+    web = FakeWeb(reply(call), reply({"text": "That's this PC's name."}))
+    jarvis = make(tmp_path, web)  # AUTO_APPROVE is off
+    task = await finished(jarvis, jarvis.submit("what's this computer called?"))
+    assert task.status == "completed" and not jarvis.approvals
+    assert tool_result(web, 1)["exit_code"] == 0
+    assert "approval.auto" in [f["type"] for f in jarvis.hub.history]
+
+
+@pytest.mark.asyncio
+async def test_jarvis_types_freely_in_a_trusted_terminal(tmp_path: Path) -> None:
+    write = {"functionCall": {"name": "terminal_write", "args": {
+        "terminal_id": "term-1", "text": "npm test", "wait_seconds": 2}}}
+    web = FakeWeb(reply(write), reply({"text": "Tests are running."}))
+    jarvis = make(tmp_path, web)
+    shells = with_fake_shells(jarvis)
+    await jarvis.open_terminal("app").ready()
+    jarvis.trust_terminal("term-1", True)
+    await finished(jarvis, jarvis.submit("run the tests"))
+    assert shells[0].written == ["npm test\r"] and not jarvis.approvals
+    jarvis.close_all_terminals()
+
+
+@pytest.mark.asyncio
+async def test_a_failed_command_is_flagged_and_can_be_explained(tmp_path: Path) -> None:
+    web = FakeWeb(reply({"text": "The script name is misspelt."}))
+    jarvis = make(tmp_path, web)
+    with_fake_shells(jarvis)
+    terminal = jarvis.open_terminal("app")
+    await terminal.ready()
+    await terminal.keys("bad-script\r")
+    for _ in range(100):
+        if terminal.last_result:
+            break
+        await asyncio.sleep(0.02)
+    assert terminal.last_result and terminal.last_result["ok"] is False
+    assert jarvis.hub.history[-1]["type"] == "terminal.failed"
+    task = await finished(jarvis, jarvis.explain_terminal("term-1"))
+    assert task.request == 'Why did "bad-script" fail?'
+    sent = web.gemini_bodies[0]["contents"][-1]["parts"][0]["text"]
+    assert "ran: bad-script" in sent  # the screen goes with the question
+    assert task.result == "The script name is misspelt."
+    jarvis.close_all_terminals()
+
+
+@pytest.mark.asyncio
+async def test_a_long_command_jarvis_wasnt_watching_gets_a_notice(tmp_path: Path) -> None:
+    web = FakeWeb(reply({"text": "The build finished cleanly."}))
+    jarvis = make(tmp_path, web, notify_after=1)
+    with_fake_shells(jarvis)
+    terminal = jarvis.open_terminal("build")
+    await terminal.ready()
+    await terminal.keys("slow build\r")
+    for _ in range(200):
+        if jarvis.tasks:
+            break
+        await asyncio.sleep(0.02)
+    (task,) = jarvis.tasks.values()
+    assert task.request == 'build: "slow build" worked'
+    await finished(jarvis, task)
+    assert "automatic notice" in web.gemini_bodies[0]["contents"][-1]["parts"][0]["text"]
+    assert task.result == "The build finished cleanly."
+    jarvis.close_all_terminals()
+
+
+@pytest.mark.asyncio
+async def test_startup_terminals_open_and_run_their_commands(tmp_path: Path) -> None:
+    listing = tmp_path / "terminals.json"
+    listing.write_text(json.dumps([
+        {"title": "dev server", "purpose": "the web app", "command": "npm run dev"},
+        {"title": "scratch"}]), encoding="utf-8")
+    jarvis = make(tmp_path, FakeWeb(), startup_terminals=listing)
+    shells = with_fake_shells(jarvis)
+    await jarvis.open_startup_terminals()
+    server, scratch = jarvis.terminals.values()
+    assert (server.title, server.purpose, server.opened_by) == ("dev server", "the web app",
+                                                                 "startup")
+    assert shells[0].written == ["npm run dev\r"] and shells[1].written == []
+    assert scratch.title == "scratch"
+    jarvis.close_all_terminals()
+
+
+def test_the_phone_link_needs_the_network_opened_up() -> None:
+    local = J.phone_link(J.Settings(api_token="tok"))
+    assert "approve.html?token=tok" in local and "JARVIS_HOST=0.0.0.0" in local
 
 
 def openai_web(seen: list[httpx.Request]) -> FakeWeb:

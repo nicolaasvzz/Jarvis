@@ -2,7 +2,7 @@
  * Shared dashboard runtime: authentication, the live event stream, and the
  * small helpers every page needs.
  *
- * All three pages are renderers over one server-sent-event feed. This module
+ * Every page is a renderer over one server-sent-event feed. This module
  * owns the connection to it — including reconnecting, which matters more than
  * it sounds: Jarvis runs for days, laptops sleep, and a HUD that silently
  * stopped updating is worse than one that says it is offline.
@@ -239,7 +239,7 @@ export const Hud = (() => {
   }
 
   function markNav() {
-    // "/dash/", "/dash/index.html" and "/dash/files" vs "files.html" are
+    // "/dash/", "/dash/index.html" and "/dash/terminal" vs "terminal.html" are
     // the same pages, so compare on the page name alone.
     const page = (path) =>
       path.replace(/\/$/, "/index").split("/").pop().replace(/\.html$/, "") || "index";

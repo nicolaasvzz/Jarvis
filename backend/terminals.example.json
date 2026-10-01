@@ -1,0 +1,11 @@
+[
+  {
+    "title": "dev server",
+    "purpose": "runs my web app while I work on it",
+    "command": "cd C:\\Users\\me\\projects\\my-app; npm run dev"
+  },
+  {
+    "title": "scratch",
+    "purpose": "a spare terminal for quick things"
+  }
+]

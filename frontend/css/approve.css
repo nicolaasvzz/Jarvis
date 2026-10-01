@@ -1,0 +1,123 @@
+/*
+ * The Approvals page — built for a phone: one column, big buttons, the
+ * command in full. It shares hud.css for the theme, connect screen and toasts,
+ * but scrolls like an ordinary page instead of filling a fixed HUD.
+ */
+
+body.approve-page {
+  overflow-y: auto;
+  min-height: 100%;
+  padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom);
+}
+
+.approve-top {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  padding: 14px 16px;
+  background: rgba(3, 7, 11, 0.92);
+  border-bottom: 1px solid var(--line-soft);
+  backdrop-filter: blur(8px);
+}
+
+.approve-top .nav { margin-left: 0; }
+.approve-top .nav a { padding: 6px 10px; }
+
+.approve-conn {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.approve-main {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 18px 16px 40px;
+}
+
+.approve-heading,
+.approve-sub {
+  font-family: var(--mono);
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.approve-heading { font-size: 13px; margin: 4px 0 14px; }
+.approve-sub { font-size: 11px; margin: 30px 0 12px; color: var(--text-dim); }
+
+.approve-empty {
+  padding: 26px 18px;
+  border: 1px dashed var(--line);
+  border-radius: var(--radius);
+  color: var(--text-dim);
+  text-align: center;
+  font-size: 14px;
+}
+
+.ask {
+  border: 1px solid rgba(244, 63, 94, 0.45);
+  background: rgba(244, 63, 94, 0.07);
+  border-radius: 12px;
+  padding: 14px;
+  margin-bottom: 14px;
+  animation: slide-in 0.3s ease both;
+}
+
+.ask.done { opacity: 0.4; }
+
+.ask-tool {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: var(--red);
+  margin-bottom: 8px;
+}
+
+.ask-command {
+  margin: 0 0 10px;
+  padding: 10px 12px;
+  background: #02060a;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 13px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.ask-why { font-size: 14px; color: var(--text); }
+.ask-meta { font-size: 11px; color: var(--text-faint); margin-top: 4px; }
+
+.ask-buttons {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.ask-buttons button {
+  min-height: 52px;
+  border-radius: 10px;
+  font-family: var(--mono);
+  font-size: 14px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  cursor: pointer;
+  background: transparent;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.ask-buttons .allow { color: var(--green); border: 1px solid var(--green); background: rgba(52, 211, 153, 0.1); }
+.ask-buttons .deny { color: var(--red); border: 1px solid rgba(244, 63, 94, 0.7); }
+.ask-buttons button:active { transform: scale(0.98); }
+.ask-buttons button:disabled { opacity: 0.5; }
