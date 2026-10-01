@@ -52,6 +52,10 @@ python -m mypy --strict --ignore-missing-imports jarvis.py
    no event loop to start a task on, and resolving an approval future there
    is not thread-safe (this was a real bug).
 5. **Secrets only in `.env`**, which is gitignored. Never log the key or token.
+   The Connections tab writes `.env` (`Jarvis.change_connections`), but only
+   names in `Jarvis.EDITABLE`; keys go back to the page masked (`mask()`),
+   and events carry names, never values. Only the token route returns a
+   whole secret (the new token, to the page that asked).
 6. **Frontend reaches the backend only through named routes** in
    `frontend/js/lib/connection.js`; change a route's shape → update
    `frontend/API.md`.
@@ -60,6 +64,16 @@ python -m mypy --strict --ignore-missing-imports jarvis.py
 
 ## Gotchas
 
+- **Brains** (`BRAINS`): Gemini (native loop, `_converse_gemini`), Claude
+  (`_converse_claude`, the `anthropic` SDK on Jarvis's shared httpx client —
+  keep `anthropic<1`, since 1.x uses httpx2), and OpenAI-format ones
+  (`_converse_openai`: OpenAI, Groq, OpenRouter, DeepSeek). `self.chat` keeps
+  plain-text turns so any brain continues the thread. Switching is manual
+  only — the user chose that; don't add silent fallback between brains.
+- `reload_settings()` copies a fresh `Settings.load()` into the running
+  settings in place (everything but `RESTART_ONLY`), so routes and closures
+  see changes at once. Restart (`serve()` → `main()` re-runs `jarvis.py`)
+  is only for host/port and closes terminals.
 - Google Search grounding is **not** on Gemini's free tier — hence the
   key-free weather/news/search tools instead.
 - Dashboard terminals (`Terminal`) are real shells in a pseudo-terminal:

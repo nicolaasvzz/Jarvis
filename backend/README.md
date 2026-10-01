@@ -92,11 +92,32 @@ install starts from `mothership.example.json`.
 start-up, token included. Anyone who has that link can approve commands, so
 treat it like a password.
 
+## Brains and connections
+
+Jarvis can think with **Gemini** (free tier; up to three keys, e.g. from
+different Google accounts), **Claude** (Anthropic, through its SDK; paid —
+Opus 5.5 by default, Sonnet 5.5 or Haiku 4.5 are cheaper), or anything that
+speaks the OpenAI chat format: **OpenAI**, **Groq** (free tier, fast),
+**OpenRouter** (many models) and **DeepSeek**. Every brain runs the same
+tools, through the same approvals, and picks up the same conversation.
+
+**Mothership → Connections** is where they're managed: paste a key, pick a
+model, press **Test** (a model lookup — no tokens spent), **Use this brain**.
+Voice and listening providers and dashboard access (token, phone access,
+port) live there too. Everything is written to `.env` and applied **live** —
+open terminals and the conversation carry on. Only the host and port need a
+restart, and the page offers one (it closes open terminals). Keys only ever
+come back masked (`…1a2b`). Jarvis doesn't switch brains by itself: when one
+runs out, the error says so and you switch.
+
 ## Settings (`.env`)
 
 | Key | Default | |
 |---|---|---|
-| `GEMINI_API_KEY` | — | Required. Free from AI Studio. |
+| `JARVIS_BRAIN` | `gemini` | `gemini`, `anthropic`, `openai`, `groq`, `openrouter`, `deepseek` |
+| `GEMINI_API_KEY` (`_2`, `_3`) | — | Free from AI Studio; `GEMINI_KEY` = which one is in use |
+| `ANTHROPIC_API_KEY` / `ANTHROPIC_MODEL` | — / `claude-opus-5-5` | Claude |
+| `GROQ_…`, `OPENROUTER_…`, `DEEPSEEK_…`, `OPENAI_MODEL` | — | The other brains: `_API_KEY` and `_MODEL` each |
 | `GEMINI_MODEL` | `gemini-3.5-flash-lite` | Fastest. `gemini-3.8-flash` is smarter. |
 | `GEMINI_THINKING` | model default | `minimal` / `low` / `medium` / `high` |
 | `JARVIS_API_TOKEN` | made on first run | The dashboard's password |
