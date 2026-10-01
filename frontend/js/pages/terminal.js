@@ -11,6 +11,10 @@
  * Jarvis types into these same terminals, after you approve it, so the
  * approval cards are shown here too: you can watch what it wants to type and
  * allow it without leaving the page.
+ *
+ * It is one tab of several (js/lib/tabs.js). The selected terminal's stream
+ * stays open while another tab is showing, so coming back is instant and
+ * nothing has to be repainted from the server.
  */
 
 import { Hud } from "../lib/hud.js";
@@ -20,36 +24,74 @@ const FONT = 13; // the terminal's normal font size, in pixels
 
 let terminals = [];
 let approvals = [];
-let selected = Hud.load("terminal") || null;
+let selected = null;
 let term = null;
 let fit = null;
 let source = null;
+let visible = false;
+let started = null; // the first show()'s work: a terminal to look at
 
-/* -- boot ------------------------------------------------------------------ */
+/* -- the tab's life ---------------------------------------------------------- */
 
-Hud.start(async () => {
-  if (!window.Terminal || !window.FitAddon) {
+export function mount(snapshot) {
+  terminals = snapshot.terminals || [];
+  approvals = snapshot.approvals || [];
+  renderApprovals();
+  renderList();
+  renderHeader();
+  Hud.onEvent(onFrame);
+  Hud.onEvent(hearAnswer);
+  if (!window.Terminal || !window.FitAddon) return;
+  setupTerminal();
+  setupControls();
+  // "busy" vs "at its prompt" changes without an event; keep it current.
+  setInterval(() => visible && !document.hidden && refreshList(), 4000);
+}
+
+export async function show() {
+  visible = true;
+  if (!term) {
     el("term-screen").innerHTML =
       '<div class="term-empty">The terminal library could not load — check the internet connection and reload.</div>';
     return;
   }
-  setupTerminal();
-  setupControls();
-
-  const snapshot = await Hud.getJSON(Hud.route("snapshot"));
-  terminals = snapshot.terminals || [];
-  approvals = snapshot.approvals || [];
-  renderApprovals();
-  if (!terminals.length) {
-    // A terminal page with nothing in it is a dead end; start with one.
-    terminals = [await openTerminal("Main")];
+  if (!started) {
+    // Sizing needs the screen on show, so this waits for the first one.
+    started = (async () => {
+      if (!terminals.length) {
+        // A terminal page with nothing in it is a dead end; start with one.
+        terminals = [await openTerminal("Main")];
+      }
+      // The last one looked at — or the one another tab just asked for.
+      const wanted = Hud.load("terminal");
+      select(terminals.some((t) => t.id === wanted) ? wanted : terminals[0].id);
+    })().catch((err) => Hud.toast(String(err.message || err), "bad"));
+    return;
   }
-  select(terminals.some((t) => t.id === selected) ? selected : terminals[0].id);
+  await started;
+  // Another tab may have asked for a terminal (the Mothership's "open it").
+  const wanted = Hud.load("terminal");
+  if (wanted && wanted !== selected) {
+    if (!terminals.some((t) => t.id === wanted)) await refreshList();
+    if (terminals.some((t) => t.id === wanted)) {
+      select(wanted);
+      return;
+    }
+  }
+  refreshList();
+  fitScreen();
+  term.refresh(0, term.rows - 1);
+  term.focus();
+}
 
-  Hud.onEvent(onFrame);
-  // "busy" vs "at its prompt" changes without an event; keep it current.
-  setInterval(() => document.hidden || refreshList(), 4000);
-});
+export function hide() {
+  visible = false;
+}
+
+export function resync() {
+  refreshList();
+  refreshApprovals();
+}
 
 /* -- the xterm instance ----------------------------------------------------- */
 
@@ -94,10 +136,13 @@ function setupTerminal() {
     flush();
   });
 
-  window.addEventListener("resize", () => {
-    const t = terminals.find((x) => x.id === selected);
-    if (t) scaleTo(t.cols, t.rows);
-  });
+  // A hidden screen measures nothing; show() fits it on the way back.
+  window.addEventListener("resize", () => visible && fitScreen());
+}
+
+function fitScreen() {
+  const t = terminals.find((x) => x.id === selected);
+  if (t) scaleTo(t.cols, t.rows);
 }
 
 /* -- size --------------------------------------------------------------------
@@ -107,7 +152,7 @@ function setupTerminal() {
    whole terminal fits the window. New terminals open at whatever fits here
    at the normal font size. */
 
-function mount() {
+function attach() {
   const screen = el("term-screen");
   if (!screen.querySelector(".xterm")) {
     screen.innerHTML = "";
@@ -116,7 +161,7 @@ function mount() {
 }
 
 function naturalSize() {
-  mount();
+  attach();
   term.options.fontSize = FONT;
   const fits = fit.proposeDimensions() || {};
   return {
@@ -126,7 +171,7 @@ function naturalSize() {
 }
 
 function scaleTo(cols, rows) {
-  mount();
+  attach();
   let size = FONT + 2;
   term.options.fontSize = size;
   for (;;) {
@@ -200,7 +245,7 @@ function onFrame(frame) {
   if (frame.type === "terminal.opened" && data.terminal) {
     update(data.terminal);
     if (data.terminal.opened_by === "jarvis") {
-      Hud.toast(frame.message, "ok");
+      if (visible) Hud.toast(frame.message, "ok");
       flash(data.terminal.id);
     }
   } else if (frame.type === "terminal.exited" && data.terminal) {
@@ -214,12 +259,20 @@ function onFrame(frame) {
   } else if (frame.type === "terminal.failed" && data.terminal) {
     update(data.terminal);
     flash(data.terminal.id);
-    if (data.terminal.id !== selected) Hud.toast(frame.message, "bad");
+    if (visible && data.terminal.id !== selected) Hud.toast(frame.message, "bad");
   } else if (data.terminal) {
     update(data.terminal); // finished, updated
   }
-  // The log of what was typed lives on the server; re-read it.
-  refreshList();
+  // The log of what was typed lives on the server; re-read it — once for
+  // a burst (Jarvis typing is an event per keystroke batch), and not while
+  // another tab is showing (show() does).
+  if (visible) refreshSoon();
+}
+
+let listTimer = 0;
+
+function refreshSoon() {
+  if (!listTimer) listTimer = setTimeout(() => ((listTimer = 0), refreshList()), 150);
 }
 
 async function refreshList() {
@@ -342,14 +395,14 @@ async function refreshApprovals() {
 }
 
 function renderApprovals() {
-  const panel = el("approvals-panel");
-  const host = el("approvals");
+  const panel = el("term-approvals-panel");
+  const host = el("term-approvals");
   if (!approvals.length) {
     panel.style.display = "none";
     return;
   }
   panel.style.display = "";
-  el("approval-count").textContent = `${approvals.length}`;
+  el("term-approval-count").textContent = `${approvals.length}`;
   host.innerHTML = approvals
     .map(
       (a) => `
@@ -455,12 +508,12 @@ function setupControls() {
 let awaiting = null;
 const answers = new Map();
 
-Hud.onEvent((frame) => {
+function hearAnswer(frame) {
   if (frame.type !== "task.completed" && frame.type !== "task.failed") return;
   answers.set(frame.task_id, frame);
   if (answers.size > 20) answers.delete(answers.keys().next().value);
   if (frame.task_id === awaiting) answer();
-});
+}
 
 function waitFor(taskId) {
   awaiting = taskId || null;
