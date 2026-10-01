@@ -72,8 +72,10 @@ export async function toWav16k(blob) {
 }
 
 export class Voice {
-  constructor({ onTranscript, onStateChange, onAmplitude, onError, wav, browser, language, onNotice }) {
+  constructor({ onTranscript, onStateChange, onAmplitude, onError, wav, browser, language, onNotice, onInterim }) {
     this.onNotice = onNotice || (() => {});
+    this.onInterim = onInterim || (() => {});
+    this.checkAfterMs = 8000; // how long to listen before judging the microphone
     this.wav = Boolean(wav); // send WAV instead of the browser's webm
     this.browser = Boolean(browser); // let the browser do the recognising
     this.language = language || "en-GB";
@@ -159,15 +161,19 @@ export class Voice {
     const recognition = new Recognition();
     recognition.lang = this.language;
     recognition.continuous = true;
-    recognition.interimResults = false;
+    recognition.interimResults = true; // live captions, so you can see it hearing you
     recognition.onspeechstart = () => {
+      this.recognised = true;
       if (!this.speaking) this.onStateChange("hearing");
     };
     recognition.onresult = (event) => {
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const result = event.results[i];
+        this.recognised = true;
         // Ignore the room while Jarvis is talking, so it does not hear itself.
-        if (result.isFinal && !this.speaking) this.sendText(result[0].transcript);
+        if (this.speaking) continue;
+        if (result.isFinal) this.sendText(result[0].transcript);
+        else this.onInterim(result[0].transcript);
       }
     };
     recognition.onerror = (event) => {
@@ -209,6 +215,67 @@ export class Voice {
     }
     this.onStateChange("armed");
     this.onNotice("Listening — speak now.");
+    this.watchMicrophone();
+  }
+
+  /**
+   * Browser recognition never says what it is hearing, so open the microphone
+   * a second time just to read its level. That drives the core's pulse, and
+   * after a few seconds it tells you if the problem is the microphone (silent:
+   * wrong input device or muted) or the recogniser (sound but no words).
+   */
+  async watchMicrophone() {
+    this.recognised = false;
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (_) {
+      return; // recognition may still work; the level is only a diagnostic
+    }
+    if (!this.listening) {
+      stream.getTracks().forEach((track) => track.stop());
+      return;
+    }
+    this.stream = stream;
+    // Not awaited: a context that cannot resume (no user gesture yet) must not
+    // stop the check from judging the microphone.
+    const context = this.context || new (window.AudioContext || window.webkitAudioContext)();
+    this.context = context;
+    if (context.state === "suspended") context.resume().catch(() => {});
+    const analyser = context.createAnalyser();
+    analyser.fftSize = 1024;
+    context.createMediaStreamSource(stream).connect(analyser);
+    const buffer = new Float32Array(analyser.fftSize);
+    const startedAt = performance.now();
+    let loudest = 0;
+    let judged = false;
+    // A timer, not requestAnimationFrame: frames stop in a background tab,
+    // and a microphone that is listening should still be judged.
+    const timer = setInterval(() => {
+      if (!this.listening || this.stream !== stream) {
+        clearInterval(timer);
+        return;
+      }
+      analyser.getFloatTimeDomainData(buffer);
+      let peak = 0;
+      for (let i = 0; i < buffer.length; i++) peak = Math.max(peak, Math.abs(buffer[i]));
+      loudest = Math.max(loudest, peak);
+      if (!this.speaking) this.onAmplitude(Math.min(1, peak * 2.4));
+      if (!judged && performance.now() - startedAt > this.checkAfterMs) {
+        judged = true;
+        if (loudest < 0.01) {
+          this.onError(
+            "The microphone is open but silent. Check which input Chrome is using " +
+              "(padlock in the address bar, then Site settings, or the mic icon) and that it isn't muted."
+          );
+        } else if (!this.recognised) {
+          this.onError(
+            "I can hear sound, but the browser's speech recogniser returns no words. " +
+              "Use Chrome or Edge (not Brave or a built-in browser) and check you're online."
+          );
+        }
+      }
+    }, 60);
   }
 
   async sendText(text) {
