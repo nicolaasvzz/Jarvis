@@ -26,8 +26,54 @@ const MIN_SPEECH_MS = 260;        // shorter than this is a cough or a click
 const IDLE_CYCLE_MS = 7000;       // recycle the recorder during silence
 const MAX_UTTERANCE_MS = 15000;   // hard stop, so nothing records forever
 
+/**
+ * Re-encode a recording as 16 kHz mono 16-bit WAV, which is what Wispr Flow
+ * takes (the browser itself records webm/opus).
+ */
+export async function toWav16k(blob) {
+  const Ctx = window.AudioContext || window.webkitAudioContext;
+  const decoder = new Ctx();
+  let decoded;
+  try {
+    decoded = await decoder.decodeAudioData(await blob.arrayBuffer());
+  } finally {
+    decoder.close();
+  }
+  const rate = 16000;
+  const offline = new OfflineAudioContext(
+    1, Math.max(1, Math.ceil(decoded.duration * rate)), rate
+  );
+  const source = offline.createBufferSource();
+  source.buffer = decoded; // channels are mixed down to mono by the context
+  source.connect(offline.destination);
+  source.start();
+  const samples = (await offline.startRendering()).getChannelData(0);
+
+  const view = new DataView(new ArrayBuffer(44 + samples.length * 2));
+  const text = (at, value) =>
+    [...value].forEach((c, i) => view.setUint8(at + i, c.charCodeAt(0)));
+  text(0, "RIFF");
+  view.setUint32(4, 36 + samples.length * 2, true);
+  text(8, "WAVEfmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true); // PCM
+  view.setUint16(22, 1, true); // mono
+  view.setUint32(24, rate, true);
+  view.setUint32(28, rate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  text(36, "data");
+  view.setUint32(40, samples.length * 2, true);
+  samples.forEach((x, i) => {
+    const v = Math.max(-1, Math.min(1, x));
+    view.setInt16(44 + i * 2, v < 0 ? v * 0x8000 : v * 0x7fff, true);
+  });
+  return new Blob([view], { type: "audio/wav" });
+}
+
 export class Voice {
-  constructor({ onTranscript, onStateChange, onAmplitude, onError }) {
+  constructor({ onTranscript, onStateChange, onAmplitude, onError, wav }) {
+    this.wav = Boolean(wav); // send WAV instead of the browser's webm
     this.onTranscript = onTranscript || (() => {});
     this.onStateChange = onStateChange || (() => {});
     this.onAmplitude = onAmplitude || (() => {});
@@ -220,7 +266,8 @@ export class Voice {
     this.onStateChange("thinking");
     try {
       const form = new FormData();
-      form.append("audio", blob, "utterance.webm");
+      if (this.wav) form.append("audio", await toWav16k(blob), "utterance.wav");
+      else form.append("audio", blob, "utterance.webm");
       form.append("submit", "true");
       const response = await fetch(window.HudConnection.endpoint("listen"), {
         method: "POST",
@@ -253,9 +300,21 @@ export class Voice {
 
   /* -- speaking ---------------------------------------------------------- */
 
-  async say(text) {
-    if (!text || !text.trim()) return;
-    let blob;
+  /**
+   * Speak `text` sentence by sentence: every sentence is requested at once and
+   * played in order, so the first one starts as soon as it is ready instead of
+   * after the whole answer has been synthesised. Calls queue up rather than
+   * talking over each other.
+   */
+  say(text) {
+    if (!text || !text.trim()) return Promise.resolve();
+    this.speechQueue = (this.speechQueue || Promise.resolve()).then(() =>
+      this.speakNow(text)
+    );
+    return this.speechQueue;
+  }
+
+  async fetchClip(text) {
     try {
       const response = await fetch(window.HudConnection.endpoint("speak"), {
         method: "POST",
@@ -265,12 +324,33 @@ export class Voice {
         },
         body: JSON.stringify({ text }),
       });
-      if (!response.ok) return; // speech is a nicety; never interrupt for it
-      blob = await response.blob();
+      return response.ok ? await response.blob() : null;
     } catch (_) {
-      return;
+      return null; // speech is a nicety; never interrupt for it
     }
+  }
 
+  async speakNow(text) {
+    // The first sentence is requested alone so nothing slows it down; the
+    // rest follow as soon as it is back, well ahead of when they are needed.
+    const [first, ...rest] = splitSpeech(text);
+    const head = this.fetchClip(first);
+    const tail = head.then(() => rest.map((part) => this.fetchClip(part)));
+    this.speaking = true;
+    try {
+      for (let i = 0; i <= rest.length; i++) {
+        const blob = await (i === 0 ? head : (await tail)[i - 1]);
+        if (!blob) continue;
+        await this.playClip(blob);
+      }
+    } finally {
+      this.speaking = false;
+      this.onAmplitude(0);
+      this.onStateChange(this.listening ? "armed" : "off");
+    }
+  }
+
+  async playClip(blob) {
     const context = await this.ensureContext();
     const url = URL.createObjectURL(blob);
     const audio = new Audio(url);
@@ -283,12 +363,11 @@ export class Voice {
     source.connect(analyser);
     analyser.connect(context.destination);
     const buffer = new Float32Array(analyser.fftSize);
+    let playing = true;
 
-    this.speaking = true;
     this.onStateChange("speaking");
-
     const follow = () => {
-      if (!this.speaking) return;
+      if (!playing) return;
       analyser.getFloatTimeDomainData(buffer);
       let peak = 0;
       for (let i = 0; i < buffer.length; i++) {
@@ -299,26 +378,45 @@ export class Voice {
       requestAnimationFrame(follow);
     };
 
-    const finish = () => {
-      this.speaking = false;
-      this.onAmplitude(0);
-      this.onStateChange(this.listening ? "armed" : "off");
-      URL.revokeObjectURL(url);
-      try {
-        source.disconnect();
-        analyser.disconnect();
-      } catch (_) {
-        /* already torn down */
-      }
-    };
-
-    audio.addEventListener("ended", finish);
-    audio.addEventListener("error", finish);
+    await new Promise((resolve) => {
+      audio.addEventListener("ended", resolve);
+      audio.addEventListener("error", resolve);
+      audio.play().then(follow, resolve); // autoplay blocked: not fatal
+    });
+    playing = false;
+    URL.revokeObjectURL(url);
     try {
-      await audio.play();
-      follow();
+      source.disconnect();
+      analyser.disconnect();
     } catch (_) {
-      finish(); // autoplay blocked until the user interacts; not fatal
+      /* already torn down */
     }
   }
+}
+
+/**
+ * Cut text into sentence-sized pieces for speaking. Short sentences are merged
+ * into the next one so the voice is not asked for a clip of two words, and the
+ * total stays within what the server will speak (1500 characters).
+ */
+export function splitSpeech(text, minLength = 40) {
+  const sentences = text
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 1500)
+    .split(/(?<=[.!?…])\s+/);
+  const parts = [];
+  let carry = "";
+  for (const sentence of sentences) {
+    carry = carry ? `${carry} ${sentence}` : sentence;
+    if (carry.length >= minLength) {
+      parts.push(carry);
+      carry = "";
+    }
+  }
+  if (carry) {
+    if (parts.length) parts[parts.length - 1] += ` ${carry}`;
+    else parts.push(carry);
+  }
+  return parts;
 }

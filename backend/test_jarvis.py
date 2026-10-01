@@ -280,3 +280,116 @@ async def test_a_window_job_is_marked_done_by_its_done_file(
     assert job.status == "completed" and task.status == "completed"
     assert window.status == "idle"
     assert jarvis.hub.history[-2]["files"] == {"action": "write", "paths": ["jobs/demo/output.txt"]}
+
+
+def openai_web(seen: list[httpx.Request]) -> FakeWeb:
+    web = FakeWeb()
+    base = web.handler
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.openai.com":
+            seen.append(request)
+            if request.headers["authorization"] != "Bearer sk-good":
+                return httpx.Response(401, json={"error": {"message": "bad key"}})
+            return httpx.Response(200, content=b"ID3fake-mp3")
+        return base(request)
+
+    web.handler = handler  # type: ignore[method-assign]
+    return web
+
+
+@pytest.mark.asyncio
+async def test_openai_voice_speaks_through_the_speech_endpoint(tmp_path: Path) -> None:
+    seen: list[httpx.Request] = []
+    jarvis = make(tmp_path, openai_web(seen), voice_provider="openai", openai_api_key="sk-good")
+    jarvis.settings.voice = "en-GB-RyanNeural"  # not "off"
+    assert jarvis.can_speak
+    info = jarvis.voice_info()
+    assert (info["provider"], info["voice"]) == ("openai", "onyx")
+    audio = await jarvis.speak("Good evening, **sir**. See https://example.com")
+    assert audio == b"ID3fake-mp3"
+    body = json.loads(seen[0].content)
+    assert body["model"] == "gpt-4o-mini-tts" and body["voice"] == "onyx"
+    assert body["input"] == "Good evening, sir. See "  # markdown and links stripped
+    assert "British" in body["instructions"]
+    jarvis.settings.voice_style = "Whisper like a pirate."
+    await jarvis.speak("hi")
+    assert json.loads(seen[1].content)["instructions"] == "Whisper like a pirate."
+
+
+@pytest.mark.asyncio
+async def test_openai_voice_reports_a_bad_key_and_off_stays_silent(tmp_path: Path) -> None:
+    seen: list[httpx.Request] = []
+    jarvis = make(tmp_path, openai_web(seen), voice_provider="openai", openai_api_key="sk-bad")
+    jarvis.settings.voice = "en-GB-RyanNeural"
+    with pytest.raises(J.JarvisError, match="OPENAI_API_KEY"):
+        await jarvis.speak("hello")
+    jarvis.settings.voice = "off"
+    assert not jarvis.can_speak and jarvis.voice_info() == {"enabled": False}
+
+
+def test_openai_provider_without_a_key_falls_back_to_edge(tmp_path: Path) -> None:
+    jarvis = make(tmp_path, FakeWeb(), voice_provider="openai")
+    jarvis.settings.voice = "en-GB-RyanNeural"
+    assert jarvis.voice_provider in {"edge", ""}  # never "openai" without a key
+
+
+def wispr_web(seen: list[httpx.Request]) -> FakeWeb:
+    web = FakeWeb(reply({"text": "On it."}))
+    base = web.handler
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "platform-api.wisprflow.ai":
+            seen.append(request)
+            if request.headers["authorization"] != "Bearer wk-good":
+                return httpx.Response(401, json={})
+            return httpx.Response(200, json={"text": "Hey Jarvis, what time is it?"})
+        return base(request)
+
+    web.handler = handler  # type: ignore[method-assign]
+    return web
+
+
+WAV = b"RIFF\x24\x00\x00\x00WAVEfmt " + b"\x00" * 24
+
+
+@pytest.mark.asyncio
+async def test_wispr_listening_turns_a_recording_into_a_task(tmp_path: Path) -> None:
+    from fastapi.testclient import TestClient
+
+    seen: list[httpx.Request] = []
+    jarvis = make(tmp_path, wispr_web(seen), listen_provider="wispr", wispr_api_key="wk-good")
+    info = jarvis.voice_info()
+    assert info["enabled"] and info["can_listen"] and not info["can_speak"]
+    assert info["listen_provider"] == "wispr"
+    client = TestClient(J.create_app(jarvis))
+    auth = {"Authorization": "Bearer secret-token"}
+    reply_ = client.post("/dash/api/listen", headers=auth, data={"submit": "true"},
+                         files={"audio": ("u.wav", WAV, "audio/wav")})
+    assert reply_.status_code == 200
+    heard = reply_.json()
+    assert heard["text"] == "Hey Jarvis, what time is it?"
+    assert heard["command"] == "what time is it?"  # wake word stripped
+    body = json.loads(seen[0].content)
+    assert body["language"] == ["en"] and body["audio"]
+    bad = client.post("/dash/api/listen", headers=auth,
+                      files={"audio": ("u.webm", b"not a wav", "audio/webm")})
+    assert bad.status_code == 503 and "WAV" in bad.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_wispr_is_off_by_default_and_reports_a_bad_key(tmp_path: Path) -> None:
+    from fastapi.testclient import TestClient
+
+    seen: list[httpx.Request] = []
+    off = make(tmp_path, wispr_web(seen))
+    assert not off.can_listen and off.voice_info() == {"enabled": False}
+    r = TestClient(J.create_app(off)).post(
+        "/dash/api/listen", headers={"Authorization": "Bearer secret-token"},
+        files={"audio": ("u.wav", WAV, "audio/wav")})
+    assert r.status_code == 503 and "JARVIS_LISTEN_PROVIDER" in r.json()["detail"]
+    keyless = make(tmp_path, wispr_web(seen), listen_provider="wispr")
+    assert not keyless.can_listen  # chosen but no key: stays off
+    wrong = make(tmp_path, wispr_web(seen), listen_provider="wispr", wispr_api_key="nope")
+    with pytest.raises(J.JarvisError, match="WISPR_API_KEY"):
+        await wrong.transcribe(WAV)

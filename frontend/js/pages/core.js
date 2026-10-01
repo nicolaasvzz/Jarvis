@@ -418,6 +418,7 @@ function setupVoice(capability) {
   }
 
   voice = new Voice({
+    wav: capability.listen_provider === "wispr",
     onTranscript: (heard) => {
       if (!heard.text) return;
       if (!heard.addressed) {
