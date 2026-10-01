@@ -1,0 +1,58 @@
+{
+  "controls": [
+    {
+      "id": "c-example-rain",
+      "name": "Make it rain",
+      "group": "BeamNG.drive",
+      "project": "",
+      "kind": "idea",
+      "action": "",
+      "description": "Switch BeamNG.drive's weather to rain on the map I'm driving, without leaving the car.",
+      "trusted": false
+    },
+    {
+      "id": "c-example-night",
+      "name": "Night time",
+      "group": "BeamNG.drive",
+      "project": "",
+      "kind": "idea",
+      "action": "",
+      "description": "Set BeamNG.drive's time of day to night.",
+      "trusted": false
+    },
+    {
+      "id": "c-example-weather",
+      "name": "Change the weather",
+      "group": "Assetto Corsa",
+      "project": "",
+      "kind": "idea",
+      "action": "",
+      "description": "Change Assetto Corsa's weather (Content Manager / Custom Shaders Patch) for the next session.",
+      "trusted": false
+    },
+    {
+      "id": "c-example-news",
+      "name": "Morning briefing",
+      "group": "Jarvis",
+      "project": "",
+      "kind": "ask",
+      "action": "Give me the weather and the top three headlines, briefly.",
+      "description": "A quick start to the day.",
+      "trusted": false
+    }
+  ],
+  "projects": [
+    {
+      "id": "p-example",
+      "name": "Example project",
+      "description": "Point this at a real folder (Edit), give it a status file if it writes one, and add controls for what you run there.",
+      "folder": "",
+      "status_file": "",
+      "hue": 190,
+      "links": [],
+      "ideas": [
+        {"id": "i-example", "text": "Replace me with a real idea — then press the Claude button next to it.", "done": false, "by": "you", "created_at": "2026-10-01T00:00:00+00:00"}
+      ]
+    }
+  ]
+}

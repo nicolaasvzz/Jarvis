@@ -15,7 +15,7 @@ browser ──▶ frontend (dashboard) ──HTTP+token──▶ backend/jarvis.
 | Folder | What it is |
 |---|---|
 | [`backend/`](backend/) | **One file, `jarvis.py`**: talks to Gemini, runs the tools, serves the dashboard. Plus `persona.md` (who Jarvis is), `.env` (your key and settings) and `start.bat`. |
-| [`frontend/`](frontend/) | The dashboard: a reactive particle core, live terminals you share with Jarvis, and a phone page for approvals. Plain HTML/JS — reusable for other projects, see [frontend/API.md](frontend/API.md). |
+| [`frontend/`](frontend/) | The dashboard: a reactive particle core, a Mothership control centre (custom controls, projects, every request), live terminals you share with Jarvis, and a phone page for approvals. Plain HTML/JS — reusable for other projects, see [frontend/API.md](frontend/API.md). |
 
 ## Start it
 

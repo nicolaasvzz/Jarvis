@@ -6,6 +6,7 @@
 
 import asyncio
 import json
+import os
 import queue
 import threading
 from pathlib import Path
@@ -46,6 +47,8 @@ class FakeWeb:
 
 
 def make(tmp_path: Path, web: FakeWeb, **overrides: Any) -> J.Jarvis:
+    # Every path in tmp_path: a test must never touch the real backend/data.
+    overrides.setdefault("data_dir", tmp_path / "data")
     settings = J.Settings(gemini_api_key="k", api_token="secret-token",
                           workspace=tmp_path / "ws", frontend=tmp_path / "frontend",
                           persona_file=tmp_path / "persona.md", voice="off", **overrides)
@@ -265,6 +268,7 @@ class FakeShell:
     SLOW = 1.2  # seconds a "slow…" command takes
 
     def __init__(self, cwd: Path, cols: int, rows: int) -> None:
+        self.cwd = cwd
         self.output: queue.Queue[str | None] = queue.Queue()
         self.output.put("\x1b[c")
         self.answered = False
@@ -748,3 +752,182 @@ def test_whisper_without_the_package_stays_off(
     monkeypatch.setattr(J, "have_module", lambda name: False)
     jarvis = make(tmp_path, FakeWeb(), listen_provider="whisper")
     assert not jarvis.can_listen
+
+
+# -- the Mothership ---------------------------------------------------------------
+
+
+def empty_mothership(tmp_path: Path) -> None:
+    """Start a test from no controls or projects, not the examples."""
+    data = tmp_path / "data"
+    data.mkdir(exist_ok=True)
+    (data / "mothership.json").write_text('{"controls": [], "projects": []}', encoding="utf-8")
+
+
+async def until(check: Any, timeout: float = 5) -> None:
+    for _ in range(int(timeout * 50)):
+        if check():
+            return
+        await asyncio.sleep(0.02)
+    raise AssertionError("timed out waiting")
+
+
+@pytest.mark.asyncio
+async def test_a_fresh_install_starts_from_the_example_mothership(tmp_path: Path) -> None:
+    jarvis = make(tmp_path, FakeWeb())
+    names = [c["name"] for c in jarvis.mothership.controls]
+    assert "Make it rain" in names and jarvis.mothership.projects
+    assert "`Make it rain`" in jarvis.mothership_summary()
+
+
+@pytest.mark.asyncio
+async def test_controls_projects_and_ideas_over_the_api(tmp_path: Path) -> None:
+    empty_mothership(tmp_path)
+    folder = tmp_path / "bot"
+    folder.mkdir()
+    (folder / "live_state.json").write_text('{"cash": 100.5, "halted": false}', encoding="utf-8")
+    jarvis = make(tmp_path, FakeWeb())
+    shells = with_fake_shells(jarvis)
+    auth = {"Authorization": "Bearer secret-token"}
+    ms = "/dash/api/mothership"
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=J.create_app(jarvis)),
+                                 base_url="http://jarvis") as client:
+        assert (await client.get(ms)).status_code == 401
+        project = (await client.post(f"{ms}/projects", headers=auth, json={
+            "name": "TradeBot", "folder": str(folder), "status_file": "live_state.json"})).json()
+        relative = await client.post(f"{ms}/projects", headers=auth,
+                                     json={"name": "x", "folder": "not/absolute"})
+        assert relative.status_code == 422
+        status = (await client.get(f"{ms}/projects/{project['id']}/status", headers=auth)).json()
+        assert status["data"] == {"cash": 100.5, "halted": False}
+
+        control = (await client.post(f"{ms}/controls", headers=auth, json={
+            "name": "One cycle", "kind": "command", "action": "run-once",
+            "project": project["id"]})).json()
+        bad_link = await client.post(f"{ms}/controls", headers=auth, json={
+            "name": "Sneaky", "kind": "link", "action": "javascript:alert(1)"})
+        assert bad_link.status_code == 422
+
+        # Pressing the button yourself runs it straight away, in the project's folder.
+        ran = (await client.post(f"{ms}/controls/{control['id']}/run", headers=auth)).json()
+        terminal = jarvis.terminals[ran["terminal"]]
+        assert shells[0].cwd == folder and shells[0].written == ["run-once\r"]
+        assert (terminal.control, terminal.project) == (control["id"], project["id"])
+        await until(lambda: terminal.last_result is not None)
+        again = await client.post(f"{ms}/controls/{control['id']}/run", headers=auth)
+        assert again.status_code == 200 and shells[0].written[-1] == "run-once\r"  # reused
+        stopped = await client.post(f"{ms}/controls/{control['id']}/stop", headers=auth)
+        assert stopped.status_code == 200 and shells[0].written[-1] == "\x03"
+
+        idea = (await client.post(f"{ms}/projects/{project['id']}/ideas", headers=auth,
+                                  json={"text": "Trailing stops"})).json()
+        await client.post(f"{ms}/projects/{project['id']}/ideas/{idea['id']}", headers=auth,
+                          json={"done": True})
+        assert jarvis.mothership.project(project["id"])["ideas"][0]["done"] is True
+        await client.post(f"{ms}/projects/{project['id']}/ideas/{idea['id']}/delete",
+                          headers=auth)
+        assert jarvis.mothership.project(project["id"])["ideas"] == []
+
+        everything = (await client.get(ms, headers=auth)).json()
+        assert [c["name"] for c in everything["controls"]] == ["One cycle"]
+        await client.post(f"{ms}/projects/{project['id']}/delete", headers=auth)
+        assert jarvis.mothership.controls[0]["project"] == ""  # kept, unfiled
+        missing = await client.post(f"{ms}/controls/c-nope/run", headers=auth)
+        assert missing.status_code == 404
+    saved = json.loads((tmp_path / "data" / "mothership.json").read_text(encoding="utf-8"))
+    assert saved["controls"][0]["name"] == "One cycle"
+    jarvis.close_all_terminals()
+
+
+@pytest.mark.asyncio
+async def test_jarvis_runs_a_control_by_voice_asking_first_unless_trusted(
+        tmp_path: Path) -> None:
+    empty_mothership(tmp_path)
+    press = {"functionCall": {"name": "run_control", "args": {"control": "rain"}}}
+    web = FakeWeb(reply(press), reply({"text": "I'll leave the sky alone."}),
+                  reply(press), reply({"text": "It's raining."}))
+    jarvis = make(tmp_path, web)
+    shells = with_fake_shells(jarvis)
+    jarvis.save_control({"name": "Make it rain", "group": "BeamNG.drive", "kind": "command",
+                         "action": "weather rain", "trusted": False})
+    task = jarvis.submit("make it rain")
+    await until(lambda: bool(jarvis.approvals))
+    (approval,) = jarvis.approvals.values()
+    assert approval.arguments == {"control": "Make it rain", "command": "weather rain"}
+    jarvis.decide(approval.id, "deny")
+    await finished(jarvis, task)
+    assert shells == []  # nothing ran
+
+    jarvis.mothership.controls[0]["trusted"] = True
+    await finished(jarvis, jarvis.submit("make it rain"))
+    assert not jarvis.approvals and shells[0].written == ["weather rain\r"]
+    result = tool_result(web, 3)
+    assert result["control"] == "Make it rain" and "ran: weather rain" in result["screen"]
+    jarvis.close_all_terminals()
+
+
+@pytest.mark.asyncio
+async def test_an_unbuilt_control_says_so_and_ideas_can_be_noted(tmp_path: Path) -> None:
+    empty_mothership(tmp_path)
+    web = FakeWeb(
+        reply({"functionCall": {"name": "run_control", "args": {"control": "night"}}}),
+        reply({"text": "That one isn't built yet."}),
+        reply({"functionCall": {"name": "add_idea", "args": {
+            "project": "velocity", "idea": "A pit-wall menu"}}}),
+        reply({"text": "Noted."}))
+    (tmp_path / "persona.md").write_text("Mothership:\n{{mothership}}", encoding="utf-8")
+    jarvis = make(tmp_path, web)
+    jarvis.save_control({"name": "Night time", "kind": "idea", "description": "Set it to night"})
+    jarvis.save_project({"name": "VelocityRacing"})
+    await finished(jarvis, jarvis.submit("make it night"))
+    assert "Build with Claude" in tool_result(web, 1)["error"]
+    await finished(jarvis, jarvis.submit("note an idea for velocity"))
+    (idea,) = jarvis.mothership.projects[0]["ideas"]
+    assert (idea["text"], idea["by"]) == ("A pit-wall menu", "jarvis")
+    persona = web.gemini_bodies[0]["systemInstruction"]["parts"][0]["text"]
+    assert "Night time" in persona and "VelocityRacing" in persona
+
+
+@pytest.mark.asyncio
+async def test_build_with_claude_opens_claude_code_with_a_brief(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    empty_mothership(tmp_path)
+    monkeypatch.setattr(J.shutil, "which", lambda name: f"C:/bin/{name}.exe")
+    jarvis = make(tmp_path, FakeWeb())
+    shells = with_fake_shells(jarvis)
+    control = jarvis.save_control({"name": "Make it rain", "group": "BeamNG.drive",
+                                   "kind": "idea", "description": "Rain on the current map"})
+    terminal = await jarvis.build_control(control["id"])
+    assert terminal.title == "Claude: Make it rain"
+    assert shells[0].cwd == tmp_path / "data" / "builds" / "make-it-rain"
+    (typed,) = shells[0].written
+    assert typed.startswith('claude "Read the brief in ') and typed.endswith('"\r')
+    (brief,) = (tmp_path / "data" / "briefs").iterdir()
+    text = brief.read_text(encoding="utf-8")
+    assert "Rain on the current map" in text and control["id"] in text
+    assert str(jarvis.mothership.path) in text  # Claude knows where to switch it on
+    jarvis.close_all_terminals()
+
+
+@pytest.mark.asyncio
+async def test_a_hand_edit_to_the_mothership_file_shows_up(tmp_path: Path) -> None:
+    empty_mothership(tmp_path)
+    jarvis = make(tmp_path, FakeWeb())
+    assert jarvis.mothership.controls == []
+    path = tmp_path / "data" / "mothership.json"
+    path.write_text(json.dumps({"controls": [{"id": "c-1", "name": "Built by Claude",
+                                              "kind": "command", "action": "rain.ps1"}],
+                                "projects": []}), encoding="utf-8")
+    later = path.stat().st_mtime + 5
+    os.utime(path, (later, later))
+    assert jarvis.mothership.control("built")["action"] == "rain.ps1"
+
+
+@pytest.mark.asyncio
+async def test_requests_survive_a_restart(tmp_path: Path) -> None:
+    jarvis = make(tmp_path, FakeWeb(reply({"text": "Noted, sir."})))
+    task = await finished(jarvis, jarvis.submit("remember this"))
+    again = make(tmp_path, FakeWeb())
+    restored = again.tasks[task.id]
+    assert (restored.request, restored.result, restored.kind) == (
+        "remember this", "Noted, sir.", "asked")

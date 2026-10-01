@@ -26,6 +26,8 @@ htmlcov/
 **/config/config.yaml
 # Your own start-up terminals; terminals.example.json is the template.
 backend/terminals.json
+# Your Mothership controls and projects, request history, and Claude briefs.
+backend/data/
 
 # Logs
 *.log

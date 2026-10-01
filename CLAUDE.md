@@ -81,6 +81,14 @@ python -m mypy --strict --ignore-missing-imports jarvis.py
   That is how a command's finish and failure are known (`Terminal._finished`)
   — long ones get a spoken notice, failed ones light up Explain. A command
   "starts" only when Enter is pressed on a line beginning with the prompt.
+- `backend/data/` (gitignored) is the user's own: `mothership.json`
+  (controls and projects), `history.json` (finished requests), `briefs/`.
+  `Mothership` re-reads `mothership.json` whenever its mtime changes — Claude
+  finishing a control edits that file directly, so keep that working. Tests
+  must pass `data_dir` inside `tmp_path` (`make()` in the tests does) and
+  never touch the real folder.
+- A control the user presses runs without approval (they chose it); the
+  same control pressed by Jarvis (`run_control`) asks unless `trusted`.
 - Tests never start a real shell: `Jarvis.spawn_shell` is swapped for
   `FakeShell` in `test_jarvis.py`.
 

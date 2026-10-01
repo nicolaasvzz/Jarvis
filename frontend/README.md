@@ -11,6 +11,7 @@ other projects too.
 | Page | What it shows |
 |---|---|
 | `index.html` — **Core** | A particle sphere that reacts to what the agent is doing (cyan idle, amber thinking, pulsing while it speaks, red on failure), machine vitals, running tasks, live activity, approval buttons, a command bar, and voice |
+| `mothership.html` — **Mothership** | The control centre, laid out like an admin dashboard: KPIs, a week of requests, recent activity, and every request as a clickable stack (the answer and each step in a side drawer). **Controls** are buttons you make for anything — the assistant can press them too — and an unbuilt one has **Build with Claude**. **Projects** get a page each: a live view of their status file, their controls, an ideas board and their terminals |
 | `terminal.html` — **Terminal** | Live terminals on the backend's machine, shared with the assistant: you both see them and type in them. Its approval requests show here too, a failed command lights up **Explain**, and a terminal can be trusted so the assistant types there without asking |
 | `approve.html` — **Approvals** | Built for a phone: Allow/Deny what the assistant wants to run, with the exact command, and what happened recently |
 
@@ -107,16 +108,18 @@ running, the server address is wrong, or the page's address isn't in
 
 ```
 frontend/
-├── index.html  terminal.html  approve.html
+├── index.html  mothership.html  terminal.html  approve.html
 ├── config.js              project settings: server, name, routes
 ├── API.md                 the backend routes these pages use
 ├── start.bat  serve.py    serve the folder (Windows / any OS with Python)
-├── css/                   hud.css (theme + layout), terminal.css, approve.css
+├── css/                   hud.css (theme + layout), mothership.css, terminal.css, approve.css
 └── js/
     ├── lib/
     │   ├── connection.js  settings, server, token, routes, branding (every page loads it first)
     │   └── hud.js         fetch + auth, the live event stream, connect screen, helpers
     ├── pages/             core.js, terminal.js, approve.js — one per page
+    ├── mothership/        app.js (routing, live updates), state.js, overview.js,
+    │                      requests.js, controls.js, projects.js, status.js, ui.js
     └── components/        core-visual.js (the sphere),
                            voice.js (wake-word listening, speech playback)
 ```

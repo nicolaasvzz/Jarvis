@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en" data-page="Mothership">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>JARVIS — Mothership</title>
+  <link rel="stylesheet" href="css/hud.css">
+  <link rel="stylesheet" href="css/mothership.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='11' fill='none' stroke='%2322d3ee' stroke-width='3'/><circle cx='16' cy='16' r='4' fill='%2322d3ee'/></svg>">
+</head>
+<body class="ms">
+
+<aside class="ms-side" id="ms-side">
+  <a class="ms-brand" href="#/overview">
+    <span class="ms-logo">J</span>
+    <span><b data-app-name>JARVIS</b> <small>mothership</small></span>
+  </a>
+
+  <nav class="ms-nav" id="ms-nav">
+    <div class="ms-nav-label">General</div>
+    <a href="#/overview" data-view="overview"><svg class="ic" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>Overview</a>
+    <a href="#/requests" data-view="requests"><svg class="ic" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10"/></svg>Requests<span class="ms-badge" id="nav-running" hidden></span></a>
+    <a href="#/approvals" data-view="approvals"><svg class="ic" viewBox="0 0 24 24"><path d="m5 12 4.5 4.5L19 7"/></svg>Approvals<span class="ms-badge hot" id="nav-approvals" hidden></span></a>
+
+    <div class="ms-nav-label">Workspace</div>
+    <a href="#/controls" data-view="controls"><svg class="ic" viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>Controls<span class="ms-badge" id="nav-controls" hidden></span></a>
+
+    <div class="ms-nav-label">Projects <button class="ms-nav-add" id="nav-new-project" title="New project">+</button></div>
+    <div id="ms-projects-nav"></div>
+
+    <div class="ms-nav-label">Elsewhere</div>
+    <a href="terminal.html"><svg class="ic" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3M13 15h4"/></svg>Terminals<span class="ms-badge" id="nav-terminals" hidden></span></a>
+    <a href="index.html"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/></svg>Core &amp; voice</a>
+    <a href="approve.html"><svg class="ic" viewBox="0 0 24 24"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/></svg>Phone page</a>
+  </nav>
+
+  <div class="ms-side-foot">
+    <span class="ms-avatar">J</span>
+    <span class="ms-who"><b id="ms-model">Jarvis</b><small data-connection><span class="dot"></span>Connecting</small></span>
+  </div>
+</aside>
+
+<div class="ms-main">
+  <header class="ms-top">
+    <button class="ms-burger" id="ms-burger" title="Menu"><svg class="ic" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+    <div class="ms-crumb" id="ms-crumb">Overview</div>
+    <label class="ms-ask">
+      <svg class="ic" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6"/><path d="m20 20-4.5-4.5"/></svg>
+      <input id="ms-ask" type="text" autocomplete="off" spellcheck="false"
+             placeholder="Ask Jarvis anything, or press a control…">
+      <kbd>/</kbd>
+    </label>
+    <a class="ms-bell" id="ms-bell" href="#/approvals" title="Approvals waiting">
+      <svg class="ic" viewBox="0 0 24 24"><path d="M6 16V11a6 6 0 0 1 12 0v5l2 2H4z"/><path d="M10 20a2 2 0 0 0 4 0"/></svg>
+      <span class="ms-bell-count" id="ms-bell-count" hidden></span>
+    </a>
+  </header>
+
+  <div class="ms-waiting" id="ms-waiting" hidden></div>
+  <main class="ms-view" id="ms-view"></main>
+</div>
+
+<div class="ms-shade" id="ms-shade" hidden></div>
+<aside class="ms-drawer" id="ms-drawer" hidden aria-live="polite">
+  <header>
+    <div>
+      <div class="ms-drawer-kicker" id="ms-drawer-kicker"></div>
+      <h2 id="ms-drawer-title"></h2>
+    </div>
+    <button class="ms-x" id="ms-drawer-close" title="Close">×</button>
+  </header>
+  <div class="ms-drawer-body" id="ms-drawer-body"></div>
+</aside>
+
+<div class="ms-modal" id="ms-modal" hidden>
+  <form class="ms-modal-card" id="ms-modal-form" novalidate>
+    <header><h2 id="ms-modal-title"></h2><button type="button" class="ms-x" id="ms-modal-close">×</button></header>
+    <div class="ms-modal-body" id="ms-modal-body"></div>
+    <div class="ms-modal-err" id="ms-modal-err"></div>
+    <footer id="ms-modal-foot"></footer>
+  </form>
+</div>
+
+<div id="toasts"></div>
+
+<div id="gate" style="display:none">
+  <div class="card">
+    <h1 data-app-name>JARVIS</h1>
+    <p data-token-hint>Connect to Jarvis. The token is <code>JARVIS_API_TOKEN</code> in
+       <code>backend/.env</code> — <code>jarvis.py</code> makes one on its first run.</p>
+    <input name="server" type="url" placeholder="Server — blank means this site" autocomplete="off">
+    <input name="token" type="password" placeholder="API token" autocomplete="off">
+    <button>Connect</button>
+    <div class="err"></div>
+  </div>
+</div>
+
+<script src="config.js"></script>
+<script src="js/lib/connection.js"></script>
+<script type="module" src="js/mothership/app.js"></script>
+</body>
+</html>

@@ -223,7 +223,8 @@ function renderTasks() {
       const done = (task.steps || []).filter((s) => s.status === "completed").length;
       const total = (task.steps || []).length;
       return `
-        <div class="task ${Hud.escape(task.status)}">
+        <div class="task ${Hud.escape(task.status)}" data-task="${Hud.escape(task.id)}"
+             title="Show the answer">
           <div class="req">${Hud.escape(task.request)}</div>
           <div class="sub">${Hud.escape(task.status)}${
             total ? ` · ${done}/${total} steps` : ""
@@ -232,6 +233,17 @@ function renderTasks() {
         </div>`;
     })
     .join("");
+  // Click a request to read its answer again; the Mothership has the rest.
+  host.querySelectorAll("[data-task]").forEach((node) =>
+    node.addEventListener("click", () => {
+      const task = state.tasks.find((t) => t.id === node.dataset.task);
+      if (!task) return;
+      const answer = task.status === "failed" ? task.error : task.result;
+      paintReply(task.request, answer || "Still working on it…", task.status === "failed");
+      el("reply-a").insertAdjacentHTML("beforeend",
+        '<p><a href="mothership.html#/requests">Every step of it, in the Mothership →</a></p>');
+    })
+  );
 }
 
 function renderApprovals() {
