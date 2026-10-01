@@ -72,7 +72,8 @@ export async function toWav16k(blob) {
 }
 
 export class Voice {
-  constructor({ onTranscript, onStateChange, onAmplitude, onError, wav, browser, language }) {
+  constructor({ onTranscript, onStateChange, onAmplitude, onError, wav, browser, language, onNotice }) {
+    this.onNotice = onNotice || (() => {});
     this.wav = Boolean(wav); // send WAV instead of the browser's webm
     this.browser = Boolean(browser); // let the browser do the recognising
     this.language = language || "en-GB";
@@ -177,6 +178,15 @@ export class Voice {
       } else if (event.error === "network") {
         this.stopListening();
         this.onError("Speech recognition needs an internet connection in this browser.");
+      } else {
+        // audio-capture (no microphone), language-not-supported, ... —
+        // never fail silently, and do not restart in a loop.
+        this.stopListening();
+        this.onError(
+          event.error === "audio-capture"
+            ? "No microphone was found. Plug one in or pick it in the browser's site settings."
+            : `Speech recognition stopped: ${event.error}`
+        );
       }
     };
     recognition.onend = () => {
@@ -198,6 +208,7 @@ export class Voice {
       return;
     }
     this.onStateChange("armed");
+    this.onNotice("Listening — speak now.");
   }
 
   async sendText(text) {

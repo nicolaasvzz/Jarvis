@@ -443,6 +443,7 @@ function setupVoice(capability) {
     },
     onAmplitude: (value) => core && core.setAmplitude(value),
     onError: (message) => Hud.toast(message, "bad"),
+    onNotice: (message) => Hud.toast(message, "ok"),
   });
 
   if (!capability.can_listen) {
