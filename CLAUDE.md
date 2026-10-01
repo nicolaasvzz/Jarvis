@@ -61,3 +61,10 @@ python -m mypy --strict --ignore-missing-imports jarvis.py
   not by the process exiting.
 - `.ps1` files are written with a UTF-8 BOM so Windows PowerShell 5.1 reads
   non-ASCII correctly.
+
+## Pull requests
+
+- The GitHub repo is literally named `nicolaasvzz/Jarvis.` (trailing dot) and its
+  default branch is `claude/jarvis-ai-assistant-9hhbcu`, not `main`.
+- On Windows `gh` may not be on PATH in a fresh shell; it installs to
+  `C:\Program Files\GitHub CLI\gh.exe` (PowerShell: `& "C:\Program Files\GitHub CLI\gh.exe" ...`).
