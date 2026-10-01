@@ -8,8 +8,8 @@ Two halves that only talk over HTTP:
 
 - **`backend/jarvis.py`** — the whole backend in one file: a Gemini tool loop
   (`GEMINI_MODEL`, `gemini-3.5-flash-lite` by default), a handful of tools
-  (weather, news, web search/read, terminal commands, job status, workspace
-  file reads), and the FastAPI routes the dashboard uses. `persona.md` is the
+  (weather, news, web search/read, terminal commands, live dashboard
+  terminals, workspace file reads), and the FastAPI routes the dashboard uses. `persona.md` is the
   system prompt; `.env` holds settings and secrets.
 - **`frontend/`** — static HTML/JS/CSS dashboard, no build step, reusable by
   other projects. [`frontend/API.md`](frontend/API.md) is the contract between
@@ -18,7 +18,8 @@ Two halves that only talk over HTTP:
 The old multi-module system (planner, agent pool, Telegram, local models) was
 deliberately removed; it lives under the git tag `full-agent-v1`. Don't
 reintroduce it piecemeal — and the user asked for no Ollama/local-model
-worker, only terminal commands.
+worker, only terminal commands. The Files and Agent Office pages were removed
+too, at the user's request: Jarvis works through terminals, not files.
 
 ## Commands
 
@@ -33,10 +34,11 @@ python -m mypy --strict --ignore-missing-imports jarvis.py
 
 ## Invariants
 
-1. **Terminal commands need approval.** `run_command` calls `_approve`, which
-   waits for Allow/Deny from the dashboard unless `AUTO_APPROVE=true`. Any new
-   tool that changes the machine must be `risky=True` and go through
-   `_approve` too.
+1. **Terminal commands need approval.** `run_command`, `terminal_open` (with
+   a command) and `terminal_write` call `_approve`, which waits for Allow/Deny
+   from the dashboard unless `AUTO_APPROVE=true`. Any new tool that changes
+   the machine must be `risky=True` and go through `_approve` too. What the
+   user types into a terminal on the dashboard is never gated.
 2. **Tools return dicts, never raise out.** `_call_tool` turns exceptions into
    `{"error": ...}` so Gemini can react; a failed tool must not end the task.
 3. **Gemini's model turns go back verbatim.** Gemini 3 requires the
@@ -56,8 +58,19 @@ python -m mypy --strict --ignore-missing-imports jarvis.py
 
 - Google Search grounding is **not** on Gemini's free tier — hence the
   key-free weather/news/search tools instead.
-- Long commands (`new_window=true`) run `workspace/jobs/<name>/job.ps1` in a new
-  PowerShell window with `-NoExit`; completion is detected by a `.done` file,
-  not by the process exiting.
-- `.ps1` files are written with a UTF-8 BOM so Windows PowerShell 5.1 reads
-  non-ASCII correctly.
+- Dashboard terminals (`Terminal`) are real shells in a pseudo-terminal:
+  `pywinpty` (ConPTY) on Windows, `ptyprocess` elsewhere. A reader thread
+  pumps output into the event loop with `call_soon_threadsafe`, onto a
+  `pyte` virtual screen: Jarvis reads it as plain text, and a browser opening
+  the tab is painted from it (`Terminal.redraw`).
+- A terminal's size is fixed when it opens; the page scales its font to fit.
+  Don't add resizing: pyte doesn't reflow, so shrinking cuts lines, and
+  ConPTY's absolute cursor moves make raw output from one width garble at
+  another.
+- The user's typed commands are logged from the screen on Enter, after
+  waiting for the echo (`Terminal.keys`). Keys reach the shell before it
+  draws them.
+- Press Enter in a PTY with `\r`, not `\r\n`: PowerShell reads the `\n` as
+  a second line and shows a `>>` continuation prompt.
+- Tests never start a real shell: `Jarvis.spawn_shell` is swapped for
+  `FakeShell` in `test_jarvis.py`.

@@ -1,0 +1,204 @@
+/*
+ * The Terminal page: a list of live shells on the left, the selected one
+ * filling the rest. The terminal itself is xterm.js; this only frames it.
+ */
+
+.term-page { grid-template-rows: auto 1fr; }
+
+.term-main {
+  grid-column: 2 / 4;
+  grid-row: 2;
+  padding: 12px 14px 12px;
+  gap: 10px;
+}
+
+/* -- header of the selected terminal ---------------------------------------- */
+
+.term-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+
+.term-title {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  font-family: var(--mono);
+  font-size: 13px;
+  letter-spacing: 0.06em;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.term-id {
+  margin-left: 8px;
+  font-size: 10px;
+  color: var(--text-faint);
+  letter-spacing: 0.12em;
+}
+
+.term-purpose {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.term-close,
+.term-new {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  background: transparent;
+  border: 1px solid var(--line-soft);
+  border-radius: 6px;
+  padding: 6px 12px;
+  cursor: pointer;
+  transition: color 0.18s, border-color 0.18s, background 0.18s;
+}
+
+.term-close:hover { color: var(--red); border-color: rgba(244, 63, 94, 0.5); }
+.term-new { margin-top: 10px; }
+.term-new:hover { color: var(--accent); border-color: var(--line); background: var(--accent-faint); }
+
+/* -- the screen -------------------------------------------------------------- */
+
+.term-screen {
+  flex: 1;
+  min-height: 0;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  background: #02060a;
+  padding: 8px 4px 4px 10px;
+  overflow: hidden;
+}
+
+.term-screen .xterm { height: 100%; }
+.term-screen .xterm-viewport { background: transparent !important; }
+
+.term-screen .term-empty {
+  height: 100%;
+  display: grid;
+  place-items: center;
+  color: var(--text-faint);
+  font-style: italic;
+  font-size: 13px;
+}
+
+.term-ask input {
+  width: 100%;
+  background: rgba(3, 10, 15, 0.8);
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  padding: 9px 12px;
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 13px;
+  outline: none;
+}
+
+.term-ask input:focus { border-color: var(--line); box-shadow: 0 0 0 3px var(--accent-faint); }
+.term-ask input::placeholder { color: var(--text-faint); }
+
+.term-reply {
+  position: relative;
+  max-height: 28%;
+  overflow-y: auto;
+  border-left: 2px solid var(--accent);
+  padding: 4px 30px 4px 12px;
+}
+
+.term-reply[hidden] { display: none; }
+.term-reply .reply-close { position: absolute; top: 0; right: 0; }
+.term-reply-q { font-size: 11px; color: var(--text-faint); margin-bottom: 3px; }
+.term-reply-a { font-size: 13px; color: var(--text); white-space: pre-wrap; }
+.term-reply-a.thinking { color: var(--amber); font-style: italic; }
+.term-reply-a.bad { color: var(--red); }
+
+/* -- the list ---------------------------------------------------------------- */
+
+.term-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin-bottom: 4px;
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+  transition: background 0.18s, border-color 0.18s;
+}
+
+.term-item:hover { background: var(--accent-faint); }
+.term-item.active { border-color: var(--line); background: var(--accent-faint); }
+.term-item.flash { animation: flash 1.2s ease 2; }
+
+@keyframes flash {
+  50% { border-color: var(--amber); box-shadow: 0 0 12px rgba(251, 191, 36, 0.35); }
+}
+
+.term-item .top {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 12.5px;
+}
+
+.term-item .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.term-item .who {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  padding-left: 8px;
+  white-space: nowrap;
+}
+
+.term-item .who.jarvis { color: var(--accent); }
+
+.term-item .sub {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-top: 3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* -- typed-here log ---------------------------------------------------------- */
+
+.term-history { max-height: 34%; }
+
+.term-line {
+  display: grid;
+  grid-template-columns: 52px 1fr;
+  gap: 8px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  padding: 3px 0;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.term-line:last-child { border-bottom: none; }
+.term-line .by { color: var(--text-faint); text-transform: uppercase; font-size: 9.5px; letter-spacing: 0.12em; padding-top: 2px; }
+.term-line.jarvis .by { color: var(--accent); }
+.term-line .what { color: var(--text); word-break: break-all; }
+
+@media (max-width: 900px) {
+  .hud.term-page { grid-template-columns: 1fr; grid-template-rows: auto auto 1fr; overflow-y: auto; }
+  .term-page .col-left { grid-column: 1; grid-row: 2; max-height: 40vh; }
+  .term-main { grid-column: 1; grid-row: 3; min-height: 60vh; }
+}

@@ -8,8 +8,7 @@ paths are defaults — rename any of them under `routes` in `config.js`.
 | Page | Routes it uses |
 |---|---|
 | `index.html` (Core) | `snapshot`, `stream`, `stats`, `command`, `approval`, optionally `listen`, `speak`, `docs` |
-| `files.html` | `snapshot`, `stream`, `tree` |
-| `office.html` | `snapshot`, `stream` |
+| `terminal.html` | `snapshot`, `stream`, `terminals`, `terminalStream`, `terminalInput`, `terminalClose`, `approvals`, `approval`, `command` |
 | `hud.html` | `system`, `tasks`, `notifications`, `approvals`, `approval`, `events` |
 
 The smallest useful backend is `snapshot` + `stream` + `command`: that gives
@@ -39,15 +38,10 @@ reconnecting.
 ```json
 {
   "workspace": "C:/Users/me/JarvisWorkspace",
-  "rooms":     [{"id": "archives", "name": "Archives", "subtitle": "files", "hue": 190, "desks": 4}],
-  "agents":    [{"id": "a1", "name": "Ada", "hue": 180, "sprite": 0, "index": 0,
-                 "status": "working", "task_id": "t1", "step_id": "s1", "tool": "read_file",
-                 "description": "Read notes.txt", "arguments": {"path": "notes.txt"},
-                 "since": "2026-09-30T12:00:00+00:00"}],
   "tasks":     [Task, ...],
   "approvals": [Approval, ...],
+  "terminals": [Terminal, ...],
   "events":    [Frame, ...],
-  "touched":   [{"path": "notes.txt", "action": "read", "at": "...", "agent_id": "a1"}],
   "voice":     {"enabled": false},
   "settings":  {"particles": 900, "accent": "#22d3ee", "stats_interval": 2.0}
 }
@@ -58,7 +52,8 @@ reconnecting.
 - **Approval** — `{id, task_id, tool, arguments, reason, created_at}`.
 - **voice** — `{"enabled": false}` hides the microphone. With speech:
   `{enabled, can_speak, can_listen, voice, wake_word, wake_word_required, ...}`.
-- `rooms` / `agents` only matter to the Office page; send `[]` otherwise.
+- **Terminal** — see [Terminal routes](#terminal-routes); send `[]` if you
+  have none.
 
 ### `stream` — `GET /dash/api/stream?token=…`
 
@@ -73,11 +68,8 @@ comment line (`: keepalive`) every ~15 s so dead connections are noticed.
   "task_id": "t1",
   "created_at": "2026-09-30T12:00:05+00:00",
   "data": {},
-  "tool": "read_file",
-  "agent_id": "a1",
-  "room": "archives",
-  "speak": false,
-  "files": {"action": "read", "paths": ["notes.txt"]}
+  "tool": "get_weather",
+  "speak": false
 }
 ```
 
@@ -85,23 +77,11 @@ Only `type` and `message` are required. The types the pages react to:
 `task.created`, `task.planning`, `task.started`, `task.progress`,
 `task.completed`, `task.failed`, `task.cancelled`, `step.started`,
 `step.completed`, `step.failed`, `step.retrying`, `approval.required`,
-`approval.resolved`, `error`, `agent.assigned`, `agent.idle`, `heard`.
-`files.action` is `read`, `write` or `delete`; `speak: true` asks the Core
-page to read `message` aloud.
-
-### `tree` — `GET /dash/api/tree?depth=3&limit=260`
-
-The workspace for the Files page.
-
-```json
-{
-  "root": "C:/Users/me/JarvisWorkspace",
-  "nodes": [{"id": ".", "name": "workspace", "path": ".", "type": "dir", "size": null, "parent": null, "depth": 0},
-            {"id": "notes.txt", "name": "notes.txt", "path": "notes.txt", "type": "file", "size": 120, "parent": ".", "depth": 1}],
-  "links": [{"source": ".", "target": "notes.txt"}],
-  "truncated": false, "depth": 3, "limit": 260
-}
-```
+`approval.resolved`, `error`, `heard`, and for the Terminal page
+`terminal.opened`, `terminal.exited`, `terminal.closed` (`data` carries the
+`terminal`, or its `terminal_id`) and `terminal.input` (the assistant typed
+into `data.terminal_id`). `speak: true` asks the Core page to read `message`
+aloud.
 
 ### `stats` — `GET /dash/api/stats`
 
@@ -145,6 +125,48 @@ Allow or deny a pending action. Request `{"decision": "allow"}` or
 ### `docs` — `GET /docs`
 
 Only linked to ("API Reference" on the Core page); point it anywhere.
+
+## Terminal routes
+
+Live shells on the backend's machine, shown with xterm.js on
+`terminal.html`. The backend owns each shell (a pseudo-terminal); the page
+shows one at a time and types into it. The assistant can use the same
+terminals, so both see the same screen.
+
+**Terminal** —
+
+```json
+{"id": "term-2", "title": "npm install", "purpose": "install the app's packages",
+ "opened_by": "jarvis", "status": "running", "state": "at its prompt",
+ "at_prompt": true, "exit_code": null, "created_at": "...", "cols": 120, "rows": 30,
+ "log": [{"at": "...", "by": "jarvis", "text": "npm install"},
+         {"at": "...", "by": "you", "text": "npm run dev"}]}
+```
+
+`status` is `running` or `exited`; `opened_by` and `log[].by` are `you` or
+`jarvis`. `log` is the last few lines typed and who typed them. `cols` and
+`rows` are fixed when the terminal opens: shrinking a terminal would cut its
+lines. Show it at exactly that size, scaling the font to fit.
+
+| Route | Default | |
+|---|---|---|
+| `terminals` | `GET /dash/api/terminals` | `[Terminal, ...]` |
+| `terminals` | `POST /dash/api/terminals` | `{"title": "", "purpose": "", "cols": 120, "rows": 30}` (all optional; the size defaults to the last one given, which is also what the assistant's terminals use) → the new Terminal. `409` with a `detail` when no more can be opened. |
+| `terminalStream` | `GET /dash/api/terminals/{id}/stream?token=…` | Server-sent events, below |
+| `terminalInput` | `POST /dash/api/terminals/{id}/input` | `{"data": "<keystrokes, as xterm.js sends them>"}`. `409` if the shell has exited. |
+| `terminalClose` | `POST /dash/api/terminals/{id}/close` | Stops the shell and forgets it |
+
+Every terminal route answers `404` for a terminal that is closed.
+
+The stream's messages, each `data: <JSON>\n\n`:
+
+- `{"type": "replay", "data": "...", "terminal": Terminal}` — first, always:
+  the scrollback and screen as escape codes, colours included. Write it into
+  a freshly reset xterm of the terminal's size.
+- `{"type": "output", "data": "..."}` — new output, raw.
+- `{"type": "exit", "code": 0}` — the shell ended; the terminal stays listed
+  until closed.
+- `{"type": "closed"}` — the terminal was closed; the stream then ends.
 
 ## HUD routes (`hud.html`)
 

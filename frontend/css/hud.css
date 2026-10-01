@@ -1,7 +1,7 @@
 /*
  * The Jarvis heads-up display.
  *
- * One dark, cyan-lit surface shared by all three pages, so switching between
+ * One dark, cyan-lit surface shared by every page, so switching between
  * them feels like turning your head rather than opening another app.
  *
  * Colour carries meaning and is used sparingly: cyan is the resting state,

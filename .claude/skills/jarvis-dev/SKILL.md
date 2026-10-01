@@ -26,9 +26,7 @@ dashboard then work normally. Never add a test that calls real Gemini.
 1. Write an `async def my_tool(self, task: Task, ...) -> dict[str, Any]`
    method on `Jarvis`. Return a dict; report failure as `{"error": "..."}`.
 2. Add a `Tool(...)` to `_tools()`: a description written for the model, a
-   `params(...)` schema, the dashboard room it happens in (`web`, `workshop`,
-   `library`, `archives`, `observatory`), and a one-line `describe` for the
-   activity feed.
+   `params(...)` schema, and a one-line `describe` for the activity feed.
 3. If it changes anything on the machine, set `risky=True` **and** call
    `await self._approve(...)` before acting.
 4. Mention it in `persona.md` so the model knows when to use it, and add a
