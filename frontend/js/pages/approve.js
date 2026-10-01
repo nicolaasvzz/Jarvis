@@ -21,8 +21,7 @@ let pending = [];
 let recent = [];
 let seen = new Set();
 
-Hud.start(async () => {
-  const snapshot = await Hud.getJSON(Hud.route("snapshot"));
+Hud.start(async (snapshot) => {
   recent = (snapshot.events || []).filter((f) => RECENT.has(f.type)).slice(-8);
   setPending(snapshot.approvals || [], false);
   renderRecent();
@@ -37,6 +36,7 @@ Hud.start(async () => {
   });
   // Phones drop connections when the screen sleeps; catch up on waking.
   document.addEventListener("visibilitychange", () => document.hidden || refresh());
+  Hud.onResync(refresh);
 });
 
 async function refresh() {

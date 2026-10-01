@@ -7,13 +7,18 @@ paths are defaults — rename any of them under `routes` in `config.js`.
 
 | Page | Routes it uses |
 |---|---|
-| `mothership.html` | `snapshot`, `stream`, `tasks`, `approvals`, `approval`, `terminals`, `stats`, `system`, `command`, `mothership` and the `ms…` routes below |
-| `index.html` (Core) | `snapshot`, `stream`, `stats`, `command`, `approval`, optionally `system`, `listen`, `speak`, `docs` |
+| `mothership.html` | `snapshot`, `stream`, `tasks`, `task`, `approvals`, `approval`, `terminals`, `stats`, `system`, `command`, `mothership` and the `ms…` routes below |
+| `index.html` (Core) | `snapshot`, `stream`, `stats`, `command`, `approval`, `tasks`, `approvals`, `terminals` (re-read on events; without them it re-reads `snapshot`), optionally `system`, `listen`, `speak`, `docs` |
 | `terminal.html` | `snapshot`, `stream`, `terminals`, `terminalStream`, `terminalInput`, `terminalClose`, `terminalExplain`, `terminalTrust`, `approvals`, `approval`, `command` |
 | `approve.html` | `snapshot`, `stream`, `approvals`, `approval` |
 
 The smallest useful backend is `snapshot` + `stream` + `command`: that gives
 the Core page live activity and a working command bar.
+
+Core, Terminal and Mothership run as one page (see the frontend README):
+opening any of them also fetches the other two in the background and loads
+the Mothership's data, so a backend without the Mothership routes just sees
+those requests fail quietly.
 
 ## Conventions
 
@@ -33,8 +38,8 @@ the Core page live activity and a working command bar.
 
 ### `snapshot` — `GET /dash/api/snapshot`
 
-Everything a page needs to draw itself from cold; fetched on load and after
-reconnecting.
+Everything a page needs to draw itself from cold; fetched on load (and by
+the Mothership after the stream reconnects).
 
 ```json
 {
@@ -242,7 +247,7 @@ Saving emits `connections.updated` on the stream (names of what changed, never v
 | `system` | `GET /system` | `{"brain": {"provider": "gemini", "model": "gemini-3.5-flash-lite", "connected": true}, "tools": ["run_command", ...], "active_tasks": 1, "total_tasks": 5, "workspace": "..."}` — the model line on the Core page |
 
 | `tasks` | `GET /tasks?limit=100` | `[Task, ...]`, newest first, up to `limit` (1000); kept across restarts — the Mothership's request stack |
-| `task` | `GET /tasks/{id}` | one Task |
+| `task` | `GET /tasks/{id}` | one Task — the Mothership re-reads just the one an event names |
 
 `jarvis.py` also has a few plain REST routes no page uses, for scripts and
 curl: `POST /tasks`, `GET /notifications` and `GET /events` (the event

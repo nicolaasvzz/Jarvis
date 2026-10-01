@@ -105,6 +105,16 @@ python -m mypy --strict --ignore-missing-imports jarvis.py
   same control pressed by Jarvis (`run_control`) asks unless `trusted`.
 - Tests never start a real shell: `Jarvis.spawn_shell` is swapped for
   `FakeShell` in `test_jarvis.py`.
+- **The dashboard tabs are one page** (`frontend/js/lib/tabs.js`, which the
+  user asked for so switching is instant). `index.html`, `terminal.html` and
+  `mothership.html` each wrap their content in a `[data-screen]` element whose
+  `data-module` exports `mount(snapshot)`, `show()`, `hide()`, `resync()`; a
+  tab's first visit lifts that screen into the open page, after which it is
+  only hidden and shown. So: element ids must be unique across those three
+  files, page modules must do nothing at import time, a hidden tab must not
+  draw or poll, and every `mothership.css` rule stays scoped with
+  `:where(body.ms)` — its generic class names (`.req`, `.tool`, `code`…)
+  would otherwise restyle the Core and Terminal.
 
 ## Pull requests
 

@@ -15,8 +15,10 @@ import argparse
 import contextlib
 import functools
 import http.server
+import socket
 import socketserver
 import sys
+import threading
 import webbrowser
 from pathlib import Path
 from urllib.parse import urlencode
@@ -25,6 +27,11 @@ HERE = Path(__file__).resolve().parent
 
 
 class Handler(http.server.SimpleHTTPRequestHandler):
+    # Keep connections open between files. HTTP/1.0 (the default) opens a new
+    # one for every file, and on Windows each new one to "localhost" can wait
+    # ~300 ms — seconds, for a page of a dozen files.
+    protocol_version = "HTTP/1.1"
+
     # Windows can register .js as text/plain, and Python's own table reads the
     # registry. Browsers refuse to run a module served that way, so pin the
     # types that matter instead of trusting the machine.
@@ -40,6 +47,15 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         # Edits to the files should show up on a plain reload.
         self.send_header("Cache-Control", "no-cache")
         super().end_headers()
+
+
+class Server(socketserver.ThreadingTCPServer):
+    allow_reuse_address = True
+    daemon_threads = True  # an open keep-alive connection mustn't hold up Ctrl-C
+
+
+class IPv6Server(Server):
+    address_family = socket.AF_INET6
 
 
 def main() -> int:
@@ -61,13 +77,18 @@ def main() -> int:
     args = parser.parse_args()
 
     handler = functools.partial(Handler, directory=str(HERE))
-    socketserver.TCPServer.allow_reuse_address = True
     try:
-        httpd = socketserver.ThreadingTCPServer((args.host, args.port), handler)
+        httpd = Server((args.host, args.port), handler)
     except OSError as exc:
         print(f"Could not listen on port {args.port}: {exc}", file=sys.stderr)
         print("Try another one, e.g.  python serve.py --port 8081", file=sys.stderr)
         return 1
+    if args.host == "127.0.0.1":
+        # "localhost" means ::1 first to most browsers: answer there too, or
+        # every new connection waits for the browser to give up on it.
+        with contextlib.suppress(OSError):
+            ipv6 = IPv6Server(("::1", args.port), handler)
+            threading.Thread(target=ipv6.serve_forever, daemon=True).start()
 
     url = f"http://localhost:{args.port}/"
     if args.server:

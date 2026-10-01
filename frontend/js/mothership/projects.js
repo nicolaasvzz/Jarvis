@@ -7,7 +7,7 @@
 import { Hud } from "../lib/hud.js";
 import { state, project as findProject } from "./state.js";
 import {
-  esc, $, $$, icon, ago, act, openForm, closeForm, showTerminal, drawCharts,
+  esc, $, $$, icon, ago, act, openForm, closeForm, showTerminal, drawCharts, shown,
 } from "./ui.js";
 import { card as controlCard, wire as wireControls, editControl } from "./controls.js";
 import { renderStatus } from "./status.js";
@@ -154,7 +154,7 @@ export function render(root, params) {
 
   if (p.status_file) {
     pollStatus(p.id);
-    statusTimer = setInterval(() => document.hidden || pollStatus(p.id), 5000);
+    statusTimer = setInterval(() => document.hidden || !shown(root) || pollStatus(p.id), 5000);
   }
   drawCharts();
   return () => clearInterval(statusTimer);
