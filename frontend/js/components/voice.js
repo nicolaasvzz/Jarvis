@@ -300,9 +300,21 @@ export class Voice {
 
   /* -- speaking ---------------------------------------------------------- */
 
-  async say(text) {
-    if (!text || !text.trim()) return;
-    let blob;
+  /**
+   * Speak `text` sentence by sentence: every sentence is requested at once and
+   * played in order, so the first one starts as soon as it is ready instead of
+   * after the whole answer has been synthesised. Calls queue up rather than
+   * talking over each other.
+   */
+  say(text) {
+    if (!text || !text.trim()) return Promise.resolve();
+    this.speechQueue = (this.speechQueue || Promise.resolve()).then(() =>
+      this.speakNow(text)
+    );
+    return this.speechQueue;
+  }
+
+  async fetchClip(text) {
     try {
       const response = await fetch(window.HudConnection.endpoint("speak"), {
         method: "POST",
@@ -312,12 +324,33 @@ export class Voice {
         },
         body: JSON.stringify({ text }),
       });
-      if (!response.ok) return; // speech is a nicety; never interrupt for it
-      blob = await response.blob();
+      return response.ok ? await response.blob() : null;
     } catch (_) {
-      return;
+      return null; // speech is a nicety; never interrupt for it
     }
+  }
 
+  async speakNow(text) {
+    // The first sentence is requested alone so nothing slows it down; the
+    // rest follow as soon as it is back, well ahead of when they are needed.
+    const [first, ...rest] = splitSpeech(text);
+    const head = this.fetchClip(first);
+    const tail = head.then(() => rest.map((part) => this.fetchClip(part)));
+    this.speaking = true;
+    try {
+      for (let i = 0; i <= rest.length; i++) {
+        const blob = await (i === 0 ? head : (await tail)[i - 1]);
+        if (!blob) continue;
+        await this.playClip(blob);
+      }
+    } finally {
+      this.speaking = false;
+      this.onAmplitude(0);
+      this.onStateChange(this.listening ? "armed" : "off");
+    }
+  }
+
+  async playClip(blob) {
     const context = await this.ensureContext();
     const url = URL.createObjectURL(blob);
     const audio = new Audio(url);
@@ -330,12 +363,11 @@ export class Voice {
     source.connect(analyser);
     analyser.connect(context.destination);
     const buffer = new Float32Array(analyser.fftSize);
+    let playing = true;
 
-    this.speaking = true;
     this.onStateChange("speaking");
-
     const follow = () => {
-      if (!this.speaking) return;
+      if (!playing) return;
       analyser.getFloatTimeDomainData(buffer);
       let peak = 0;
       for (let i = 0; i < buffer.length; i++) {
@@ -346,26 +378,45 @@ export class Voice {
       requestAnimationFrame(follow);
     };
 
-    const finish = () => {
-      this.speaking = false;
-      this.onAmplitude(0);
-      this.onStateChange(this.listening ? "armed" : "off");
-      URL.revokeObjectURL(url);
-      try {
-        source.disconnect();
-        analyser.disconnect();
-      } catch (_) {
-        /* already torn down */
-      }
-    };
-
-    audio.addEventListener("ended", finish);
-    audio.addEventListener("error", finish);
+    await new Promise((resolve) => {
+      audio.addEventListener("ended", resolve);
+      audio.addEventListener("error", resolve);
+      audio.play().then(follow, resolve); // autoplay blocked: not fatal
+    });
+    playing = false;
+    URL.revokeObjectURL(url);
     try {
-      await audio.play();
-      follow();
+      source.disconnect();
+      analyser.disconnect();
     } catch (_) {
-      finish(); // autoplay blocked until the user interacts; not fatal
+      /* already torn down */
     }
   }
+}
+
+/**
+ * Cut text into sentence-sized pieces for speaking. Short sentences are merged
+ * into the next one so the voice is not asked for a clip of two words, and the
+ * total stays within what the server will speak (1500 characters).
+ */
+export function splitSpeech(text, minLength = 40) {
+  const sentences = text
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 1500)
+    .split(/(?<=[.!?…])\s+/);
+  const parts = [];
+  let carry = "";
+  for (const sentence of sentences) {
+    carry = carry ? `${carry} ${sentence}` : sentence;
+    if (carry.length >= minLength) {
+      parts.push(carry);
+      carry = "";
+    }
+  }
+  if (carry) {
+    if (parts.length) parts[parts.length - 1] += ` ${carry}`;
+    else parts.push(carry);
+  }
+  return parts;
 }
