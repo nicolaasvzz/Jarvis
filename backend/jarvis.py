@@ -33,6 +33,7 @@ import shutil
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 import uuid
 import webbrowser
@@ -59,6 +60,10 @@ VOICE_STYLE = ("A deep, refined British voice in a Received Pronunciation accent
                "never theatrical.")
 OPENAI_SPEECH_URL = "https://api.openai.com/v1/audio/speech"
 WISPR_URL = "https://platform-api.wisprflow.ai/api/v1/dash/api"
+def have_module(name: str) -> bool:
+    return importlib.util.find_spec(name) is not None
+
+
 GEMINI_API = "https://generativelanguage.googleapis.com/v1beta"
 KEY_URL = "https://aistudio.google.com/apikey"
 BROWSER_UA = (
@@ -111,6 +116,7 @@ class Settings:
     voice_provider: str = "edge"
     listen_provider: str = "browser"
     listen_language: str = "en-GB"
+    whisper_model: str = "small.en"
     wispr_api_key: str = ""
     wispr_language: str = "en"
     openai_api_key: str = ""
@@ -154,6 +160,7 @@ class Settings:
             voice_provider=get("JARVIS_VOICE_PROVIDER", "edge").lower(),
             listen_provider=get("JARVIS_LISTEN_PROVIDER", "browser").lower(),
             listen_language=get("JARVIS_LISTEN_LANGUAGE", "en-GB"),
+            whisper_model=get("WHISPER_MODEL", "small.en"),
             wispr_api_key=get("WISPR_API_KEY"),
             wispr_language=get("WISPR_LANGUAGE", "en").lower(),
             voice_style=get("JARVIS_VOICE_STYLE", VOICE_STYLE),
@@ -451,6 +458,7 @@ class Jarvis:
         self.windows = [Agent("term-1", "Terminal 1", 30, 1),
                         Agent("term-2", "Terminal 2", 330, 2),
                         Agent("term-3", "Terminal 3", 140, 3)]
+        self._whisper: Any = None
         self.tools = {tool.name: tool for tool in self._tools()}
         settings.workspace.mkdir(parents=True, exist_ok=True)
 
@@ -471,11 +479,14 @@ class Jarvis:
     @property
     def listen_provider(self) -> str:
         """Who turns the microphone into text: "browser" (the page's own speech
-        recognition, no key), "wispr" if chosen and keyed, else "" (typing only)."""
+        recognition, no key), "whisper" (on this computer, no key, any browser),
+        "wispr" if chosen and keyed, else "" (typing only)."""
         if self.settings.listen_provider == "browser":
             return "browser"
         if self.settings.listen_provider == "wispr" and self.settings.wispr_api_key:
             return "wispr"
+        if self.settings.listen_provider == "whisper" and have_module("faster_whisper"):
+            return "whisper"
         return ""
 
     @property
@@ -1055,7 +1066,37 @@ class Jarvis:
                               f"{response.text[:200]}")
         return response.content
 
-    async def transcribe(self, wav: bytes) -> str:
+    async def transcribe(self, audio: bytes) -> str:
+        """Speech to text for an uploaded recording, by whichever provider is on."""
+        if self.listen_provider == "whisper":
+            return await asyncio.to_thread(self._whisper_text, audio)
+        return await self._wispr_text(audio)
+
+    def load_whisper(self) -> None:
+        """Load the Whisper model once (a few seconds); startup does it ahead of use."""
+        if self._whisper is None:
+            from faster_whisper import WhisperModel
+
+            self._whisper = WhisperModel(self.settings.whisper_model, device="cpu",
+                                         compute_type="int8")
+
+    def _whisper_text(self, audio: bytes) -> str:
+        """Whisper on this machine. It decodes webm/mp3/wav itself (PyAV)."""
+        self.load_whisper()
+        with tempfile.NamedTemporaryFile(suffix=".audio", delete=False) as handle:
+            handle.write(audio)
+        try:
+            english = self.settings.whisper_model.endswith(".en")
+            segments, _ = self._whisper.transcribe(
+                handle.name, language="en" if english else self.settings.listen_language[:2],
+                beam_size=1, vad_filter=True, initial_prompt="Jarvis, hey Jarvis.")
+            return " ".join(segment.text.strip() for segment in segments).strip()
+        except Exception as exc:  # noqa: BLE001 - undecodable audio is reported, not raised
+            raise JarvisError(f"Could not transcribe that recording: {exc}") from exc
+        finally:
+            Path(handle.name).unlink(missing_ok=True)
+
+    async def _wispr_text(self, wav: bytes) -> str:
         """Speech to text through Wispr Flow. `wav` is 16 kHz mono WAV."""
         if wav[:4] != b"RIFF" or wav[8:12] != b"WAVE":
             raise JarvisError("Wispr Flow needs a 16 kHz WAV recording.")
@@ -1226,11 +1267,11 @@ def create_app(jarvis: Jarvis) -> FastAPI:
 
     @app.post("/dash/api/listen", dependencies=guard)
     async def listen(audio: UploadFile, submit: Annotated[bool, Form()] = True) -> dict[str, Any]:
-        if jarvis.listen_provider != "wispr":
+        if jarvis.listen_provider not in {"wispr", "whisper"}:
             raise HTTPException(
                 status_code=503,
-                detail="Uploads are only for Wispr Flow — set JARVIS_LISTEN_PROVIDER=wispr "
-                       "and WISPR_API_KEY (the browser option listens inside the page).")
+                detail="Uploads are for the whisper and wispr options — set "
+                       "JARVIS_LISTEN_PROVIDER (the browser option listens inside the page).")
         try:
             said = await jarvis.transcribe(await audio.read())
         except JarvisError as exc:
@@ -1340,6 +1381,10 @@ async def serve(settings: Settings) -> None:
         voice = (f"{jarvis.voice_info()['provider']} / {jarvis.voice_info()['voice']}"
                  if jarvis.can_speak else "off (set OPENAI_API_KEY or pip install edge-tts)")
         print(f"  Voice      {voice}")
+        if jarvis.listen_provider == "whisper":
+            print(f"  Listening  loading Whisper {settings.whisper_model} ...", flush=True)
+            await asyncio.to_thread(jarvis.load_whisper)
+        print(f"  Listening  {jarvis.listen_provider or 'off (type instead)'}")
         host = "127.0.0.1" if settings.host in {"0.0.0.0", "::"} else settings.host
         url = f"http://{host}:{settings.port}/dash/?token={settings.api_token}"
         has_frontend = (settings.frontend / "index.html").is_file()

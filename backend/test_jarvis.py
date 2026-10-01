@@ -413,3 +413,40 @@ async def test_browser_listening_needs_no_key_and_takes_no_uploads(tmp_path: Pat
     heard = client.post("/dash/api/command", headers=auth,
                         json={"text": "Jarvis, hello", "submit": False}).json()
     assert heard["command"] == "hello"  # the page posts what it heard here
+
+
+class FakeWhisper:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, Any]] = []
+
+    def transcribe(self, path: str, **kwargs: Any) -> tuple[list[Any], None]:
+        self.calls.append({"bytes": Path(path).read_bytes(), **kwargs})
+        return [type("S", (), {"text": " Jarvis, open the pod bay doors."})()], None
+
+
+@pytest.mark.asyncio
+async def test_whisper_listening_transcribes_on_this_machine(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from fastapi.testclient import TestClient
+
+    monkeypatch.setattr(J, "have_module", lambda name: True)
+    jarvis = make(tmp_path, FakeWeb(reply({"text": "No."})), listen_provider="whisper")
+    fake = FakeWhisper()
+    jarvis._whisper = fake
+    info = jarvis.voice_info()
+    assert info["can_listen"] and info["listen_provider"] == "whisper"
+    client = TestClient(J.create_app(jarvis))
+    r = client.post("/dash/api/listen", headers={"Authorization": "Bearer secret-token"},
+                    data={"submit": "false"},
+                    files={"audio": ("u.webm", b"webm-bytes", "audio/webm")})
+    assert r.status_code == 200
+    assert r.json()["command"] == "open the pod bay doors."  # wake word stripped
+    assert fake.calls[0]["bytes"] == b"webm-bytes"  # no WAV conversion needed
+    assert fake.calls[0]["language"] == "en" and "Jarvis" in fake.calls[0]["initial_prompt"]
+
+
+def test_whisper_without_the_package_stays_off(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(J, "have_module", lambda name: False)
+    jarvis = make(tmp_path, FakeWeb(), listen_provider="whisper")
+    assert not jarvis.can_listen

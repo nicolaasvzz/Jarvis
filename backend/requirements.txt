@@ -7,3 +7,6 @@ python-multipart>=0.0.9
 psutil>=5.9
 # Optional: Jarvis's voice. Remove this line for a silent Jarvis.
 edge-tts>=6.1
+# Optional: listen with Whisper on this computer (JARVIS_LISTEN_PROVIDER=whisper).
+# Pulls in a few hundred MB; the model itself downloads on first use if missing.
+faster-whisper>=1.0
