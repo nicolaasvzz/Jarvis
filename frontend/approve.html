@@ -2,8 +2,14 @@
 <html lang="en" data-page="Approvals">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
   <meta name="theme-color" content="#03070b">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-title" content="Jarvis">
   <title>JARVIS — Approvals</title>
   <link rel="stylesheet" href="css/hud.css">
   <link rel="stylesheet" href="css/approve.css">
@@ -40,9 +46,10 @@
   <div class="card">
     <h1 data-app-name>JARVIS</h1>
     <p data-token-hint>Connect to Jarvis. The token is <code>JARVIS_API_TOKEN</code> in
-       <code>backend/.env</code> — <code>jarvis.py</code> makes one on its first run.</p>
+       <code>backend/.env</code> — <code>jarvis.py</code> makes one on its first run. A whole
+       sign-in link works too.</p>
     <input name="server" type="url" placeholder="Server — blank means this site" autocomplete="off">
-    <input name="token" type="password" placeholder="API token" autocomplete="off">
+    <input name="token" type="password" placeholder="API token or sign-in link" autocomplete="off">
     <button>Connect</button>
     <div class="err"></div>
   </div>

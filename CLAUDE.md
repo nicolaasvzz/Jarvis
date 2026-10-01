@@ -103,6 +103,16 @@ python -m mypy --strict --ignore-missing-imports jarvis.py
   never touch the real folder.
 - A control the user presses runs without approval (they chose it); the
   same control pressed by Jarvis (`run_control`) asks unless `trusted`.
+- **Phone access is Tailscale**, never a public tunnel: Jarvis stays on
+  `127.0.0.1` and `tailscale serve --bg <port>` gives it an https address on
+  the user's own tailnet (https is what lets a phone install the app and use
+  the mic). `tailscale_status()` only reads `tailscale status/serve status
+  --json`; the Phone card's button runs `tailscale serve` in a terminal
+  because the first run prints a link the user must open. Phone routes never
+  return the token. The page adds its own.
+- On a phone (≤ 760px) pages scroll instead of filling a fixed HUD, and
+  `hud.js` adds a bottom tab bar. A terminal opened from a phone sends no
+  size, so Jarvis's own terminals don't shrink to phone width.
 - Tests never start a real shell: `Jarvis.spawn_shell` is swapped for
   `FakeShell` in `test_jarvis.py`.
 

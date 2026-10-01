@@ -30,6 +30,7 @@ import os
 import platform
 import re
 import secrets
+import shlex
 import shutil
 import socket
 import subprocess
@@ -1453,7 +1454,7 @@ class Jarvis:
                        "wispr_configured": bool(s.wispr_api_key),
                        "wispr_hint": mask(s.wispr_api_key), "wispr_language": s.wispr_language},
             "access": {"token_hint": mask(s.api_token), "host": s.host, "port": s.port,
-                       "phone": s.host in {"0.0.0.0", "::"}, "phone_link": phone_link(s)},
+                       "phone": s.host in {"0.0.0.0", "::"}},
             "restart_needed": restart,
             "can_restart": self.restart is not None,
             "env_file": str(s.env_file),
@@ -2177,6 +2178,24 @@ class Jarvis:
         terminal.send(command + "\r", shown=command, by="you")
         return terminal
 
+    async def tailscale_terminal(self, share: bool) -> Terminal:
+        """Turn Jarvis's private https address on (or off) with `tailscale
+        serve`, in a terminal you can watch: the first time, it may print a
+        link for allowing https in your Tailscale account, then wait for it."""
+        if tailscale_exe() is None:
+            raise JarvisError(f"Tailscale isn't installed on this PC — {TAILSCALE_DOWNLOAD}")
+        port = self.settings.port
+        if share:
+            command = tailscale_command("serve", "--bg", str(port))
+        else:
+            url = (await asyncio.to_thread(tailscale_status, port))["url"]
+            command = tailscale_command("serve", f"--https={urlparse(url).port or 443}", "off")
+        terminal = self.open_terminal("Phone access", "tailscale serve: Jarvis's private https "
+                                      "address, for your phone", "you")
+        await terminal.ready()
+        terminal.send(command + "\r", shown=command, by="you")
+        return terminal
+
     def _plugs_in(self, cwd: Path) -> str:
         return (f"## How it plugs into Jarvis\n\nJarvis is my local assistant (its code is in "
                 f"{HERE.parent}). Its Mothership dashboard shows *controls*: buttons I press, "
@@ -2399,6 +2418,10 @@ class TerminalInputIn(BaseModel):
 
 class TrustIn(BaseModel):
     trusted: bool
+
+
+class ShareIn(BaseModel):
+    share: bool = True
 
 
 class ConnectionsIn(BaseModel):
@@ -2728,6 +2751,19 @@ def create_app(jarvis: Jarvis) -> FastAPI:
         asyncio.get_running_loop().call_later(0.5, jarvis.restart)
         return {"detail": "Restarting — back in a few seconds."}
 
+    # -- your phone: how it reaches Jarvis ------------------------------------------
+    @app.get("/dash/api/phone", dependencies=guard)
+    async def phone() -> dict[str, Any]:
+        return await asyncio.to_thread(phone_access, settings)
+
+    @app.post("/dash/api/phone/tailscale", dependencies=guard)
+    async def phone_tailscale(body: ShareIn) -> dict[str, Any]:
+        # You pressed it, so nothing waits for approval — like a control.
+        try:
+            return (await jarvis.tailscale_terminal(body.share)).out()
+        except JarvisError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
     @app.get("/dash/api/stats", dependencies=guard)
     async def stats() -> dict[str, Any]:
         return machine_stats()
@@ -2833,6 +2869,20 @@ def create_app(jarvis: Jarvis) -> FastAPI:
         return Response(base + override, media_type="text/javascript",
                         headers={"Cache-Control": "no-cache"})
 
+    @app.get("/dash/manifest.webmanifest", include_in_schema=False)
+    async def app_manifest(token: str = "") -> Response:
+        # What a phone installs: the static file, plus — when the page sends
+        # the right token — that token in the start address. An iPhone keeps
+        # a home-screen app's storage apart from Safari's, so without it the
+        # app would open logged out; only iPhones and iPads ask for this.
+        own = settings.frontend / "manifest.webmanifest"
+        manifest = json.loads(own.read_text(encoding="utf-8")) if own.is_file() else {}
+        if token and hmac.compare_digest(token.encode(), settings.api_token.encode()):
+            start = str(manifest.get("start_url") or "./")
+            manifest["start_url"] = f"{start}?{urlencode({'token': token})}"
+        return Response(json.dumps(manifest), media_type="application/manifest+json",
+                        headers={"Cache-Control": "no-cache"})
+
     if has_frontend:
         # Windows can map .js to text/plain; browsers then refuse the modules.
         mimetypes.add_type("text/javascript", ".js")
@@ -2875,7 +2925,8 @@ async def serve(settings: Settings) -> bool:
         has_frontend = (settings.frontend / "index.html").is_file()
         print(f"\n  Dashboard  {url if has_frontend else '(no frontend folder — API only)'}")
         if has_frontend:
-            print(f"  Approvals  {phone_link(settings)}")
+            tailscale = await asyncio.to_thread(tailscale_status, settings.port)
+            print(f"  Phone      {phone_link(settings, tailscale)}")
         print(f"  API docs   http://{host}:{settings.port}/docs\n  Ctrl-C to stop.\n", flush=True)
         if settings.open_browser and has_frontend:
             asyncio.get_running_loop().call_later(1.5, lambda: webbrowser.open(url))
@@ -2908,15 +2959,126 @@ def lan_address() -> str | None:
     return None
 
 
-def phone_link(settings: Settings) -> str:
-    """Where to approve from a phone — or how to make that possible."""
-    page = f"/dash/approve.html?token={settings.api_token}"
+# -- your phone, from anywhere -------------------------------------------------
+# Jarvis listens on this PC only. To reach it from a phone anywhere, the PC and
+# the phone join the same Tailscale network (free, and private: nothing is
+# opened to the internet), and `tailscale serve` gives Jarvis an https address
+# on it. https is what lets a phone install the dashboard as an app and use
+# its microphone.
+
+PHONE_PAGE = "/dash/mothership.html"  # where the phone app opens
+TAILSCALE_DOWNLOAD = "https://tailscale.com/download"
+
+
+def tailscale_exe() -> str | None:
+    found = shutil.which("tailscale")
+    if found:
+        return found
+    for path in (Path(os.environ.get("PROGRAMFILES", r"C:\Program Files"), "Tailscale",
+                      "tailscale.exe"),
+                 Path("/Applications/Tailscale.app/Contents/MacOS/Tailscale")):
+        if path.is_file():
+            return str(path)
+    return None
+
+
+def run_tailscale(*args: str) -> Any:
+    """What `tailscale <args> --json` says, or None if it can't be asked."""
+    exe = tailscale_exe()
+    if exe is None:
+        return None
+    try:
+        done = subprocess.run([exe, *args, "--json"], capture_output=True, timeout=5,
+                              stdin=subprocess.DEVNULL,
+                              creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    with contextlib.suppress(ValueError):
+        return json.loads(done.stdout.decode("utf-8", "replace") or "null")
+    return None
+
+
+def served_url(config: Any, port: int) -> str:
+    """The https address `tailscale serve` passes through to Jarvis on `port`."""
+    webs = config.get("Web") if isinstance(config, dict) else None
+    for host_port, web in (webs if isinstance(webs, dict) else {}).items():
+        handler = ((web or {}).get("Handlers") or {}).get("/") or {}
+        proxy = str(handler.get("Proxy") or "")
+        target = urlparse(proxy if "://" in proxy else f"http://{proxy}")
+        with contextlib.suppress(ValueError):
+            if target.hostname in {"127.0.0.1", "localhost", "::1"} and target.port == port:
+                host, _, https_port = str(host_port).rpartition(":")
+                return f"https://{host}" + ("" if https_port == "443" else f":{https_port}")
+    return ""
+
+
+def tailscale_status(port: int) -> dict[str, Any]:
+    """Is this PC on Tailscale, and is its https address passed to Jarvis?"""
+    out: dict[str, Any] = {"installed": tailscale_exe() is not None, "state": "",
+                           "signed_in": False, "name": "", "address": "", "https": False,
+                           "url": "", "phones": [], "download": TAILSCALE_DOWNLOAD}
+    if not out["installed"]:
+        return out
+    status = run_tailscale("status")
+    if not isinstance(status, dict):
+        out["state"] = "NotRunning"  # installed, but its service isn't answering
+        return out
+    me = status.get("Self") or {}
+    out["state"] = str(status.get("BackendState") or "")
+    out["signed_in"] = out["state"] == "Running"
+    out["name"] = str(me.get("DNSName") or "").rstrip(".")
+    out["address"] = next((str(ip) for ip in me.get("TailscaleIPs") or [] if "." in str(ip)), "")
+    out["https"] = bool(status.get("CertDomains"))
+    peers = status.get("Peer")
+    if not isinstance(peers, dict):
+        peers = {}
+    out["phones"] = [{"name": str(peer.get("HostName") or ""), "os": str(peer.get("OS")),
+                      "online": bool(peer.get("Online"))}
+                     for peer in peers.values() if isinstance(peer, dict)
+                     and str(peer.get("OS")).lower() in {"ios", "android"}]
+    if out["signed_in"]:
+        out["url"] = served_url(run_tailscale("serve", "status"), port)
+    return out
+
+
+def phone_access(settings: Settings) -> dict[str, Any]:
+    """How a phone can reach Jarvis — best way first. No tokens in here: the
+    page asking already has one, and adds it to the link it shows."""
+    tailscale = tailscale_status(settings.port)
+    wifi = settings.host in {"0.0.0.0", "::"}
+    links = []
+    if tailscale["url"]:
+        links.append({"via": "tailscale", "url": tailscale["url"] + PHONE_PAGE,
+                      "anywhere": True, "secure": True})
+    if wifi and tailscale["signed_in"] and tailscale["address"]:
+        links.append({"via": "tailscale-ip", "anywhere": True, "secure": False,
+                      "url": f"http://{tailscale['address']}:{settings.port}{PHONE_PAGE}"})
+    address = lan_address() if wifi else None
+    if address:
+        links.append({"via": "wifi", "url": f"http://{address}:{settings.port}{PHONE_PAGE}",
+                      "anywhere": False, "secure": False})
+    return {"port": settings.port, "wifi": wifi, "tailscale": tailscale, "links": links}
+
+
+def tailscale_command(*args: str) -> str:
+    """A terminal line running tailscale with `args`."""
+    exe = "tailscale" if shutil.which("tailscale") else tailscale_exe() or "tailscale"
+    if exe != "tailscale":
+        exe = f"& {ps_quote(exe)}" if WINDOWS else shlex.quote(exe)
+    return " ".join([exe, *args])
+
+
+def phone_link(settings: Settings, tailscale: dict[str, Any] | None = None) -> str:
+    """Where to open Jarvis on a phone — or how to make that possible."""
+    page = f"{PHONE_PAGE}?token={settings.api_token}"
+    if tailscale and tailscale.get("url"):
+        return f"{tailscale['url']}{page}  (anywhere, through Tailscale)"
     if settings.host in {"0.0.0.0", "::"}:
         address = lan_address()
         if address:
             return f"http://{address}:{settings.port}{page}  (from your phone, same Wi-Fi)"
-    return (f"http://127.0.0.1:{settings.port}{page}  — for your phone too, set "
-            "JARVIS_HOST=0.0.0.0")
+    return (f"http://127.0.0.1:{settings.port}{page}  — for your phone, see "
+            "Mothership → Connections → Phone")
 
 
 def main() -> int:

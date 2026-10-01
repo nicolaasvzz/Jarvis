@@ -660,3 +660,46 @@ section.card + .cols, .card + .cols { margin-top: 18px; }
   .conn-form { grid-template-columns: minmax(0, 1fr); }
   .chip-count { margin-left: 0; }
 }
+
+/* -- phone: room for the tab bar (hud.js adds it), and denser numbers ------------------------------ */
+
+@media (max-width: 760px) {
+  body.ms { height: 100vh; height: 100dvh; }
+  .ms-top { padding-top: env(safe-area-inset-top); height: calc(58px + env(safe-area-inset-top)); }
+  .ms-view { padding: 14px 14px calc(var(--tabs-h) + 24px); }
+  .ms-ask input { font-size: 16px; } /* iPhones zoom in on anything smaller */
+  .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .kpi { padding: 12px; gap: 10px; min-height: 0; flex-direction: column; }
+  .ms-drawer-body { padding-bottom: calc(24px + env(safe-area-inset-bottom)); }
+  .ms-modal-card { max-height: calc(100dvh - 32px); }
+}
+
+/* -- your phone (Connections) ---------------------------------------------------------------------- */
+
+.phone-card { margin-top: 18px; }
+.phone-card .card-head { align-items: flex-start; }
+.phone-steps { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 14px; }
+.phone-steps li { display: flex; gap: 12px; align-items: flex-start; line-height: 1.55; }
+.phone-steps li > div { min-width: 0; flex: 1; }
+.phone-steps li .muted { overflow-wrap: anywhere; }
+.phone-steps a { color: var(--accent); }
+.step-mark {
+  width: 22px; height: 22px; flex: none; margin-top: 1px;
+  display: grid; place-items: center;
+  border-radius: 50%; border: 1px solid var(--edge-hi);
+  counter-increment: step;
+}
+.phone-steps { counter-reset: step; }
+.phone-steps li:not(.done) .step-mark::before {
+  content: counter(step); font-family: var(--mono); font-size: 11px; color: var(--text-dim);
+}
+.phone-steps li.done .step-mark { background: rgba(52, 211, 153, 0.14); border-color: rgba(52, 211, 153, 0.5); color: var(--green); }
+.phone-steps li.done .step-mark .ic { width: 13px; height: 13px; }
+.phone-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.phone-qr {
+  width: min(240px, 100%); margin: 14px 0 8px;
+  padding: 0; border-radius: 12px; overflow: hidden; background: #fff;
+  box-shadow: 0 0 0 1px var(--edge-hi), 0 0 28px rgba(34, 211, 238, 0.18);
+}
+.phone-qr svg { display: block; width: 100%; height: auto; }
+.phone-qr p { padding: 12px; margin: 0; background: var(--card); }

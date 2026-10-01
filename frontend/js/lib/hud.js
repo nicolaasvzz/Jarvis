@@ -86,9 +86,11 @@ export const Hud = (() => {
     const submit = async () => {
       if (!input.value.trim()) return;
       if (server) Connection.setServer(server.value);
-      Connection.setToken(input.value);
+      // A whole sign-in link pasted in works too — handy on a phone.
+      if (!Connection.useLink(input.value)) Connection.setToken(input.value);
       try {
-        await getJSON(Connection.route("snapshot"));
+        const snapshot = await getJSON(Connection.route("snapshot"));
+        setWaiting((snapshot.approvals || []).length);
         hideGate();
         onReady();
       } catch (err) {
@@ -172,7 +174,8 @@ export const Hud = (() => {
       return;
     }
     try {
-      await getJSON(Connection.route("snapshot"));
+      const snapshot = await getJSON(Connection.route("snapshot"));
+      setWaiting((snapshot.approvals || []).length);
     } catch (err) {
       // Unreachable is as likely as unauthorised when the frontend is opened
       // on its own, so both lead back to the connect screen.
@@ -183,6 +186,50 @@ export const Hud = (() => {
     connect();
     onReady();
   }
+
+  /* -- the phone's tab bar ------------------------------------------------
+
+     On a phone the top navigation gives way to a bar of tabs along the
+     bottom, the way apps do it, with the number of approvals waiting on
+     Approve — on every page, so nothing waits unseen. CSS shows it only on
+     narrow screens. */
+
+  const TABS = [
+    ["mothership.html", "Mothership",
+      '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>'],
+    ["index.html", "Core", '<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/>'],
+    ["terminal.html", "Terminal", '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3M13 15h4"/>'],
+    ["approve.html", "Approve", '<path d="m5 12 4.5 4.5L19 7"/>'],
+  ];
+
+  function buildTabs() {
+    if (document.querySelector(".tabbar") || !document.getElementById("gate")) return;
+    const bar = document.createElement("nav");
+    bar.className = "tabbar";
+    bar.setAttribute("aria-label", "Pages");
+    bar.innerHTML = TABS.map(
+      ([href, label, icon]) => `
+      <a href="${href}">
+        <svg viewBox="0 0 24 24" aria-hidden="true">${icon}</svg><span>${label}</span>
+        ${href === "approve.html" ? '<b class="tab-badge" data-waiting hidden></b>' : ""}
+      </a>`
+    ).join("");
+    document.body.appendChild(bar);
+  }
+
+  function setWaiting(count) {
+    document.querySelectorAll("[data-waiting]").forEach((badge) => {
+      badge.textContent = count > 9 ? "9+" : String(count);
+      badge.hidden = !count;
+    });
+  }
+
+  onEvent((frame) => {
+    if (frame.type !== "approval.required" && frame.type !== "approval.resolved") return;
+    getJSON(Connection.route("approvals"))
+      .then((list) => setWaiting(list.length))
+      .catch(() => {});
+  });
 
   /* -- helpers ----------------------------------------------------------- */
 
@@ -239,12 +286,13 @@ export const Hud = (() => {
   }
 
   function markNav() {
+    buildTabs();
     // "/dash/", "/dash/index.html" and "/dash/terminal" vs "terminal.html" are
     // the same pages, so compare on the page name alone.
     const page = (path) =>
       path.replace(/\/$/, "/index").split("/").pop().replace(/\.html$/, "") || "index";
     const here = page(window.location.pathname);
-    document.querySelectorAll(".nav a").forEach((link) => {
+    document.querySelectorAll(".nav a, .tabbar a").forEach((link) => {
       if (page(new URL(link.href).pathname) === here) link.classList.add("active");
     });
     // Links into the backend itself (API docs) follow whichever server this

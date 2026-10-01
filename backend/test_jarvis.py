@@ -591,7 +591,125 @@ async def test_startup_terminals_open_and_run_their_commands(tmp_path: Path) -> 
 
 def test_the_phone_link_needs_the_network_opened_up() -> None:
     local = J.phone_link(J.Settings(api_token="tok"))
-    assert "approve.html?token=tok" in local and "JARVIS_HOST=0.0.0.0" in local
+    assert "mothership.html?token=tok" in local and "Connections → Phone" in local
+    anywhere = J.phone_link(J.Settings(api_token="tok"),
+                            {"url": "https://pc.tail-1.ts.net"})
+    assert anywhere.startswith("https://pc.tail-1.ts.net/dash/mothership.html?token=tok")
+
+
+SERVING_JARVIS = {"TCP": {"443": {"HTTPS": True}},
+                  "Web": {"pc.tail-1.ts.net:443": {
+                      "Handlers": {"/": {"Proxy": "http://127.0.0.1:8765"}}}}}
+
+
+def test_the_https_address_tailscale_passes_to_jarvis() -> None:
+    assert J.served_url(SERVING_JARVIS, 8765) == "https://pc.tail-1.ts.net"
+    assert J.served_url(SERVING_JARVIS, 9000) == ""  # serving something else
+    other_port = {"Web": {"pc.tail-1.ts.net:8443": {
+        "Handlers": {"/": {"Proxy": "http://localhost:8765/"}}}}}
+    assert J.served_url(other_port, 8765) == "https://pc.tail-1.ts.net:8443"
+    # Under a sub-path Jarvis's own /dash/api/... addresses wouldn't line up.
+    sub_path = {"Web": {"pc.tail-1.ts.net:443": {
+        "Handlers": {"/jarvis": {"Proxy": "http://127.0.0.1:8765"}}}}}
+    for nothing in (sub_path, {}, None, {"Web": "odd"}):
+        assert J.served_url(nothing, 8765) == ""
+
+
+def fake_tailscale(monkeypatch: pytest.MonkeyPatch, state: str = "Running",
+                   serve: Any = None) -> list[tuple[str, ...]]:
+    asked: list[tuple[str, ...]] = []
+
+    def run(*args: str) -> Any:
+        asked.append(args)
+        if args == ("status",):
+            return {"BackendState": state, "CertDomains": ["pc.tail-1.ts.net"],
+                    "Self": {"DNSName": "pc.tail-1.ts.net.",
+                             "TailscaleIPs": ["100.64.0.7", "fd7a:115c::7"]},
+                    "Peer": {"k1": {"HostName": "Pixel 9", "OS": "android", "Online": True},
+                             "k2": {"HostName": "desktop", "OS": "windows", "Online": True}}}
+        return serve if serve is not None else {}
+
+    monkeypatch.setattr(J, "tailscale_exe", lambda: "C:/Program Files/Tailscale/tailscale.exe")
+    monkeypatch.setattr(J, "run_tailscale", run)
+    monkeypatch.setattr(J, "lan_address", lambda: "192.168.1.20")
+    return asked
+
+
+def test_phone_access_without_tailscale(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(J, "tailscale_exe", lambda: None)
+    monkeypatch.setattr(J, "lan_address", lambda: "192.168.1.20")
+    alone = J.phone_access(J.Settings(api_token="tok"))
+    assert alone["tailscale"]["installed"] is False and alone["links"] == []
+    assert alone["tailscale"]["download"].startswith("https://tailscale.com")
+    wifi = J.phone_access(J.Settings(api_token="tok", host="0.0.0.0"))
+    assert wifi["links"] == [{"via": "wifi", "anywhere": False, "secure": False,
+                              "url": "http://192.168.1.20:8765/dash/mothership.html"}]
+
+
+def test_phone_access_through_tailscale(monkeypatch: pytest.MonkeyPatch) -> None:
+    fake_tailscale(monkeypatch, serve=SERVING_JARVIS)
+    access = J.phone_access(J.Settings(api_token="tok"))
+    ts = access["tailscale"]
+    assert (ts["signed_in"], ts["name"], ts["address"], ts["https"]) == (
+        True, "pc.tail-1.ts.net", "100.64.0.7", True)
+    assert ts["phones"] == [{"name": "Pixel 9", "os": "android", "online": True}]
+    assert [link["url"] for link in access["links"]] == [
+        "https://pc.tail-1.ts.net/dash/mothership.html"]
+    assert "tok" not in json.dumps(access)  # the page adds its own token
+
+    asked = fake_tailscale(monkeypatch, state="NeedsLogin")
+    signed_out = J.phone_access(J.Settings(api_token="tok", host="0.0.0.0"))
+    assert signed_out["tailscale"]["signed_in"] is False
+    assert asked == [("status",)]  # no point asking what it serves
+    assert [link["via"] for link in signed_out["links"]] == ["wifi"]
+
+
+@pytest.mark.asyncio
+async def test_the_phone_card_turns_tailscale_serve_on_in_a_terminal(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    fake_tailscale(monkeypatch, serve=SERVING_JARVIS)
+    monkeypatch.setattr(J.shutil, "which", lambda name: None)  # not on PATH
+    jarvis = make(tmp_path, FakeWeb())
+    shells = with_fake_shells(jarvis)
+    auth = {"Authorization": "Bearer secret-token"}
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=J.create_app(jarvis)),
+                                 base_url="http://jarvis") as client:
+        assert (await client.get("/dash/api/phone")).status_code == 401
+        view = (await client.get("/dash/api/phone", headers=auth)).json()
+        assert view["links"][0]["url"] == "https://pc.tail-1.ts.net/dash/mothership.html"
+        opened = (await client.post("/dash/api/phone/tailscale", headers=auth,
+                                    json={"share": True})).json()
+        assert opened["title"] == "Phone access"
+        off = await client.post("/dash/api/phone/tailscale", headers=auth,
+                                json={"share": False})
+        assert off.status_code == 200
+        exe = "& 'C:/Program Files/Tailscale/tailscale.exe'" if J.WINDOWS else (
+            "'C:/Program Files/Tailscale/tailscale.exe'")
+        assert shells[0].written == [f"{exe} serve --bg 8765\r"]  # you pressed it: no asking
+        assert shells[1].written == [f"{exe} serve --https=443 off\r"]
+        monkeypatch.setattr(J, "tailscale_exe", lambda: None)
+        missing = await client.post("/dash/api/phone/tailscale", headers=auth, json={})
+        assert missing.status_code == 409 and "tailscale.com" in missing.json()["detail"]
+    assert jarvis.approvals == {}
+    jarvis.close_all_terminals()
+
+
+@pytest.mark.asyncio
+async def test_the_app_manifest_carries_the_token_only_to_whoever_sent_it(
+        tmp_path: Path) -> None:
+    jarvis = make(tmp_path, FakeWeb())
+    (tmp_path / "frontend").mkdir()
+    (tmp_path / "frontend" / "manifest.webmanifest").write_text(
+        json.dumps({"name": "JARVIS", "start_url": "mothership.html"}), encoding="utf-8")
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=J.create_app(jarvis)),
+                                 base_url="http://jarvis") as client:
+        plain = await client.get("/dash/manifest.webmanifest")
+        assert plain.headers["content-type"].startswith("application/manifest+json")
+        assert plain.json() == {"name": "JARVIS", "start_url": "mothership.html"}
+        wrong = await client.get("/dash/manifest.webmanifest?token=guess")
+        assert wrong.json()["start_url"] == "mothership.html"
+        right = await client.get("/dash/manifest.webmanifest?token=secret-token")
+        assert right.json()["start_url"] == "mothership.html?token=secret-token"
 
 
 def openai_web(seen: list[httpx.Request]) -> FakeWeb:

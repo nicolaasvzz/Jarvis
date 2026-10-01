@@ -48,7 +48,7 @@ const VIEWS = {
   approvals: { module: approvals, parts: ["all", "approvals", "events"] },
   controls: { module: controls, parts: ["all", "mothership", "terminals"] },
   projects: { module: projects, parts: ["all", "mothership", "terminals"] },
-  connections: { module: connections, parts: ["all", "connections"] },
+  connections: { module: connections, parts: ["all", "connections", "phone"] },
 };
 
 let current = { name: null, params: {}, cleanup: null };
