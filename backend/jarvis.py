@@ -109,7 +109,8 @@ class Settings:
     home_location: str = ""
     voice: str = "en-GB-RyanNeural"
     voice_provider: str = "edge"
-    listen_provider: str = "off"
+    listen_provider: str = "browser"
+    listen_language: str = "en-GB"
     wispr_api_key: str = ""
     wispr_language: str = "en"
     openai_api_key: str = ""
@@ -151,7 +152,8 @@ class Settings:
             home_location=get("HOME_LOCATION"),
             voice=get("JARVIS_VOICE", "en-GB-RyanNeural"),
             voice_provider=get("JARVIS_VOICE_PROVIDER", "edge").lower(),
-            listen_provider=get("JARVIS_LISTEN_PROVIDER", "off").lower(),
+            listen_provider=get("JARVIS_LISTEN_PROVIDER", "browser").lower(),
+            listen_language=get("JARVIS_LISTEN_LANGUAGE", "en-GB"),
             wispr_api_key=get("WISPR_API_KEY"),
             wispr_language=get("WISPR_LANGUAGE", "en").lower(),
             voice_style=get("JARVIS_VOICE_STYLE", VOICE_STYLE),
@@ -468,8 +470,10 @@ class Jarvis:
 
     @property
     def listen_provider(self) -> str:
-        """Who turns the microphone into text: "wispr" if chosen and keyed, else
-        "" (typing only)."""
+        """Who turns the microphone into text: "browser" (the page's own speech
+        recognition, no key), "wispr" if chosen and keyed, else "" (typing only)."""
+        if self.settings.listen_provider == "browser":
+            return "browser"
         if self.settings.listen_provider == "wispr" and self.settings.wispr_api_key:
             return "wispr"
         return ""
@@ -1016,6 +1020,7 @@ class Jarvis:
         return {"enabled": True, "can_speak": self.can_speak, "can_listen": self.can_listen,
                 "voice": self.settings.openai_tts_voice if openai else self.settings.voice,
                 "provider": self.voice_provider, "listen_provider": self.listen_provider,
+                "listen_language": self.settings.listen_language,
                 "wake_word": "jarvis",
                 "wake_word_required": False, "listen_enabled": self.can_listen,
                 "speak_events": ["task.completed", "task.failed", "approval.required"]}
@@ -1221,10 +1226,11 @@ def create_app(jarvis: Jarvis) -> FastAPI:
 
     @app.post("/dash/api/listen", dependencies=guard)
     async def listen(audio: UploadFile, submit: Annotated[bool, Form()] = True) -> dict[str, Any]:
-        if not jarvis.can_listen:
+        if jarvis.listen_provider != "wispr":
             raise HTTPException(
                 status_code=503,
-                detail="Listening is off — set JARVIS_LISTEN_PROVIDER=wispr and WISPR_API_KEY.")
+                detail="Uploads are only for Wispr Flow — set JARVIS_LISTEN_PROVIDER=wispr "
+                       "and WISPR_API_KEY (the browser option listens inside the page).")
         try:
             said = await jarvis.transcribe(await audio.read())
         except JarvisError as exc:

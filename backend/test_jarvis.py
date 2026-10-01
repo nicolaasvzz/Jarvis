@@ -320,7 +320,8 @@ async def test_openai_voice_speaks_through_the_speech_endpoint(tmp_path: Path) -
 @pytest.mark.asyncio
 async def test_openai_voice_reports_a_bad_key_and_off_stays_silent(tmp_path: Path) -> None:
     seen: list[httpx.Request] = []
-    jarvis = make(tmp_path, openai_web(seen), voice_provider="openai", openai_api_key="sk-bad")
+    jarvis = make(tmp_path, openai_web(seen), voice_provider="openai", openai_api_key="sk-bad",
+                  listen_provider="off")
     jarvis.settings.voice = "en-GB-RyanNeural"
     with pytest.raises(J.JarvisError, match="OPENAI_API_KEY"):
         await jarvis.speak("hello")
@@ -378,18 +379,37 @@ async def test_wispr_listening_turns_a_recording_into_a_task(tmp_path: Path) -> 
 
 
 @pytest.mark.asyncio
-async def test_wispr_is_off_by_default_and_reports_a_bad_key(tmp_path: Path) -> None:
+async def test_listening_can_be_off_and_wispr_reports_a_bad_key(tmp_path: Path) -> None:
     from fastapi.testclient import TestClient
 
     seen: list[httpx.Request] = []
-    off = make(tmp_path, wispr_web(seen))
+    off = make(tmp_path, wispr_web(seen), listen_provider="off")
     assert not off.can_listen and off.voice_info() == {"enabled": False}
     r = TestClient(J.create_app(off)).post(
         "/dash/api/listen", headers={"Authorization": "Bearer secret-token"},
         files={"audio": ("u.wav", WAV, "audio/wav")})
     assert r.status_code == 503 and "JARVIS_LISTEN_PROVIDER" in r.json()["detail"]
+    assert J.Settings().listen_provider == "browser"  # works out of the box
     keyless = make(tmp_path, wispr_web(seen), listen_provider="wispr")
     assert not keyless.can_listen  # chosen but no key: stays off
     wrong = make(tmp_path, wispr_web(seen), listen_provider="wispr", wispr_api_key="nope")
     with pytest.raises(J.JarvisError, match="WISPR_API_KEY"):
         await wrong.transcribe(WAV)
+
+
+@pytest.mark.asyncio
+async def test_browser_listening_needs_no_key_and_takes_no_uploads(tmp_path: Path) -> None:
+    from fastapi.testclient import TestClient
+
+    jarvis = make(tmp_path, FakeWeb(reply({"text": "Hello."})), listen_language="en-GB")
+    info = jarvis.voice_info()
+    assert info["enabled"] and info["can_listen"] and not info["can_speak"]
+    assert (info["listen_provider"], info["listen_language"]) == ("browser", "en-GB")
+    client = TestClient(J.create_app(jarvis))
+    auth = {"Authorization": "Bearer secret-token"}
+    upload = client.post("/dash/api/listen", headers=auth,
+                         files={"audio": ("u.wav", WAV, "audio/wav")})
+    assert upload.status_code == 503 and "inside the page" in upload.json()["detail"]
+    heard = client.post("/dash/api/command", headers=auth,
+                        json={"text": "Jarvis, hello", "submit": False}).json()
+    assert heard["command"] == "hello"  # the page posts what it heard here

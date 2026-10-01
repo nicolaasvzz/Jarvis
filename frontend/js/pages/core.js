@@ -419,6 +419,8 @@ function setupVoice(capability) {
 
   voice = new Voice({
     wav: capability.listen_provider === "wispr",
+    browser: capability.listen_provider === "browser",
+    language: capability.listen_language,
     onTranscript: (heard) => {
       if (!heard.text) return;
       if (!heard.addressed) {

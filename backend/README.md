@@ -63,6 +63,9 @@ read it; its output is also saved to `workspace/jobs/<time>-<name>/output.txt`.
 | `JARVIS_VOICE` | `en-GB-RyanNeural` | Edge voice name; `off` for silence |
 | `JARVIS_VOICE_PROVIDER` | `edge` | `openai` for ChatGPT's voices (needs `OPENAI_API_KEY`; falls back to `edge`) |
 | `JARVIS_VOICE_STYLE` | deep, refined British butler | plain-words accent/tone for the OpenAI voice |
+| `JARVIS_LISTEN_PROVIDER` | `browser` | `browser` (Chrome/Edge's own speech recognition, free), `wispr` (Wispr Flow, needs `WISPR_API_KEY`), or `off` |
+| `JARVIS_LISTEN_LANGUAGE` | `en-GB` | what you speak, for the `browser` option |
+| `WISPR_API_KEY` / `WISPR_LANGUAGE` | / `en` | Wispr Flow key and language hint |
 | `OPENAI_API_KEY` | | key for the OpenAI voice |
 | `OPENAI_TTS_MODEL` / `OPENAI_TTS_VOICE` | `gpt-4o-mini-tts` / `onyx` | OpenAI voice model and voice |
 | `NEWS_COUNTRY` / `NEWS_LANGUAGE` | `US` / `en` | Google News edition |
