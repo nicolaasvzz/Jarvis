@@ -381,6 +381,8 @@ body.is-error { --accent: #f43f5e; }
   margin-bottom: 11px;
 }
 .task:last-child { margin-bottom: 0; }
+.task[data-task] { cursor: pointer; }
+.task[data-task]:hover .req { color: var(--accent); }
 .task.running { border-left-color: var(--amber); }
 .task.completed { border-left-color: var(--green); }
 .task.failed { border-left-color: var(--red); }

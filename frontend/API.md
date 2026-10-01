@@ -7,6 +7,7 @@ paths are defaults — rename any of them under `routes` in `config.js`.
 
 | Page | Routes it uses |
 |---|---|
+| `mothership.html` | `snapshot`, `stream`, `tasks`, `approvals`, `approval`, `terminals`, `stats`, `system`, `command`, `mothership` and the `ms…` routes below |
 | `index.html` (Core) | `snapshot`, `stream`, `stats`, `command`, `approval`, optionally `system`, `listen`, `speak`, `docs` |
 | `terminal.html` | `snapshot`, `stream`, `terminals`, `terminalStream`, `terminalInput`, `terminalClose`, `terminalExplain`, `terminalTrust`, `approvals`, `approval`, `command` |
 | `approve.html` | `snapshot`, `stream`, `approvals`, `approval` |
@@ -47,7 +48,8 @@ reconnecting.
 }
 ```
 
-- **Task** — `{id, request, status, goal, steps: [{id, description, tool, status, risk, error}], result, error, created_at, updated_at}`.
+- **Task** — `{id, request, kind, status, goal, steps: [{id, description, tool, status, risk, error}], result, error, created_at, updated_at}`.
+  `kind` says who started it: `asked` (you), `notice` (a long command finished), `explain` (the Explain button) or `control` (a Mothership control).
   `status` is one of `pending`, `planning`, `running`, `waiting_approval`, `completed`, `failed`, `cancelled`.
 - **Approval** — `{id, task_id, tool, arguments, reason, created_at}`.
 - **voice** — `{"enabled": false}` hides the microphone. With speech:
@@ -83,7 +85,7 @@ command or a trusted terminal), `error`, `heard`, and for the Terminal page
 `terminal.opened`, `terminal.exited`, `terminal.updated`,
 `terminal.failed` (a command failed), `terminal.finished` (a long command
 worked), `terminal.closed` (`data` carries the `terminal`, or its
-`terminal_id`) and `terminal.input` (the assistant typed into
+`terminal_id`), `mothership.updated` (controls or projects changed) and `terminal.input` (the assistant typed into
 `data.terminal_id`). `speak: true` asks the Core page to read `message`
 aloud.
 
@@ -145,6 +147,7 @@ terminals, so both see the same screen.
  "opened_by": "jarvis", "status": "running", "state": "at its prompt",
  "at_prompt": true, "exit_code": null, "created_at": "...", "cols": 120, "rows": 30,
  "trusted": false, "running": null,
+ "control": null, "project": "p-tradebot",
  "last_result": {"command": "npm install", "by": "jarvis", "ok": true, "seconds": 41,
                  "started_at": "...", "finished_at": "...", "watched": false},
  "log": [{"at": "...", "by": "jarvis", "text": "npm install"},
@@ -181,6 +184,40 @@ The stream's messages, each `data: <JSON>\n\n`:
   until closed.
 - `{"type": "closed"}` — the terminal was closed; the stream then ends.
 
+## Mothership routes
+
+The Mothership page's controls and projects. All of them answer `404` for an
+unknown id and `409` (with a `detail`) for something that can't be done right
+now, e.g. running a control that isn't built.
+
+**Control** — `{id, name, group, project, kind, action, description, trusted, last_run, created_at, updated_at}`.
+`kind` is `idea` (not built yet), `command` (`action` is a command line, run
+in a terminal in the project's folder), `ask` (`action` is a request for the
+assistant) or `link` (`action` is an http(s) address). `trusted` lets the
+assistant run a command control without asking. `project` is a project id or `""`.
+
+**Project** — `{id, name, description, folder, status_file, hue, links: [{label, url}], ideas: [{id, text, done, by, created_at}], created_at, updated_at}`.
+
+| Route | Default | |
+|---|---|---|
+| `mothership` | `GET /dash/api/mothership` | `{"controls": [Control], "projects": [Project], "claude": true}` — `claude`: Claude Code is installed |
+| `msControls` | `POST /dash/api/mothership/controls` | `{name, group, project, kind, action, description, trusted}` → the new Control |
+| `msControl` | `POST /dash/api/mothership/controls/{id}` | the same body → the updated Control |
+| `msControlDelete` | `POST …/controls/{id}/delete` | |
+| `msControlRun` | `POST …/controls/{id}/run` | You pressed it: runs now, no approval. → `{"terminal": "term-3"}`, `{"task_id": "t-…"}` (ask) or `{"url": "…"}` (link — the page opens it) |
+| `msControlStop` | `POST …/controls/{id}/stop` | Ctrl+C in the control's terminal → `{"terminal": …}` |
+| `msControlBuild` | `POST …/controls/{id}/build` | Opens Claude Code in a terminal with a brief → the Terminal |
+| `msProjects` | `POST /dash/api/mothership/projects` | `{name, description, folder, status_file, hue, links}` → the new Project |
+| `msProject` | `POST …/projects/{id}` | the same body → the updated Project |
+| `msProjectDelete` | `POST …/projects/{id}/delete` | its controls stay, unfiled |
+| `msProjectStatus` | `GET …/projects/{id}/status` | `{"available": true, "file", "modified", "data": <its JSON>}` (or `"text"`), or `{"available": false, "note"}` |
+| `msProjectTerminal` | `POST …/projects/{id}/terminal` | a terminal in the folder → the Terminal |
+| `msProjectClaude` | `POST …/projects/{id}/claude` | Claude Code in the folder → the Terminal |
+| `msIdeas` | `POST …/projects/{id}/ideas` | `{"text": "…"}` → the new idea |
+| `msIdea` | `POST …/projects/{id}/ideas/{idea}` | `{"text"?, "done"?}` |
+| `msIdeaDelete` | `POST …/projects/{id}/ideas/{idea}/delete` | |
+| `msIdeaBuild` | `POST …/projects/{id}/ideas/{idea}/build` | Claude Code in the folder, briefed on the idea → the Terminal |
+
 ## Other routes
 
 | Route | Default | Returns |
@@ -188,6 +225,9 @@ The stream's messages, each `data: <JSON>\n\n`:
 | `approvals` | `GET /approvals` | `[Approval, ...]` still pending — the Terminal and Approvals pages |
 | `system` | `GET /system` | `{"brain": {"provider": "gemini", "model": "gemini-3.5-flash-lite", "connected": true}, "tools": ["run_command", ...], "active_tasks": 1, "total_tasks": 5, "workspace": "..."}` — the model line on the Core page |
 
-`jarvis.py` also has plain REST routes no page uses, for scripts and curl:
-`GET`/`POST /tasks`, `GET /tasks/{id}`, `GET /notifications` and
-`GET /events` (the event stream again).
+| `tasks` | `GET /tasks?limit=100` | `[Task, ...]`, newest first, up to `limit` (1000); kept across restarts — the Mothership's request stack |
+| `task` | `GET /tasks/{id}` | one Task |
+
+`jarvis.py` also has a few plain REST routes no page uses, for scripts and
+curl: `POST /tasks`, `GET /notifications` and `GET /events` (the event
+stream again).

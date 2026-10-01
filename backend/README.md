@@ -45,6 +45,8 @@ it makes a dashboard token, saves it to `.env`, and opens
 | `terminal_open` | Opens a live terminal on the dashboard's **Terminal** tab, optionally running a command in it (that **waits for Allow**) |
 | `terminal_write` | Types into an open terminal — a command, an answer, or a key like ctrl+c — **waits for Allow** (not in a trusted terminal), then returns the screen |
 | `terminal_read` / `terminal_list` | What a terminal's screen shows; which terminals are open and what each is for |
+| `run_control` | Presses one of your Mothership controls — **waits for Allow** unless you marked it trusted |
+| `add_idea` | Notes an idea on one of your Mothership projects |
 | `read_workspace_file` | Reads a file in the workspace |
 
 Commands run in PowerShell on Windows (bash elsewhere), starting in
@@ -72,6 +74,19 @@ how it went.
 with a `title`, `purpose` and optional `command`. You wrote those commands
 yourself, so they run without asking.
 
+**The Mothership** (`/dash/mothership.html`) is the control centre. Every
+request is kept — in `data/history.json`, so restarts don't lose them — and
+shown as a stack you can click into. **Controls** are buttons for anything:
+run a command (in a project's folder), ask Jarvis something, open a page —
+or an *idea* that isn't built yet. Jarvis knows them all, so *"make it rain
+in BeamNG"* presses the matching control. **Build with Claude** opens Claude
+Code in a terminal with a brief; when it works, Claude switches the control
+on by editing `data/mothership.json`, which Jarvis re-reads by itself.
+**Projects** (a trading bot, a brand, …) get a page each with a live view of
+their status file (any JSON — numbers, curves and tables are drawn
+automatically), their controls, an ideas board and their terminals. A fresh
+install starts from `mothership.example.json`.
+
 **From your phone.** `approve.html` is an Allow/Deny page for a phone. Set
 `JARVIS_HOST=0.0.0.0` and `jarvis.py` prints its address on your Wi-Fi at
 start-up, token included. Anyone who has that link can approve commands, so
@@ -90,6 +105,7 @@ treat it like a password.
 | `ALLOW_SAFE_COMMANDS` | `true` | Read-only commands run without asking; `false` asks for those too |
 | `NOTIFY_AFTER_SECONDS` | `20` | A command this long gets a "how it went" from Jarvis; `0` = never |
 | `STARTUP_TERMINALS` | `terminals.json` | Terminals to open when Jarvis starts |
+| `JARVIS_DATA` | `data` | Your Mothership, request history and Claude briefs (not committed) |
 | `JARVIS_WORKSPACE` | `workspace` | Where commands start |
 | `JARVIS_VOICE` | `en-GB-RyanNeural` | Edge voice name; `off` for silence |
 | `JARVIS_VOICE_PROVIDER` | `edge` | `openai` for ChatGPT's voices (needs `OPENAI_API_KEY`; falls back to `edge`) |

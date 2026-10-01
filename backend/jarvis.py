@@ -116,6 +116,7 @@ class Settings:
     allow_safe: bool = True
     notify_after: int = 20
     startup_terminals: Path = HERE / "terminals.json"
+    data_dir: Path = HERE / "data"
     home_location: str = ""
     voice: str = "en-GB-RyanNeural"
     voice_provider: str = "edge"
@@ -163,6 +164,7 @@ class Settings:
             allow_safe=flag("ALLOW_SAFE_COMMANDS", True),
             notify_after=int(get("NOTIFY_AFTER_SECONDS", "20") or 0),
             startup_terminals=path("STARTUP_TERMINALS", HERE / "terminals.json"),
+            data_dir=path("JARVIS_DATA", HERE / "data"),
             home_location=get("HOME_LOCATION"),
             voice=get("JARVIS_VOICE", "en-GB-RyanNeural"),
             voice_provider=get("JARVIS_VOICE_PROVIDER", "edge").lower(),
@@ -222,6 +224,9 @@ class Task:
     #: What Gemini is sent, when it isn't simply `request` — a notice or an
     #: "explain this" carries the terminal's screen, too long to show as asked.
     prompt: str | None = None
+    #: Who started it: "asked" (you), "notice" (a long command finished),
+    #: "explain" (the Explain button) or "control" (a Mothership control).
+    kind: str = "asked"
     id: str = field(default_factory=lambda: short_id("t"))
     status: str = "pending"
     steps: list[Step] = field(default_factory=list)
@@ -235,10 +240,25 @@ class Task:
         self.updated_at = now()
 
     def out(self) -> dict[str, Any]:
-        return {"id": self.id, "request": self.request, "status": self.status, "goal": None,
+        return {"id": self.id, "request": self.request, "kind": self.kind,
+                "status": self.status, "goal": None,
                 "steps": [s.out() for s in self.steps], "result": self.result,
                 "error": self.error, "created_at": self.created_at,
                 "updated_at": self.updated_at}
+
+    @classmethod
+    def load(cls, saved: dict[str, Any]) -> "Task":
+        """A finished task back from data/history.json."""
+        steps = [Step(description=str(s.get("description", "")), tool=str(s.get("tool", "")),
+                      id=str(s.get("id") or short_id("s")), status=str(s.get("status", "")),
+                      risk=str(s.get("risk", "safe")), error=s.get("error"))
+                 for s in saved.get("steps") or [] if isinstance(s, dict)]
+        return cls(request=str(saved.get("request", "")), kind=str(saved.get("kind", "asked")),
+                   id=str(saved.get("id") or short_id("t")),
+                   status=str(saved.get("status", "completed")), steps=steps,
+                   result=saved.get("result"), error=saved.get("error"),
+                   created_at=str(saved.get("created_at") or now()),
+                   updated_at=str(saved.get("updated_at") or now()))
 
 
 @dataclass
@@ -403,6 +423,8 @@ class Terminal:
         self.last_result: dict[str, Any] | None = None  # how the last one went
         self.trusted = False  # Jarvis may type here without asking
         self.watchers = 0  # Jarvis tools waiting on this terminal right now
+        self.control: str | None = None  # the Mothership control running here
+        self.project: str | None = None  # the Mothership project it belongs to
         self.screen = pyte.HistoryScreen(cols, rows, history=3000)
         self.stream = pyte.Stream(self.screen)
         self.listeners: set[asyncio.Queue[dict[str, Any]]] = set()
@@ -643,7 +665,8 @@ class Terminal:
                 "created_at": self.created_at, "cols": self.cols, "rows": self.rows,
                 "trusted": self.trusted, "running": self.running and {
                     k: v for k, v in self.running.items() if k != "started"},
-                "last_result": last, "log": list(self.log)[-10:]}
+                "last_result": last, "control": self.control, "project": self.project,
+                "log": list(self.log)[-10:]}
 
 
 class Hub:
@@ -685,6 +708,79 @@ class Hub:
             yield queue
         finally:
             self.subscribers.discard(queue)
+
+
+class Mothership:
+    """Your controls and projects, kept in data/mothership.json.
+
+    A *control* is a button: ask Jarvis something ("ask"), run a command in a
+    terminal ("command"), open a page ("link"), or a not-yet-built "idea".
+    A *project* is a folder with a purpose: its controls, ideas, terminals
+    and, optionally, a status file the dashboard shows live.
+
+    The file is re-read whenever it changes on disk, so an edit by hand — or
+    by Claude, finishing a control it built with you — shows up without a
+    restart.
+    """
+
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        self._mtime: float | None = None
+        self.data: dict[str, list[dict[str, Any]]] = {"controls": [], "projects": []}
+
+    def load(self) -> dict[str, list[dict[str, Any]]]:
+        try:
+            mtime = self.path.stat().st_mtime
+        except OSError:
+            return self.data
+        if mtime != self._mtime:
+            with contextlib.suppress(ValueError, OSError):
+                raw = json.loads(self.path.read_text(encoding="utf-8-sig"))
+                if isinstance(raw, dict):
+                    self.data = {key: [x for x in raw.get(key) or [] if isinstance(x, dict)]
+                                 for key in ("controls", "projects")}
+            self._mtime = mtime
+        return self.data
+
+    def save(self) -> None:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        spare = self.path.with_suffix(".tmp")
+        spare.write_text(json.dumps(self.data, indent=2, ensure_ascii=False), encoding="utf-8")
+        spare.replace(self.path)
+        self._mtime = self.path.stat().st_mtime
+
+    @property
+    def controls(self) -> list[dict[str, Any]]:
+        return self.load()["controls"]
+
+    @property
+    def projects(self) -> list[dict[str, Any]]:
+        return self.load()["projects"]
+
+    @staticmethod
+    def _find(items: list[dict[str, Any]], key: str) -> dict[str, Any] | None:
+        """By id, then exact name, then a name containing `key`."""
+        key = str(key).strip()
+        wanted = key.casefold()
+        for match in (lambda x: x.get("id") == key,
+                      lambda x: str(x.get("name", "")).casefold() == wanted,
+                      lambda x: wanted and wanted in str(x.get("name", "")).casefold()):
+            found = [x for x in items if match(x)]
+            if found:
+                return found[0]
+        return None
+
+    def control(self, key: str) -> dict[str, Any] | None:
+        return self._find(self.controls, key)
+
+    def project(self, key: str) -> dict[str, Any] | None:
+        return self._find(self.projects, key)
+
+    def folder(self, project_id: str | None) -> Path | None:
+        """A project's folder, if it names one that exists."""
+        project = self.project(project_id) if project_id else None
+        folder = Path(str(project.get("folder") or "")) if project else None
+        return folder if folder and folder.is_absolute() and folder.is_dir() else None
 
 
 # ======================================================== tool plumbing ===
@@ -793,6 +889,34 @@ class Jarvis:
         self._whisper: Any = None
         self.tools = {tool.name: tool for tool in self._tools()}
         settings.workspace.mkdir(parents=True, exist_ok=True)
+        self.mothership = Mothership(settings.data_dir / "mothership.json")
+        example = HERE / "mothership.example.json"
+        if not self.mothership.path.exists() and example.is_file():
+            with contextlib.suppress(OSError):  # a fresh install starts from the examples
+                settings.data_dir.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(example, self.mothership.path)
+        self.history_file = settings.data_dir / "history.json"
+        self._load_history()
+
+    # -- history: finished requests survive a restart -----------------------
+    HISTORY_KEPT = 500
+
+    def _load_history(self) -> None:
+        with contextlib.suppress(ValueError, OSError):
+            saved = json.loads(self.history_file.read_text(encoding="utf-8"))
+            for entry in saved if isinstance(saved, list) else []:
+                if isinstance(entry, dict):
+                    task = Task.load(entry)
+                    self.tasks[task.id] = task
+
+    def _save_history(self) -> None:
+        finished = [t.out() for t in self.recent_tasks(self.HISTORY_KEPT)
+                    if t.status in {"completed", "failed"}]
+        with contextlib.suppress(OSError):  # history is a nicety; never fail a request on it
+            self.history_file.parent.mkdir(parents=True, exist_ok=True)
+            spare = self.history_file.with_suffix(".tmp")
+            spare.write_text(json.dumps(finished, ensure_ascii=False), encoding="utf-8")
+            spare.replace(self.history_file)
 
     @property
     def voice_provider(self) -> str:
@@ -826,8 +950,8 @@ class Jarvis:
         return bool(self.listen_provider)
 
     # -- requests -------------------------------------------------------
-    def submit(self, request: str, prompt: str | None = None) -> Task:
-        task = Task(request=request.strip(), prompt=prompt)
+    def submit(self, request: str, prompt: str | None = None, kind: str = "asked") -> Task:
+        task = Task(request=request.strip(), prompt=prompt, kind=kind)
         self.tasks[task.id] = task
         self.hub.emit("task.created", task.request, task_id=task.id)
         asyncio.get_running_loop().create_task(self._run(task))
@@ -852,6 +976,8 @@ class Jarvis:
                 task.set("completed")
                 self.hub.emit("task.completed", answer, task_id=task.id, speak=True,
                               data={"request": task.request})
+            finally:
+                self._save_history()
 
     async def _converse(self, task: Task) -> str:
         """Gemini's tool loop: run the tools it asks for until it answers in words."""
@@ -922,6 +1048,7 @@ class Jarvis:
             "approval": ("Commands run straight away (AUTO_APPROVE is on)." if s.auto_approve
                          else "Each command waits for the user to press Allow on the dashboard."),
             "terminals": self.terminals_summary(),
+            "mothership": self.mothership_summary(),
         }
         for key, value in values.items():
             text = text.replace("{{" + key + "}}", value)
@@ -1049,6 +1176,17 @@ class Jarvis:
                  "List the open terminals: id, title, purpose, state, and what was typed.",
                  params(),
                  self.terminal_list, lambda a: "Checking the terminals"),
+            Tool("run_control",
+                 "Run one of the user's Mothership controls (listed in the system prompt) "
+                 "— e.g. change the weather in a sim, start the trading bot. Match the "
+                 "user's words to the control's name.",
+                 params(["control"], control="string: the control's name or id"),
+                 self.use_control, lambda a: f"Control: {a.get('control', '?')}", risky=True),
+            Tool("add_idea",
+                 "Note an idea on one of the user's Mothership projects.",
+                 params(["project", "idea"], project="string: the project's name",
+                        idea="string: the idea, in a sentence"),
+                 self.note_idea, lambda a: f"Idea for {a.get('project', '?')}"),
             Tool("read_workspace_file",
                  "Read a text file from the workspace folder.",
                  params(["path"], path="string: path relative to the workspace"),
@@ -1253,10 +1391,13 @@ class Jarvis:
     MAX_TERMINALS = 8
 
     def open_terminal(self, title: str, purpose: str = "", opened_by: str = "you",
-                      cols: int | None = None, rows: int | None = None) -> Terminal:
-        """A new shell. Its size is fixed for life — the page scales its font to
-        fit — because shrinking a terminal cuts its lines (pyte doesn't reflow).
-        Without a size it takes the size of the last one the page opened."""
+                      cols: int | None = None, rows: int | None = None,
+                      cwd: Path | None = None, control: str | None = None,
+                      project: str | None = None) -> Terminal:
+        """A new shell, in `cwd` (default: the workspace). Its size is fixed for
+        life — the page scales its font to fit — because shrinking a terminal
+        cuts its lines (pyte doesn't reflow). Without a size it takes the size
+        of the last one the page opened."""
         if cols and rows:
             self.view_size = (cols, rows)
         cols, rows = self.view_size
@@ -1266,10 +1407,11 @@ class Jarvis:
         self._terminal_count += 1
         terminal_id = f"term-{self._terminal_count}"
         title = " ".join(title.split())[:60] or f"Terminal {self._terminal_count}"
-        process = self.spawn_shell(self.settings.workspace, cols, rows)
+        process = self.spawn_shell(cwd or self.settings.workspace, cols, rows)
         terminal = Terminal(terminal_id, title, " ".join(purpose.split())[:300], opened_by,
                             process, cols, rows, self._terminal_exited,
                             on_finish=self._terminal_finished)
+        terminal.control, terminal.project = control, project
         self.terminals[terminal_id] = terminal
         who = {"jarvis": "Jarvis opened", "startup": "Started"}.get(opened_by, "Opened")
         self.hub.emit("terminal.opened", f"{who} a terminal: {title}",
@@ -1301,7 +1443,7 @@ class Jarvis:
                         f"{'worked' if result['ok'] else 'failed'}. The end of its screen:\n"
                         f"```\n{chr(10).join(terminal.lines(40))}\n```\n"
                         "Tell the user how it went in one or two short sentences — mention "
-                        "errors or warnings that matter. Don't run anything."))
+                        "errors or warnings that matter. Don't run anything."), kind="notice")
 
     def explain_terminal(self, terminal_id: str) -> Task:
         """Ask Jarvis what went wrong in a terminal, with its screen attached."""
@@ -1317,7 +1459,8 @@ class Jarvis:
             f"Look at terminal {terminal.id} \"{terminal.title}\". {about} Its screen:\n"
             f"```\n{chr(10).join(terminal.lines(80))}\n```\n"
             "Explain briefly and plainly what went wrong and how to fix it. If a command "
-            "would fix it, give it — and offer to run it rather than running it."))
+            "would fix it, give it — and offer to run it rather than running it."),
+            kind="explain")
 
     def trust_terminal(self, terminal_id: str, trusted: bool) -> Terminal:
         terminal = self._terminal(terminal_id)
@@ -1448,10 +1591,268 @@ class Jarvis:
                             lines: int = 60) -> dict[str, Any]:
         return self._screen(self._terminal(terminal_id), max(5, min(int(lines or 60), 300)))
 
+    async def use_control(self, task: Task, control: str) -> dict[str, Any]:
+        found = self.mothership.control(control)
+        if found is None:
+            names = ", ".join(str(c.get("name")) for c in self.mothership.controls) or "none"
+            return {"error": f"There's no control like {control!r}. Controls: {names}."}
+        name, kind = found.get("name"), found.get("kind")
+        action = str(found.get("action") or "")
+        if kind == "idea" or not action:
+            return {"error": f"“{name}” isn't built yet — the user can press Build with "
+                             "Claude on it in the Mothership."}
+        if kind == "ask":
+            return {"do_now": action, "note": "This control is a request — carry it out now."}
+        if kind == "link":
+            if urlparse(action).scheme not in {"http", "https"}:
+                return {"error": "That control's link isn't a web address."}
+            await asyncio.to_thread(webbrowser.open, action)
+            return {"opened": action}
+        free = ("the user lets you run this control without asking" if found.get("trusted")
+                else self._safe(action))
+        if not await self._approve(task, "run_control", {"control": name, "command": action},
+                                   f"Run the control “{name}”: {action}", free=free):
+            return {"denied": True,
+                    "note": "The user did not allow this. Don't retry unless asked."}
+        started = await self.run_control(found, by="jarvis")
+        terminal = self.terminals[started["terminal"]]
+        await terminal.settle(limit=8)
+        return {"control": name, **self._screen(terminal)}
+
+    async def note_idea(self, task: Task, project: str, idea: str) -> dict[str, Any]:
+        found = self.mothership.project(project)
+        if found is None:
+            names = ", ".join(str(p.get("name")) for p in self.mothership.projects) or "none"
+            return {"error": f"There's no project like {project!r}. Projects: {names}."}
+        self.add_project_idea(str(found["id"]), idea, by="jarvis")
+        return {"noted": idea, "project": found.get("name")}
+
     async def terminal_list(self, task: Task) -> dict[str, Any]:
         if not self.terminals:
             return {"terminals": [], "note": "No terminals are open."}
         return {"terminals": [t.summary() for t in self.terminals.values()]}
+
+    # -- the mothership: your controls and projects -------------------------
+    def mothership_out(self) -> dict[str, Any]:
+        data = self.mothership.load()
+        return {"controls": data["controls"], "projects": data["projects"],
+                "claude": shutil.which("claude") is not None}
+
+    def _changed(self, message: str) -> None:
+        self.mothership.save()
+        self.hub.emit("mothership.updated", message)
+
+    @staticmethod
+    def _by_id(items: list[dict[str, Any]], item_id: str, what: str) -> dict[str, Any]:
+        for item in items:
+            if item.get("id") == item_id:
+                return item
+        raise KeyError(f"No {what} {item_id!r}.")
+
+    def save_control(self, fields: dict[str, Any], control_id: str | None = None,
+                     ) -> dict[str, Any]:
+        controls = self.mothership.controls
+        if control_id:
+            control = self._by_id(controls, control_id, "control")
+        else:
+            control = {"id": short_id("c"), "created_at": now()}
+            controls.append(control)
+        control.update(fields)
+        control["updated_at"] = now()
+        self._changed(f"Saved the control “{control.get('name')}”.")
+        return control
+
+    def delete_control(self, control_id: str) -> None:
+        control = self._by_id(self.mothership.controls, control_id, "control")
+        self.mothership.controls.remove(control)
+        self._changed(f"Deleted the control “{control.get('name')}”.")
+
+    def save_project(self, fields: dict[str, Any], project_id: str | None = None,
+                     ) -> dict[str, Any]:
+        projects = self.mothership.projects
+        if project_id:
+            project = self._by_id(projects, project_id, "project")
+        else:
+            project = {"id": short_id("p"), "created_at": now(), "ideas": []}
+            projects.append(project)
+        project.update(fields)
+        project["updated_at"] = now()
+        self._changed(f"Saved the project “{project.get('name')}”.")
+        return project
+
+    def delete_project(self, project_id: str) -> None:
+        project = self._by_id(self.mothership.projects, project_id, "project")
+        self.mothership.projects.remove(project)
+        for control in self.mothership.controls:  # keep its controls, just unfiled
+            if control.get("project") == project_id:
+                control["project"] = ""
+        self._changed(f"Deleted the project “{project.get('name')}”.")
+
+    def add_project_idea(self, project_id: str, text: str, by: str = "you") -> dict[str, Any]:
+        project = self._by_id(self.mothership.projects, project_id, "project")
+        idea: dict[str, Any] = {"id": short_id("i"), "text": " ".join(text.split())[:500],
+                                "done": False, "by": by, "created_at": now()}
+        project.setdefault("ideas", []).append(idea)
+        self._changed(f"New idea for {project.get('name')}: {idea['text'][:80]}")
+        return idea
+
+    def update_idea(self, project_id: str, idea_id: str, text: str | None = None,
+                    done: bool | None = None, delete: bool = False) -> None:
+        project = self._by_id(self.mothership.projects, project_id, "project")
+        ideas = project.setdefault("ideas", [])
+        idea = self._by_id(ideas, idea_id, "idea")
+        if delete:
+            ideas.remove(idea)
+        else:
+            if text is not None:
+                idea["text"] = " ".join(text.split())[:500]
+            if done is not None:
+                idea["done"] = done
+        self._changed(f"Updated the ideas for {project.get('name')}.")
+
+    def project_status(self, project_id: str) -> dict[str, Any]:
+        """The project's status file — e.g. a trading bot's live_state.json —
+        read fresh each time, and only from inside the project's folder."""
+        project = self._by_id(self.mothership.projects, project_id, "project")
+        folder = self.mothership.folder(project_id)
+        name = str(project.get("status_file") or "").strip()
+        if not folder or not name:
+            return {"available": False, "note": "No status file set for this project."}
+        path = (folder / name).resolve()
+        if folder.resolve() not in path.parents:
+            return {"available": False, "note": "The status file must be inside the folder."}
+        if not path.is_file():
+            return {"available": False, "note": f"There's no {name} yet."}
+        stat = path.stat()
+        if stat.st_size > 4_000_000:
+            return {"available": False, "note": f"{name} is too big to show."}
+        modified = datetime.fromtimestamp(stat.st_mtime, UTC).isoformat()
+        text = path.read_text(encoding="utf-8-sig", errors="replace")
+        try:
+            return {"available": True, "file": str(path), "modified": modified,
+                    "data": json.loads(text)}
+        except ValueError:
+            return {"available": True, "file": str(path), "modified": modified,
+                    "text": text[-6000:]}
+
+    def _control_terminal(self, control: dict[str, Any]) -> Terminal | None:
+        return next((t for t in self.terminals.values()
+                     if t.control == control.get("id") and t.status == "running"), None)
+
+    async def run_control(self, control: dict[str, Any], by: str) -> dict[str, Any]:
+        """Do what a control does. Approval, if any, has happened already."""
+        name, kind = control.get("name", "?"), control.get("kind", "idea")
+        action = str(control.get("action") or "").strip()
+        if kind == "idea" or not action:
+            raise JarvisError(f"“{name}” isn't built yet — press Build with Claude.")
+        if kind == "link":
+            return {"url": action}
+        if kind == "ask":
+            return {"task_id": self.submit(action, kind="control").id}
+        terminal = self._control_terminal(control)
+        if terminal and terminal.running:
+            raise JarvisError(f"“{name}” is still running in {terminal.title} — stop it first.")
+        if terminal is None:
+            project = str(control.get("project") or "") or None
+            terminal = self.open_terminal(str(name), str(control.get("description") or ""), by,
+                                          cwd=self.mothership.folder(project),
+                                          control=control.get("id"), project=project)
+            await terminal.ready()
+        terminal.send(action + "\r", shown=action, by=by)
+        control["last_run"] = now()
+        self._changed(f"Ran the control “{name}”.")
+        return {"terminal": terminal.id}
+
+    def stop_control(self, control_id: str) -> Terminal:
+        control = self._by_id(self.mothership.controls, control_id, "control")
+        terminal = self._control_terminal(control)
+        if terminal is None:
+            raise JarvisError(f"“{control.get('name')}” isn't running.")
+        terminal.send("\x03", shown="[ctrl+c]", by="you")
+        return terminal
+
+    async def claude_terminal(self, title: str, cwd: Path, brief: str | None = None,
+                              project: str | None = None) -> Terminal:
+        """Open Claude Code in a terminal, in `cwd`, working from `brief`."""
+        if shutil.which("claude") is None:
+            raise JarvisError("Claude Code isn't installed on this PC "
+                              "(https://claude.com/claude-code).")
+        command = "claude"
+        if brief:
+            briefs = self.settings.data_dir / "briefs"
+            briefs.mkdir(parents=True, exist_ok=True)
+            path = briefs / f"{datetime.now():%Y%m%d-%H%M%S}-{slug(title)}.md"
+            path.write_text(brief, encoding="utf-8")
+            command = (f'claude "Read the brief in {ps_quote(path)} and help me build it. '
+                       'Start with your plan."')
+        cwd.mkdir(parents=True, exist_ok=True)
+        terminal = self.open_terminal(f"Claude: {title}", "building with Claude Code", "you",
+                                      cwd=cwd, project=project)
+        await terminal.ready()
+        terminal.send(command + "\r", shown=command, by="you")
+        return terminal
+
+    def _plugs_in(self, cwd: Path) -> str:
+        return (f"## How it plugs into Jarvis\n\nJarvis is my local assistant (its code is in "
+                f"{HERE.parent}). Its Mothership dashboard shows *controls*: buttons I press, "
+                "or ask Jarvis for by voice. A command control's command line is typed into "
+                f"a PowerShell terminal opened in {cwd}. Controls live in "
+                f"{self.mothership.path} — Jarvis notices edits to that file by itself, no "
+                "restart needed.\n")
+
+    async def build_control(self, control_id: str) -> Terminal:
+        control = self._by_id(self.mothership.controls, control_id, "control")
+        name = str(control.get("name"))
+        project_id = str(control.get("project") or "") or None
+        project = self.mothership.project(project_id) if project_id else None
+        cwd = (self.mothership.folder(project_id)
+               or self.settings.data_dir / "builds" / slug(name))
+        where = [str(control.get("group") or "")]
+        if project:
+            where.append(f"project {project.get('name')} ({project.get('folder')})")
+        current = (f"Right now it is a `{control.get('kind')}` control: "
+                   f"`{control.get('action')}`." if control.get("action") else
+                   "It isn't wired to anything yet.")
+        brief = (f"# Build a Jarvis control: {name}\n\n"
+                 f"**What it should do:** {control.get('description') or name}\n\n"
+                 f"**Where:** {', '.join(w for w in where if w) or 'on this PC'}\n\n"
+                 f"{current}\n\n{self._plugs_in(cwd)}\n"
+                 "## What I'd like\n\nWork out how to make this happen on this PC, build it "
+                 f"(a script in {cwd} is ideal) and test it with me. When it works, update "
+                 f"the entry with \"id\": \"{control_id}\" in {self.mothership.path}: set "
+                 "\"kind\" to \"command\" and \"action\" to the command line that runs it. "
+                 "Leave the rest of the file as it is.\n")
+        return await self.claude_terminal(name, cwd, brief, project_id)
+
+    async def build_idea(self, project_id: str, idea_id: str) -> Terminal:
+        project = self._by_id(self.mothership.projects, project_id, "project")
+        idea = self._by_id(project.get("ideas") or [], idea_id, "idea")
+        cwd = (self.mothership.folder(project_id)
+               or self.settings.data_dir / "builds" / slug(str(project.get("name"))))
+        brief = (f"# An idea for {project.get('name')}\n\n**The idea:** {idea.get('text')}\n\n"
+                 f"**The project:** {project.get('description') or project.get('name')} — "
+                 f"folder {cwd}\n\n{self._plugs_in(cwd)}\n"
+                 "## What I'd like\n\nHelp me turn this idea into something real. If part of "
+                 "it becomes a button I'd press often, add a control for it to the "
+                 "\"controls\" list in that file, shaped like the others: "
+                 f"{{\"id\": \"c-<something unique>\", \"name\": ..., \"group\": "
+                 f"\"{project.get('name')}\", \"project\": \"{project_id}\", \"kind\": "
+                 "\"command\", \"action\": \"<command line>\", \"description\": ...}.\n")
+        return await self.claude_terminal(str(idea.get("text"))[:40], cwd, brief, project_id)
+
+    def mothership_summary(self) -> str:
+        """Controls and projects as lines of the system prompt."""
+        lines = []
+        for p in self.mothership.projects:
+            lines.append(f"- project `{p.get('name')}` — {p.get('description') or ''} "
+                         f"(folder: {p.get('folder') or 'none'})".rstrip())
+        for c in self.mothership.controls:
+            what = c.get("description") or c.get("action") or ""
+            ready = "not built yet" if c.get("kind") == "idea" else c.get("kind")
+            trusted = ", runs without asking" if c.get("trusted") else ""
+            lines.append(f"- control `{c.get('name')}` [{c.get('group') or 'general'}; "
+                         f"{ready}{trusted}] — {what}")
+        return "\n".join(lines) or "Nothing set up yet."
 
     # -- dashboard data ---------------------------------------------------
     def snapshot(self) -> dict[str, Any]:
@@ -1615,6 +2016,53 @@ class TrustIn(BaseModel):
     trusted: bool
 
 
+class ControlIn(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    group: str = Field(default="", max_length=60)
+    project: str = Field(default="", max_length=40)
+    kind: Literal["ask", "command", "link", "idea"] = "idea"
+    action: str = Field(default="", max_length=2000)
+    description: str = Field(default="", max_length=2000)
+    trusted: bool = False
+
+
+class LinkIn(BaseModel):
+    label: str = Field(min_length=1, max_length=60)
+    url: str = Field(min_length=1, max_length=500)
+
+
+class ProjectIn(BaseModel):
+    name: str = Field(min_length=1, max_length=60)
+    description: str = Field(default="", max_length=2000)
+    folder: str = Field(default="", max_length=400)
+    status_file: str = Field(default="", max_length=200)
+    hue: int = Field(default=190, ge=0, le=360)
+    links: list[LinkIn] = Field(default_factory=list, max_length=20)
+
+
+class IdeaIn(BaseModel):
+    text: str = Field(min_length=1, max_length=500)
+
+
+class IdeaChangeIn(BaseModel):
+    text: str | None = Field(default=None, min_length=1, max_length=500)
+    done: bool | None = None
+
+
+class FreshFiles(StaticFiles):
+    """The dashboard's files, re-checked on every load. Unchanged ones cost a
+    304; without this a browser can keep running last version's scripts."""
+
+    def file_response(self, *args: Any, **kwargs: Any) -> Response:
+        response = super().file_response(*args, **kwargs)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+
+
+def web_address(url: str) -> bool:
+    return urlparse(url.strip()).scheme in {"http", "https"}
+
+
 def create_app(jarvis: Jarvis) -> FastAPI:
     """The HTTP API the dashboard uses — frontend/API.md describes each route."""
     settings = jarvis.settings
@@ -1731,6 +2179,128 @@ def create_app(jarvis: Jarvis) -> FastAPI:
         terminal(terminal_id)
         return jarvis.trust_terminal(terminal_id, body.trusted).out()
 
+    # -- the Mothership: controls and projects ---------------------------------
+    ms = "/dash/api/mothership"
+
+    @contextlib.contextmanager
+    def answers() -> Iterator[None]:
+        """Missing things are 404s; things that can't be done now are 409s."""
+        try:
+            yield
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc.args[0])) from exc
+        except JarvisError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    def checked_control(body: ControlIn) -> dict[str, Any]:
+        if body.kind == "link" and not web_address(body.action):
+            raise HTTPException(status_code=422, detail="A link must start with http(s)://.")
+        if body.project and jarvis.mothership.project(body.project) is None:
+            raise HTTPException(status_code=422, detail="That project doesn't exist.")
+        return body.model_dump()
+
+    def checked_project(body: ProjectIn) -> dict[str, Any]:
+        if body.folder and not Path(body.folder).is_absolute():
+            raise HTTPException(status_code=422, detail="Give the folder's full path.")
+        if any(not web_address(link.url) for link in body.links):
+            raise HTTPException(status_code=422, detail="Links must start with http(s)://.")
+        return body.model_dump()
+
+    @app.get(ms, dependencies=guard)
+    async def mothership() -> dict[str, Any]:
+        return jarvis.mothership_out()
+
+    @app.post(f"{ms}/controls", dependencies=guard, status_code=201)
+    async def new_control(body: ControlIn) -> dict[str, Any]:
+        return jarvis.save_control(checked_control(body))
+
+    @app.post(f"{ms}/controls/{{control_id}}", dependencies=guard)
+    async def edit_control(control_id: str, body: ControlIn) -> dict[str, Any]:
+        with answers():
+            return jarvis.save_control(checked_control(body), control_id)
+
+    @app.post(f"{ms}/controls/{{control_id}}/delete", dependencies=guard)
+    async def delete_control(control_id: str) -> dict[str, bool]:
+        with answers():
+            jarvis.delete_control(control_id)
+        return {"ok": True}
+
+    @app.post(f"{ms}/controls/{{control_id}}/run", dependencies=guard)
+    async def run_control(control_id: str) -> dict[str, Any]:
+        # You pressed the button yourself, so nothing waits for approval.
+        with answers():
+            control = jarvis._by_id(jarvis.mothership.controls, control_id, "control")
+            return await jarvis.run_control(control, by="you")
+
+    @app.post(f"{ms}/controls/{{control_id}}/stop", dependencies=guard)
+    async def stop_control(control_id: str) -> dict[str, Any]:
+        with answers():
+            return {"terminal": jarvis.stop_control(control_id).id}
+
+    @app.post(f"{ms}/controls/{{control_id}}/build", dependencies=guard)
+    async def build_control(control_id: str) -> dict[str, Any]:
+        with answers():
+            return (await jarvis.build_control(control_id)).out()
+
+    @app.post(f"{ms}/projects", dependencies=guard, status_code=201)
+    async def new_project(body: ProjectIn) -> dict[str, Any]:
+        return jarvis.save_project(checked_project(body))
+
+    @app.post(f"{ms}/projects/{{project_id}}", dependencies=guard)
+    async def edit_project(project_id: str, body: ProjectIn) -> dict[str, Any]:
+        with answers():
+            return jarvis.save_project(checked_project(body), project_id)
+
+    @app.post(f"{ms}/projects/{{project_id}}/delete", dependencies=guard)
+    async def delete_project(project_id: str) -> dict[str, bool]:
+        with answers():
+            jarvis.delete_project(project_id)
+        return {"ok": True}
+
+    @app.get(f"{ms}/projects/{{project_id}}/status", dependencies=guard)
+    async def project_status(project_id: str) -> dict[str, Any]:
+        with answers():
+            return await asyncio.to_thread(jarvis.project_status, project_id)
+
+    @app.post(f"{ms}/projects/{{project_id}}/terminal", dependencies=guard)
+    async def project_terminal(project_id: str) -> dict[str, Any]:
+        with answers():
+            project = jarvis._by_id(jarvis.mothership.projects, project_id, "project")
+            return jarvis.open_terminal(str(project.get("name")), "", "you",
+                                        cwd=jarvis.mothership.folder(project_id),
+                                        project=project_id).out()
+
+    @app.post(f"{ms}/projects/{{project_id}}/claude", dependencies=guard)
+    async def project_claude(project_id: str) -> dict[str, Any]:
+        with answers():
+            project = jarvis._by_id(jarvis.mothership.projects, project_id, "project")
+            cwd = (jarvis.mothership.folder(project_id)
+                   or settings.data_dir / "builds" / slug(str(project.get("name"))))
+            return (await jarvis.claude_terminal(str(project.get("name")), cwd,
+                                                 project=project_id)).out()
+
+    @app.post(f"{ms}/projects/{{project_id}}/ideas", dependencies=guard, status_code=201)
+    async def new_idea(project_id: str, body: IdeaIn) -> dict[str, Any]:
+        with answers():
+            return jarvis.add_project_idea(project_id, body.text)
+
+    @app.post(f"{ms}/projects/{{project_id}}/ideas/{{idea_id}}", dependencies=guard)
+    async def change_idea(project_id: str, idea_id: str, body: IdeaChangeIn) -> dict[str, bool]:
+        with answers():
+            jarvis.update_idea(project_id, idea_id, body.text, body.done)
+        return {"ok": True}
+
+    @app.post(f"{ms}/projects/{{project_id}}/ideas/{{idea_id}}/delete", dependencies=guard)
+    async def delete_idea(project_id: str, idea_id: str) -> dict[str, bool]:
+        with answers():
+            jarvis.update_idea(project_id, idea_id, delete=True)
+        return {"ok": True}
+
+    @app.post(f"{ms}/projects/{{project_id}}/ideas/{{idea_id}}/build", dependencies=guard)
+    async def build_idea(project_id: str, idea_id: str) -> dict[str, Any]:
+        with answers():
+            return (await jarvis.build_idea(project_id, idea_id)).out()
+
     @app.get("/dash/api/stats", dependencies=guard)
     async def stats() -> dict[str, Any]:
         return machine_stats()
@@ -1785,8 +2355,8 @@ def create_app(jarvis: Jarvis) -> FastAPI:
                 "total_tasks": len(jarvis.tasks), "workspace": str(settings.workspace)}
 
     @app.get("/tasks", dependencies=guard)
-    async def list_tasks() -> list[dict[str, Any]]:
-        return [t.out() for t in jarvis.recent_tasks(100)]
+    async def list_tasks(limit: int = 100) -> list[dict[str, Any]]:
+        return [t.out() for t in jarvis.recent_tasks(max(1, min(limit, 1000)))]
 
     @app.post("/tasks", dependencies=guard, status_code=201)
     async def create_task(body: TaskIn) -> dict[str, Any]:
@@ -1838,7 +2408,7 @@ def create_app(jarvis: Jarvis) -> FastAPI:
         # Windows can map .js to text/plain; browsers then refuse the modules.
         mimetypes.add_type("text/javascript", ".js")
         mimetypes.add_type("text/css", ".css")
-        app.mount("/dash", StaticFiles(directory=settings.frontend, html=True), name="frontend")
+        app.mount("/dash", FreshFiles(directory=settings.frontend, html=True), name="frontend")
 
     @app.get("/", include_in_schema=False)
     async def home() -> RedirectResponse:
