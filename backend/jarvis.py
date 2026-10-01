@@ -16,6 +16,7 @@ Allow/Deny on the dashboard unless AUTO_APPROVE=true.
 """
 
 import asyncio
+import base64
 import contextlib
 import hmac
 import html
@@ -41,11 +42,11 @@ from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 from urllib.parse import parse_qs, urlencode, urlparse
 
 import httpx
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -53,6 +54,8 @@ from pydantic import BaseModel, Field
 
 HERE = Path(__file__).resolve().parent
 WINDOWS = platform.system() == "Windows"
+OPENAI_SPEECH_URL = "https://api.openai.com/v1/audio/speech"
+WISPR_URL = "https://platform-api.wisprflow.ai/api/v1/dash/api"
 GEMINI_API = "https://generativelanguage.googleapis.com/v1beta"
 KEY_URL = "https://aistudio.google.com/apikey"
 BROWSER_UA = (
@@ -102,6 +105,13 @@ class Settings:
     auto_approve: bool = False
     home_location: str = ""
     voice: str = "en-GB-RyanNeural"
+    voice_provider: str = "edge"
+    listen_provider: str = "off"
+    wispr_api_key: str = ""
+    wispr_language: str = "en"
+    openai_api_key: str = ""
+    openai_tts_model: str = "gpt-4o-mini-tts"
+    openai_tts_voice: str = "onyx"
     news_country: str = "US"
     news_language: str = "en"
     cors_origins: list[str] = field(default_factory=list)
@@ -136,6 +146,13 @@ class Settings:
             auto_approve=flag("AUTO_APPROVE", False),
             home_location=get("HOME_LOCATION"),
             voice=get("JARVIS_VOICE", "en-GB-RyanNeural"),
+            voice_provider=get("JARVIS_VOICE_PROVIDER", "edge").lower(),
+            listen_provider=get("JARVIS_LISTEN_PROVIDER", "off").lower(),
+            wispr_api_key=get("WISPR_API_KEY"),
+            wispr_language=get("WISPR_LANGUAGE", "en").lower(),
+            openai_api_key=get("OPENAI_API_KEY"),
+            openai_tts_model=get("OPENAI_TTS_MODEL", "gpt-4o-mini-tts"),
+            openai_tts_voice=get("OPENAI_TTS_VOICE", "onyx").lower(),
             news_country=get("NEWS_COUNTRY", "US").upper(),
             news_language=get("NEWS_LANGUAGE", "en").lower(),
             cors_origins=[o.strip() for o in get("JARVIS_CORS_ORIGINS").split(",") if o.strip()],
@@ -431,10 +448,30 @@ class Jarvis:
         settings.workspace.mkdir(parents=True, exist_ok=True)
 
     @property
-    def can_speak(self) -> bool:
+    def voice_provider(self) -> str:
+        """Which engine speaks: "openai" if chosen and keyed, else "edge" if
+        installed, else "" (silent). JARVIS_VOICE=off silences everything."""
         if self.settings.voice.lower() in {"", "off", "none", "false"}:
-            return False
-        return importlib.util.find_spec("edge_tts") is not None
+            return ""
+        if self.settings.voice_provider == "openai" and self.settings.openai_api_key:
+            return "openai"
+        return "edge" if importlib.util.find_spec("edge_tts") is not None else ""
+
+    @property
+    def can_speak(self) -> bool:
+        return bool(self.voice_provider)
+
+    @property
+    def listen_provider(self) -> str:
+        """Who turns the microphone into text: "wispr" if chosen and keyed, else
+        "" (typing only)."""
+        if self.settings.listen_provider == "wispr" and self.settings.wispr_api_key:
+            return "wispr"
+        return ""
+
+    @property
+    def can_listen(self) -> bool:
+        return bool(self.listen_provider)
 
     # -- requests -------------------------------------------------------
     def submit(self, request: str) -> Task:
@@ -968,24 +1005,61 @@ class Jarvis:
         return sorted(self.tasks.values(), key=lambda t: t.created_at, reverse=True)[:limit]
 
     def voice_info(self) -> dict[str, Any]:
-        if not self.can_speak:
+        if not (self.can_speak or self.can_listen):
             return {"enabled": False}
-        return {"enabled": True, "can_speak": True, "can_listen": False,
-                "voice": self.settings.voice, "provider": "edge", "wake_word": "jarvis",
-                "wake_word_required": False, "listen_enabled": False,
+        openai = self.voice_provider == "openai"
+        return {"enabled": True, "can_speak": self.can_speak, "can_listen": self.can_listen,
+                "voice": self.settings.openai_tts_voice if openai else self.settings.voice,
+                "provider": self.voice_provider, "listen_provider": self.listen_provider,
+                "wake_word": "jarvis",
+                "wake_word_required": False, "listen_enabled": self.can_listen,
                 "speak_events": ["task.completed", "task.failed", "approval.required"]}
 
     async def speak(self, text: str) -> bytes:
-        import edge_tts
-
         clean = re.sub(r"https?://\S+", "", text)  # links and markdown read badly aloud
         clean = re.sub(r"[*_#`>|]+", "", clean)[:1500]
+        if self.voice_provider == "openai":
+            return await self._speak_openai(clean)
+        import edge_tts
+
         communicate = edge_tts.Communicate(clean, self.settings.voice, rate="+8%", pitch="-2Hz")
         audio = bytearray()
         async for chunk in communicate.stream():
             if chunk.get("type") == "audio":
                 audio.extend(chunk["data"])
         return bytes(audio)
+
+    async def _speak_openai(self, text: str) -> bytes:
+        body: dict[str, Any] = {"model": self.settings.openai_tts_model,
+                                "voice": self.settings.openai_tts_voice,
+                                "input": text, "response_format": "mp3"}
+        if self.settings.openai_tts_model.startswith("gpt-"):  # tts-1 ignores instructions
+            body["instructions"] = ("Speak as a calm, dry-witted British butler: "
+                                    "warm, brief and precise, never theatrical.")
+        response = await self.http.post(
+            OPENAI_SPEECH_URL, json=body, timeout=60,
+            headers={"Authorization": f"Bearer {self.settings.openai_api_key}"})
+        if response.status_code == 401:
+            raise JarvisError("OpenAI rejected the key — check OPENAI_API_KEY in .env.")
+        if response.status_code >= 400:
+            raise JarvisError(f"OpenAI speech error {response.status_code}: "
+                              f"{response.text[:200]}")
+        return response.content
+
+    async def transcribe(self, wav: bytes) -> str:
+        """Speech to text through Wispr Flow. `wav` is 16 kHz mono WAV."""
+        if wav[:4] != b"RIFF" or wav[8:12] != b"WAVE":
+            raise JarvisError("Wispr Flow needs a 16 kHz WAV recording.")
+        response = await self.http.post(
+            WISPR_URL, timeout=60,
+            json={"audio": base64.b64encode(wav).decode(),
+                  "language": [self.settings.wispr_language]},
+            headers={"Authorization": f"Bearer {self.settings.wispr_api_key}"})
+        if response.status_code in {401, 403}:
+            raise JarvisError("Wispr Flow rejected the key — check WISPR_API_KEY in .env.")
+        if response.status_code >= 400:
+            raise JarvisError(f"Wispr Flow error {response.status_code}: {response.text[:200]}")
+        return str(response.json().get("text", "")).strip()
 
     def tree(self, depth: int = 3, limit: int = 260) -> dict[str, Any]:
         root = self.settings.workspace
@@ -1129,23 +1203,39 @@ def create_app(jarvis: Jarvis) -> FastAPI:
     async def stats() -> dict[str, Any]:
         return machine_stats()
 
-    @app.post("/dash/api/command", dependencies=guard)
-    async def command(body: CommandIn) -> dict[str, Any]:
-        text = re.sub(r"^\s*(hey\s+)?jarvis[\s,:.!-]*", "", body.text, flags=re.I).strip()
-        text = text or body.text
-        task = jarvis.submit(text) if body.submit else None
-        return {"text": body.text, "addressed": True, "command": text,
+    def heard(said: str, submit: bool) -> dict[str, Any]:
+        text = re.sub(r"^\s*(hey\s+)?jarvis[\s,:.!-]*", "", said, flags=re.I).strip()
+        text = text or said
+        task = jarvis.submit(text) if submit else None
+        return {"text": said, "addressed": True, "command": text,
                 "submitted": task is not None, "task_id": task.id if task else None,
                 "confidence": None, "details": {}}
 
+    @app.post("/dash/api/command", dependencies=guard)
+    async def command(body: CommandIn) -> dict[str, Any]:
+        return heard(body.text, body.submit)
+
     @app.post("/dash/api/listen", dependencies=guard)
-    async def listen() -> None:
-        raise HTTPException(status_code=503, detail="Listening isn't built in — type instead.")
+    async def listen(audio: UploadFile, submit: Annotated[bool, Form()] = True) -> dict[str, Any]:
+        if not jarvis.can_listen:
+            raise HTTPException(
+                status_code=503,
+                detail="Listening is off — set JARVIS_LISTEN_PROVIDER=wispr and WISPR_API_KEY.")
+        try:
+            said = await jarvis.transcribe(await audio.read())
+        except JarvisError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        if not said:
+            return {"text": "", "addressed": False, "command": "", "submitted": False,
+                    "task_id": None, "confidence": None, "details": {}}
+        return heard(said, submit)
 
     @app.post("/dash/api/speak", dependencies=guard)
     async def speak(body: SpeakIn) -> Response:
         if not jarvis.can_speak:
-            raise HTTPException(status_code=503, detail="Speech is off — pip install edge-tts.")
+            raise HTTPException(
+                status_code=503,
+                detail="Speech is off — set OPENAI_API_KEY, or pip install edge-tts.")
         try:
             audio = await jarvis.speak(body.text)
         except Exception as exc:  # noqa: BLE001 - speech is a nicety; say why and move on
@@ -1237,7 +1327,8 @@ async def serve(settings: Settings) -> None:
         print(f"  Gemini     {settings.gemini_model}: {await jarvis.check_gemini()}")
         print(f"  Workspace  {settings.workspace}")
         print(f"  Commands   {approvals}")
-        voice = settings.voice if jarvis.can_speak else "off (pip install edge-tts)"
+        voice = (f"{jarvis.voice_info()['provider']} / {jarvis.voice_info()['voice']}"
+                 if jarvis.can_speak else "off (set OPENAI_API_KEY or pip install edge-tts)")
         print(f"  Voice      {voice}")
         host = "127.0.0.1" if settings.host in {"0.0.0.0", "::"} else settings.host
         url = f"http://{host}:{settings.port}/dash/?token={settings.api_token}"

@@ -26,8 +26,54 @@ const MIN_SPEECH_MS = 260;        // shorter than this is a cough or a click
 const IDLE_CYCLE_MS = 7000;       // recycle the recorder during silence
 const MAX_UTTERANCE_MS = 15000;   // hard stop, so nothing records forever
 
+/**
+ * Re-encode a recording as 16 kHz mono 16-bit WAV, which is what Wispr Flow
+ * takes (the browser itself records webm/opus).
+ */
+export async function toWav16k(blob) {
+  const Ctx = window.AudioContext || window.webkitAudioContext;
+  const decoder = new Ctx();
+  let decoded;
+  try {
+    decoded = await decoder.decodeAudioData(await blob.arrayBuffer());
+  } finally {
+    decoder.close();
+  }
+  const rate = 16000;
+  const offline = new OfflineAudioContext(
+    1, Math.max(1, Math.ceil(decoded.duration * rate)), rate
+  );
+  const source = offline.createBufferSource();
+  source.buffer = decoded; // channels are mixed down to mono by the context
+  source.connect(offline.destination);
+  source.start();
+  const samples = (await offline.startRendering()).getChannelData(0);
+
+  const view = new DataView(new ArrayBuffer(44 + samples.length * 2));
+  const text = (at, value) =>
+    [...value].forEach((c, i) => view.setUint8(at + i, c.charCodeAt(0)));
+  text(0, "RIFF");
+  view.setUint32(4, 36 + samples.length * 2, true);
+  text(8, "WAVEfmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true); // PCM
+  view.setUint16(22, 1, true); // mono
+  view.setUint32(24, rate, true);
+  view.setUint32(28, rate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  text(36, "data");
+  view.setUint32(40, samples.length * 2, true);
+  samples.forEach((x, i) => {
+    const v = Math.max(-1, Math.min(1, x));
+    view.setInt16(44 + i * 2, v < 0 ? v * 0x8000 : v * 0x7fff, true);
+  });
+  return new Blob([view], { type: "audio/wav" });
+}
+
 export class Voice {
-  constructor({ onTranscript, onStateChange, onAmplitude, onError }) {
+  constructor({ onTranscript, onStateChange, onAmplitude, onError, wav }) {
+    this.wav = Boolean(wav); // send WAV instead of the browser's webm
     this.onTranscript = onTranscript || (() => {});
     this.onStateChange = onStateChange || (() => {});
     this.onAmplitude = onAmplitude || (() => {});
@@ -220,7 +266,8 @@ export class Voice {
     this.onStateChange("thinking");
     try {
       const form = new FormData();
-      form.append("audio", blob, "utterance.webm");
+      if (this.wav) form.append("audio", await toWav16k(blob), "utterance.wav");
+      else form.append("audio", blob, "utterance.webm");
       form.append("submit", "true");
       const response = await fetch(window.HudConnection.endpoint("listen"), {
         method: "POST",
