@@ -34,7 +34,7 @@ class BotConfig:
     def load(cls, path: str | Path | None) -> "BotConfig":
         if path is None:
             return cls(raw={})
-        text = Path(path).read_text()
+        text = Path(path).read_text(encoding="utf-8")
         return cls(raw=yaml.safe_load(text) or {})
 
     def section(self, name: str) -> dict[str, Any]:
@@ -58,12 +58,16 @@ class BotConfig:
     def build_strategy(self) -> Ensemble:
         strat = self.section("strategy")
         spec = strat.get("members") or DEFAULT_STRATEGY_SPEC
-        return build_ensemble(
+        ensemble = build_ensemble(
             spec,
             threshold=float(strat.get("threshold", 0.25)),
             max_volatility=strat.get("max_volatility"),
             long_only=bool(strat.get("long_only", False)),
         )
+        # Weights that backtest memory (investment_bot.memory) found to hold up.
+        if strat.get("learned_weights"):
+            ensemble.apply_weights(strat["learned_weights"])
+        return ensemble
 
     def build_risk(self) -> RiskConfig:
         risk = self.section("risk")

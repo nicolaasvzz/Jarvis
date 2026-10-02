@@ -35,3 +35,12 @@ learning:
   return_cap: 0.10       # clip |return| per lesson so one wild day can't blow up weights
   weight_floor: 0.05     # no strategy is ever fully silenced
   shrink: 0.002          # pull toward equal weights each lesson (~43-day memory)
+
+  # Backtest memory: after every backtest, review the trades and try small
+  # setting changes; keep one only if it cuts losses on both the training data
+  # and held-out data it never chose from. Saved to learned.json, which the
+  # next backtest and paper trading start from. `investment-bot learned` shows
+  # it; `investment-bot learned --reset` forgets it.
+  auto_tune: true
+  memory_file: learned.json
+  loss_aversion: 1.5     # score = return + 1.5 x max drawdown (drawdown hurts more)

@@ -89,19 +89,22 @@ class YahooFeed(DataFeed):
         self.cache_ttl_seconds = cache_ttl_hours * 3600
 
     def history(self, symbol: str, days: int) -> pd.DataFrame:
-        cache_file = self.cache_dir / f"{symbol.upper()}.parquet"
+        # Pickle, not parquet: parquet needs pyarrow, and without it the cache
+        # silently never saved — every run re-downloaded prices whose adjusted
+        # values drift in the last decimals, so identical backtests disagreed.
+        cache_file = self.cache_dir / f"{symbol.upper()}.pkl"
         if cache_file.exists():
             age = time.time() - cache_file.stat().st_mtime
             if age < self.cache_ttl_seconds:
-                cached = pd.read_parquet(cache_file)
+                cached = pd.read_pickle(cache_file)
                 if len(cached) >= days:
                     return self._validate(cached, symbol).tail(days)
 
         df = self._fetch(symbol, days)
         try:
-            df.to_parquet(cache_file)
-        except (ImportError, OSError):
-            pass  # parquet engine or disk unavailable — caching is best-effort
+            df.to_pickle(cache_file)
+        except OSError:
+            pass  # disk unavailable — caching is best-effort
         return self._validate(df, symbol).tail(days)
 
     def _fetch(self, symbol: str, days: int) -> pd.DataFrame:

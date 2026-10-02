@@ -3,6 +3,7 @@
     investment-bot backtest  [-c config.yaml] [--html report.html]
     investment-bot optimize  --strategy sma_cross --grid "fast=10,20 slow=50,100"
     investment-bot trade     [-c config.yaml] [--once]
+    investment-bot learned   [-c config.yaml] [--reset]
     investment-bot strategies
 """
 from __future__ import annotations
@@ -16,6 +17,7 @@ from rich.table import Table
 from .backtest.engine import BacktestEngine
 from .backtest.optimizer import Optimizer
 from .config import BotConfig
+from .memory import BacktestMemory, TuneConfig
 from .report import print_terminal_report, write_html_report
 from .strategies import REGISTRY, build_strategy
 
@@ -53,8 +55,23 @@ def _brief(exc: Exception, limit: int = 140) -> str:
     return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
+def _load_with_memory(path: str | None) -> tuple[BotConfig, BacktestMemory | None]:
+    """The config, with whatever past backtests learned laid over it."""
+    config = BotConfig.load(path)
+    tune = TuneConfig.from_config(config)
+    if not tune.enabled:
+        return config, None
+    memory = BacktestMemory.load(tune.memory_file)
+    if memory.overrides:
+        console.print(
+            f"[dim]Using what {len(memory.rounds)} past backtest(s) learned "
+            f"({tune.memory_file}).[/dim]"
+        )
+    return memory.apply(config), memory
+
+
 def cmd_backtest(args: argparse.Namespace) -> None:
-    config = BotConfig.load(args.config)
+    config, memory = _load_with_memory(args.config)
     settings = config.backtest_settings
     days = args.days or settings["days"]
     symbols = args.symbols.split(",") if args.symbols else None
@@ -83,8 +100,22 @@ def cmd_backtest(args: argparse.Namespace) -> None:
             f"[bold]Learned weights[/bold] ({learner.trades_seen} trade / "
             f"{learner.bars_seen} bar lessons): {weights}"
         )
+    learned = False
+    if memory is not None and not args.no_tune:
+        console.print("[bold]Learning from this backtest[/bold]...")
+        with console.status("reviewing trades...") as status:
+            memory.learn(
+                config,
+                data,
+                result,
+                dict(learner.weights) if learner is not None else None,
+                TuneConfig.from_config(config),
+                progress=status.update,
+            )
+        learned = True
+        print_learning(memory, console)
     if args.html:
-        path = write_html_report(result, args.html)
+        path = write_html_report(result, args.html, memory=memory if learned else None)
         console.print(f"HTML report written to [bold]{path}[/bold]")
     console.print(DISCLAIMER)
 
@@ -176,7 +207,7 @@ def cmd_trade(args: argparse.Namespace) -> None:
     from .broker.paper import PaperBroker
     from .live import LiveTrader
 
-    config = BotConfig.load(args.config)
+    config, _ = _load_with_memory(args.config)
     settings = config.live_settings
     broker_name = args.broker or settings["broker"]
 
@@ -207,7 +238,7 @@ def cmd_serve(args: argparse.Namespace) -> None:
     from .api import serve
     from .broker.paper import PaperBroker
 
-    config = BotConfig.load(args.config)
+    config, _ = _load_with_memory(args.config)
     broker_name = args.broker or config.live_settings["broker"]
     if broker_name == "alpaca":
         from .broker.alpaca import AlpacaBroker
@@ -219,6 +250,74 @@ def cmd_serve(args: argparse.Namespace) -> None:
         console.print("[bold]API serving with the paper broker[/bold] (simulated fills).")
     console.print(DISCLAIMER)
     serve(config, broker, host=args.host, port=args.port)
+
+
+def print_learning(memory: BacktestMemory, console: Console) -> None:
+    """What the latest backtest taught the bot, and how it has improved."""
+    rnd = memory.rounds[-1]
+    console.print(f"[bold]What backtest #{rnd['number']} taught the bot[/bold]")
+    for lesson in rnd["lessons"]:
+        console.print(f"  - {lesson}")
+    adopted = rnd.get("adopted")
+    if adopted:
+        console.print(
+            f"[green]Learned:[/green] {adopted['description']}. It lowers losses on both the "
+            f"training data ({adopted['train_gain']:+.2%}) and the held-out data "
+            f"({adopted['holdout_gain']:+.2%}); the next backtest and paper trading use it."
+        )
+    elif rnd.get("tested"):
+        best = (rnd.get("considered") or [None])[0]
+        hint = (
+            f" Closest: {best['description']} ({best['train_gain']:+.2%} train, "
+            f"{best['holdout_gain']:+.2%} held-out)."
+            if best
+            else ""
+        )
+        console.print(
+            f"[yellow]No change kept[/yellow]: none of {rnd['tested']} adjustments cut losses "
+            f"on both the training and the held-out data.{hint}"
+        )
+    if len(memory.rounds) > 1:
+        print_progress(memory, console)
+
+
+def print_progress(memory: BacktestMemory, console: Console) -> None:
+    table = Table(title="Backtest by backtest")
+    for col in ("#", "Data to", "Return", "Max DD", "Losses", "Trades"):
+        table.add_column(col, justify="right")
+    table.add_column("Learned")
+    for rnd in memory.rounds[-12:]:
+        fr = rnd["full_run"]
+        adopted = rnd.get("adopted")
+        table.add_row(
+            str(rnd["number"]),
+            rnd.get("data_end", ""),
+            f"{fr['total_return']:.2%}",
+            f"{fr['max_drawdown']:.2%}",
+            f"${-fr['gross_loss']:,.0f}",
+            str(fr["num_trades"]),
+            adopted["description"] if adopted else "[dim]-[/dim]",
+        )
+    console.print(table)
+
+
+def cmd_learned(args: argparse.Namespace) -> None:
+    config = BotConfig.load(args.config)
+    tune = TuneConfig.from_config(config)
+    memory = BacktestMemory.load(tune.memory_file)
+    if args.reset:
+        memory.reset()
+        console.print(f"Forgot everything in {tune.memory_file}; back to the config's settings.")
+        return
+    if not tune.enabled:
+        console.print("[yellow]learning.auto_tune is off in this config.[/yellow]")
+    if not memory.rounds:
+        console.print("Nothing learned yet. Run a backtest.")
+        return
+    console.print("[bold]Settings learned so far[/bold] (laid over the config):")
+    for key, value in memory.overrides.items():
+        console.print(f"  {key}: {value}")
+    print_learning(memory, console)
 
 
 def cmd_strategies(_args: argparse.Namespace) -> None:
@@ -249,6 +348,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     bt = sub.add_parser("backtest", parents=[common], help="Run a backtest")
     bt.add_argument("--html", default=None, help="Write an HTML report to this path")
+    bt.add_argument(
+        "--no-tune", action="store_true", help="Don't learn from this run (memory still applies)"
+    )
     bt.set_defaults(func=cmd_backtest)
 
     opt = sub.add_parser("optimize", parents=[common], help="Grid search / walk-forward")
@@ -271,6 +373,10 @@ def build_parser() -> argparse.ArgumentParser:
     srv.add_argument("--port", type=int, default=8000)
     srv.add_argument("--broker", choices=["paper", "alpaca"], default=None)
     srv.set_defaults(func=cmd_serve)
+
+    lrn = sub.add_parser("learned", parents=[common], help="What backtests have taught the bot")
+    lrn.add_argument("--reset", action="store_true", help="Forget everything learned")
+    lrn.set_defaults(func=cmd_learned)
 
     ls = sub.add_parser("strategies", help="List available strategies")
     ls.set_defaults(func=cmd_strategies)

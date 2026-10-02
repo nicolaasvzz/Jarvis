@@ -16,3 +16,7 @@ live_state.json
 # local run artifacts
 .venv/
 report.html
+
+# backtest memory (what backtests taught the bot)
+learned.json
+learned.json.tmp
