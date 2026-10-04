@@ -3,7 +3,9 @@
  * start the trading bot, open a page, or ask Jarvis something you ask often.
  * Jarvis can press them too when you ask by voice. A control that isn't
  * built yet is an "idea": Build with Claude opens Claude Code in a terminal
- * with a brief, and when it works Claude switches the control on.
+ * with a brief, and when it works Claude switches the control on. A command
+ * control can ask for inputs first (a dropdown, some text): pressing it opens
+ * a small form, and the backend fills them into the command line, quoted.
  */
 
 import { Hud } from "../lib/hud.js";
@@ -85,7 +87,7 @@ export function card(c) {
       ? `<button class="btn bad" data-stop="${esc(c.id)}">${icon("stop")} Stop</button>
          <button class="btn ghost" data-restart="${esc(c.id)}" title="Stop it, then run it again">${icon("redo")} Restart</button>
          <button class="btn ghost" data-terminal="${esc(running.id)}">${icon("terminal")} View</button>`
-      : `<button class="btn primary" data-run="${esc(c.id)}">${icon(c.kind === "link" ? "external" : "play")} ${esc(kind.run)}</button>`;
+      : `<button class="btn primary" data-run="${esc(c.id)}">${icon(c.kind === "link" ? "external" : "play")} ${esc(kind.run)}${asks(c) ? "…" : ""}</button>`;
   return `
     <article class="control ${esc(c.kind)} ${busy ? "busy" : ""}">
       <header>
@@ -101,6 +103,7 @@ export function card(c) {
       <div class="control-meta">
         ${owner ? `<a class="tag" href="#/projects/${esc(owner.id)}">${icon("folder")} ${esc(owner.name)}</a>` : ""}
         ${busy ? `<span class="tag warn">running</span>` : ""}
+        ${asks(c) ? `<span class="muted" title="It asks for these when you press it">asks: ${esc(c.inputs.map((i) => i.label || i.name).join(", "))}</span>` : ""}
         ${c.last_run ? `<span class="muted">ran ${esc(ago(c.last_run))}</span>` : ""}
       </div>
       <footer>
@@ -134,12 +137,46 @@ export function wire(root) {
   );
 }
 
+/** Does pressing this control ask for inputs first? */
+function asks(c) {
+  return c.kind === "command" && Array.isArray(c.inputs) && c.inputs.length > 0;
+}
+
 async function run(id, button) {
   const c = state.controls.find((x) => x.id === id);
   if (!c) return;
+  if (asks(c)) {
+    askInputs(c);
+    return;
+  }
   if (button) button.disabled = true;
   const result = await act(Hud.postJSON(Hud.route("msControlRun", { id }), {}));
   if (button) button.disabled = false;
+  started(c, result);
+}
+
+/** The form a control with inputs opens; it starts from what you chose last time. */
+function askInputs(c) {
+  const last = c.last_inputs || {};
+  openForm({
+    title: c.name,
+    submit: "Start",
+    fields: c.inputs.map((i) => {
+      const value = last[i.name] ?? i.default ?? "";
+      return i.kind === "choice"
+        ? { name: i.name, label: i.label || i.name, type: "select", value,
+            options: i.options.map((o) => [o.value, o.label]) }
+        : { name: i.name, label: i.label || i.name, type: "textarea", rows: 2, value,
+            placeholder: i.placeholder || "" };
+    }),
+    onSubmit: async (inputs) => {
+      const result = await Hud.postJSON(Hud.route("msControlRun", { id: c.id }), { inputs });
+      started(c, result);
+    },
+  });
+}
+
+function started(c, result) {
   if (!result) return;
   if (result.url) window.open(result.url, "_blank", "noopener");
   else if (result.task_id) {
@@ -182,6 +219,11 @@ export function editControl(existing, preset = {}) {
         placeholder: "BeamNG.drive, Assetto Corsa, TradeBot…" },
       { name: "project", label: "Project", type: "select", value: c.project || "", options: projects,
         hint: "Command controls run in the project's folder." },
+      { name: "inputs", label: "Asks for, before it runs (JSON)", type: "textarea", rows: 4,
+        value: c.inputs && c.inputs.length ? JSON.stringify(c.inputs, null, 1) : "",
+        show: (v) => v.kind === "command",
+        placeholder: '[{"name": "duration", "label": "How long", "kind": "choice", "options": [{"label": "1 hour", "value": "1h"}], "default": "1h"}]',
+        hint: "Optional. Write {name} in the command line where each one goes; it arrives quoted." },
       { name: "trusted", label: "Jarvis may run this without asking me", type: "checkbox",
         value: c.trusted, show: (v) => v.kind === "command",
         hint: "For harmless buttons you'll say out loud often, like weather changes." },
@@ -190,7 +232,16 @@ export function editControl(existing, preset = {}) {
     onSubmit: async (v) => {
       if (!v.name) throw new Error("Give it a name.");
       if (v.kind !== "idea" && !v.action) throw new Error("Fill in what it runs, or make it an idea.");
-      const body = { ...v, action: v.kind === "idea" ? v.action || "" : v.action };
+      let inputs = [];
+      if (v.kind === "command" && v.inputs) {
+        try {
+          inputs = JSON.parse(v.inputs);
+        } catch {
+          throw new Error("The inputs aren't valid JSON.");
+        }
+        if (!Array.isArray(inputs)) throw new Error("Inputs must be a list: [ … ].");
+      }
+      const body = { ...v, inputs, action: v.kind === "idea" ? v.action || "" : v.action };
       if (existing) await Hud.postJSON(Hud.route("msControl", { id: existing.id }), body);
       else await Hud.postJSON(Hud.route("msControls"), body);
       Hud.toast(existing ? "Saved." : `Created “${v.name}”.`, "ok");

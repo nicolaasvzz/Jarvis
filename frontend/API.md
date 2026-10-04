@@ -196,7 +196,7 @@ The Mothership page's controls and projects. All of them answer `404` for an
 unknown id and `409` (with a `detail`) for something that can't be done right
 now, e.g. running a control that isn't built.
 
-**Control** — `{id, name, group, project, kind, action, description, trusted, last_run, created_at, updated_at}`.
+**Control** — `{id, name, group, project, kind, action, description, trusted, inputs, last_inputs, last_run, created_at, updated_at}`.
 `kind` is `idea` (not built yet), `command` (`action` is a command line, run
 in a terminal in the project's folder), `ask` (`action` is a request for the
 assistant) or `link` (`action` is an http(s) address). `trusted` lets the
@@ -207,10 +207,10 @@ assistant run a command control without asking. `project` is a project id or `""
 | Route | Default | |
 |---|---|---|
 | `mothership` | `GET /dash/api/mothership` | `{"controls": [Control], "projects": [Project], "claude": true}` — `claude`: Claude Code is installed |
-| `msControls` | `POST /dash/api/mothership/controls` | `{name, group, project, kind, action, description, trusted}` → the new Control |
+| `msControls` | `POST /dash/api/mothership/controls` | `{name, group, project, kind, action, description, trusted, inputs}` → the new Control. `inputs` (optional): `[{name, label, kind: "choice"\|"text", options: [{label, value}], default, placeholder}]`, asked for when it's pressed; the command line says `{name}` where each goes |
 | `msControl` | `POST /dash/api/mothership/controls/{id}` | the same body → the updated Control |
 | `msControlDelete` | `POST …/controls/{id}/delete` | |
-| `msControlRun` | `POST …/controls/{id}/run` | You pressed it: runs now, no approval. → `{"terminal": "term-3"}`, `{"task_id": "t-…"}` (ask) or `{"url": "…"}` (link — the page opens it) |
+| `msControlRun` | `POST …/controls/{id}/run` | You pressed it: runs now, no approval. Body (optional) `{"inputs": {name: value}}` — each is filled into the command quoted (a choice must be one of its options, else 409; missing → its default) and kept as the Control's `last_inputs`, which Restart reuses. → `{"terminal": "term-3"}`, `{"task_id": "t-…"}` (ask) or `{"url": "…"}` (link — the page opens it) |
 | `msControlStop` | `POST …/controls/{id}/stop` | Ctrl+C in the control's terminal; still running ~3 s later → ends the processes the shell started (the shell stays) → `{"terminal": …}` |
 | `msControlRestart` | `POST …/controls/{id}/restart` | Stop as above, wait (≤ 30 s) for the prompt, run it again → same as `msControlRun`; 409 if it won't stop |
 | `msControlBuild` | `POST …/controls/{id}/build` | Opens Claude Code in a terminal with a brief → the Terminal |
