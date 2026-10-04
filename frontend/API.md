@@ -108,8 +108,11 @@ Any of the inner objects may be `null`.
 
 ### `command` — `POST /dash/api/command`
 
-The command bar. Request `{"text": "summarise notes.txt", "submit": true}`;
-response:
+The command bar. Request `{"text": "summarise notes.txt", "submit": true}`,
+optionally with `"client": "<the page's id>"` (≤ 64 chars): the reply's
+`task.completed` / `task.failed` frame then carries it in `data.client`, and
+only that page speaks it (frames without `data.client` are spoken by every
+Core page). Response:
 
 ```json
 {"text": "summarise notes.txt", "addressed": true, "command": "summarise notes.txt",
@@ -125,8 +128,9 @@ Allow or deny a pending action. Request `{"decision": "allow"}` or
 ### `listen` / `speak` — voice (optional)
 
 - `POST /dash/api/listen` (`whisper` and `wispr` only; the `browser` option never calls it) — multipart form: `audio` (a webm recording; a 16 kHz
-  mono WAV when `voice.listen_provider` is `wispr`) and
-  `submit` (`"true"`). Responds like `command`. Answer `503` with a `detail`
+  mono WAV when `voice.listen_provider` is `wispr`),
+  `submit` (`"true"`) and, optionally, `client` (as for `command`). Responds
+  like `command`. Answer `503` with a `detail`
   to switch the microphone off with that message.
 - `POST /dash/api/speak` — JSON `{"text": "..."}`. Responds with audio bytes
   (`audio/mpeg`, or any type an `<audio>` element plays).

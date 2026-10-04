@@ -23,6 +23,7 @@ import contextlib
 import hmac
 import html
 import importlib.util
+import io
 import ipaddress
 import json
 import mimetypes
@@ -35,7 +36,6 @@ import shutil
 import socket
 import subprocess
 import sys
-import tempfile
 import threading
 import time
 import uuid
@@ -306,6 +306,9 @@ class Task:
     #: Who started it: "asked" (you), "notice" (a long command finished),
     #: "explain" (the Explain button) or "control" (a Mothership control).
     kind: str = "asked"
+    #: The page that asked (a random id per open page), so only it speaks the
+    #: reply — a question from the phone is answered on the phone.
+    client: str | None = None
     id: str = field(default_factory=lambda: short_id("t"))
     status: str = "pending"
     steps: list[Step] = field(default_factory=list)
@@ -408,6 +411,26 @@ def end_children(process: Pty, wait: float = 3) -> int:
         with contextlib.suppress(psutil.Error):
             child.kill()
     return len(children)
+
+
+def decode_16k(audio: bytes) -> Any:
+    """A recording (the browser's webm/opus, Safari's mp4, wav, mp3…) as 16 kHz
+    mono float32 samples, the way Whisper wants them. Decoded here rather than
+    by faster-whisper, whose decoder passes PyAV an option (`metadata_errors`)
+    that PyAV 15 removed — every recording failed with it."""
+    import av
+    import numpy as np
+
+    resampler = av.AudioResampler(format="s16", layout="mono", rate=16000)
+    chunks: list[Any] = []
+    with av.open(io.BytesIO(audio), mode="r") as container:
+        for frame in container.decode(audio=0):
+            frame.pts = None  # browser recordings' timestamps can trip the resampler
+            chunks.extend(f.to_ndarray().reshape(-1) for f in resampler.resample(frame))
+        chunks.extend(f.to_ndarray().reshape(-1) for f in resampler.resample(None))
+    if not chunks:
+        return np.zeros(0, dtype=np.float32)
+    return np.concatenate(chunks).astype(np.float32) / 32768.0
 
 
 #: A shell waiting for input: "PS C:\path>" or "user@host:~$".
@@ -1085,8 +1108,9 @@ class Jarvis:
         return bool(self.listen_provider)
 
     # -- requests -------------------------------------------------------
-    def submit(self, request: str, prompt: str | None = None, kind: str = "asked") -> Task:
-        task = Task(request=request.strip(), prompt=prompt, kind=kind)
+    def submit(self, request: str, prompt: str | None = None, kind: str = "asked",
+               client: str | None = None) -> Task:
+        task = Task(request=request.strip(), prompt=prompt, kind=kind, client=client)
         self.tasks[task.id] = task
         self.hub.emit("task.created", task.request, task_id=task.id)
         asyncio.get_running_loop().create_task(self._run(task))
@@ -1101,7 +1125,8 @@ class Jarvis:
             except JarvisError as exc:
                 task.error = str(exc)
                 task.set("failed")
-                self.hub.emit("task.failed", task.error, task_id=task.id, speak=True)
+                self.hub.emit("task.failed", task.error, task_id=task.id, speak=True,
+                              data={"client": task.client})
             except Exception as exc:  # noqa: BLE001 - one bad request must not stop the server
                 task.error = f"Unexpected error: {type(exc).__name__}: {exc}"
                 task.set("failed")
@@ -1110,7 +1135,7 @@ class Jarvis:
                 task.result = answer
                 task.set("completed")
                 self.hub.emit("task.completed", answer, task_id=task.id, speak=True,
-                              data={"request": task.request})
+                              data={"request": task.request, "client": task.client})
             finally:
                 self._save_history()
 
@@ -2418,20 +2443,22 @@ class Jarvis:
                                          compute_type="int8")
 
     def _whisper_text(self, audio: bytes) -> str:
-        """Whisper on this machine. It decodes webm/mp3/wav itself (PyAV)."""
+        """Whisper on this machine, on audio decoded here (see decode_16k)."""
         self.load_whisper()
-        with tempfile.NamedTemporaryFile(suffix=".audio", delete=False) as handle:
-            handle.write(audio)
+        try:
+            samples = decode_16k(audio)
+        except Exception as exc:  # noqa: BLE001 - undecodable audio is reported, not raised
+            raise JarvisError(f"Could not read that recording: {exc}") from exc
+        if not len(samples):
+            return ""
         try:
             english = self.settings.whisper_model.endswith(".en")
             segments, _ = self._whisper.transcribe(
-                handle.name, language="en" if english else self.settings.listen_language[:2],
+                samples, language="en" if english else self.settings.listen_language[:2],
                 beam_size=1, vad_filter=True, initial_prompt="Jarvis, hey Jarvis.")
             return " ".join(segment.text.strip() for segment in segments).strip()
-        except Exception as exc:  # noqa: BLE001 - undecodable audio is reported, not raised
+        except Exception as exc:  # noqa: BLE001 - a failed transcription is reported
             raise JarvisError(f"Could not transcribe that recording: {exc}") from exc
-        finally:
-            Path(handle.name).unlink(missing_ok=True)
 
     async def _wispr_text(self, wav: bytes) -> str:
         """Speech to text through Wispr Flow. `wav` is 16 kHz mono WAV."""
@@ -2479,6 +2506,7 @@ def machine_stats() -> dict[str, Any]:
 class CommandIn(BaseModel):
     text: str = Field(min_length=1, max_length=8000)
     submit: bool = True
+    client: str | None = Field(default=None, max_length=64)
 
 
 class TaskIn(BaseModel):
@@ -2861,20 +2889,21 @@ def create_app(jarvis: Jarvis) -> FastAPI:
     async def stats() -> dict[str, Any]:
         return machine_stats()
 
-    def heard(said: str, submit: bool) -> dict[str, Any]:
+    def heard(said: str, submit: bool, client: str | None = None) -> dict[str, Any]:
         text = re.sub(r"^\s*(hey\s+)?jarvis[\s,:.!-]*", "", said, flags=re.I).strip()
         text = text or said
-        task = jarvis.submit(text) if submit else None
+        task = jarvis.submit(text, client=(client or "")[:64] or None) if submit else None
         return {"text": said, "addressed": True, "command": text,
                 "submitted": task is not None, "task_id": task.id if task else None,
                 "confidence": None, "details": {}}
 
     @app.post("/dash/api/command", dependencies=guard)
     async def command(body: CommandIn) -> dict[str, Any]:
-        return heard(body.text, body.submit)
+        return heard(body.text, body.submit, body.client)
 
     @app.post("/dash/api/listen", dependencies=guard)
-    async def listen(audio: UploadFile, submit: Annotated[bool, Form()] = True) -> dict[str, Any]:
+    async def listen(audio: UploadFile, submit: Annotated[bool, Form()] = True,
+                     client: Annotated[str | None, Form()] = None) -> dict[str, Any]:
         if jarvis.listen_provider not in {"wispr", "whisper"}:
             raise HTTPException(
                 status_code=503,
@@ -2887,7 +2916,7 @@ def create_app(jarvis: Jarvis) -> FastAPI:
         if not said:
             return {"text": "", "addressed": False, "command": "", "submitted": False,
                     "task_id": None, "confidence": None, "details": {}}
-        return heard(said, submit)
+        return heard(said, submit, client)
 
     @app.post("/dash/api/speak", dependencies=guard)
     async def speak(body: SpeakIn) -> Response:

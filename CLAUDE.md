@@ -93,6 +93,15 @@ python -m mypy --strict --ignore-missing-imports jarvis.py
   running. `Terminal.interrupt` sends it, then after ~3 s ends the processes
   the shell started (`end_children`, psutil), keeping the shell. Stop and
   Restart on controls go through it.
+- Whisper gets 16 kHz samples from `decode_16k` (PyAV), never a file path:
+  faster-whisper's own decoder passes PyAV `metadata_errors`, which PyAV 15
+  removed, and every recording failed with it.
+- A reply is spoken only by the page that asked: pages send `client` (a
+  per-tab id) with `command`/`listen`, and `task.completed`/`task.failed`
+  carry it in `data.client`. Untagged frames (approvals, notices) are spoken
+  by every Core page. On iPhone, `audioSession()` in `voice.js` sets
+  Safari's audio session ("playback", "play-and-record" while listening):
+  otherwise Web Audio is "ambient", muted by the silent switch.
 - Press Enter in a PTY with `\r`, not `\r\n`: PowerShell reads the `\n` as
   a second line and shows a `>>` continuation prompt.
 - Shells start with a prompt wrapper (`PS_PROMPT_MARK`, or `PROMPT_COMMAND`

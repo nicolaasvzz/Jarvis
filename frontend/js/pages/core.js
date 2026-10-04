@@ -9,7 +9,7 @@
 
 import { Hud } from "../lib/hud.js";
 import { Core } from "../components/core-visual.js";
-import { Voice } from "../components/voice.js";
+import { Voice, CLIENT_ID } from "../components/voice.js";
 
 const el = (id) => document.getElementById(id);
 
@@ -93,9 +93,16 @@ function onFrame(frame) {
     showReply(frame);
   }
 
-  if (frame.speak && !muted && voice) voice.say(frame.message);
+  if (frame.speak && !muted && voice && forMe(frame)) voice.say(frame.message);
 
   refreshState();
+}
+
+/** A reply to a request from a page is spoken only on that page; the rest
+ * (approvals, notices, requests from elsewhere) by every open Core page. */
+function forMe(frame) {
+  const asker = frame.data && frame.data.client;
+  return !asker || asker === CLIENT_ID;
 }
 
 /* -- the reply panel: Jarvis's latest answer, readable in full ------------- */
@@ -503,6 +510,7 @@ function setupConsole() {
       const heard = await Hud.postJSON(Hud.route("command"), {
         text,
         submit: true,
+        client: CLIENT_ID,
       });
       if (heard.task_id) awaiting = heard.task_id;
       if (!heard.submitted && !heard.addressed) {
