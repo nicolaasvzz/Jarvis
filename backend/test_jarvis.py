@@ -853,8 +853,8 @@ class FakeWhisper:
     def __init__(self) -> None:
         self.calls: list[dict[str, Any]] = []
 
-    def transcribe(self, path: str, **kwargs: Any) -> tuple[list[Any], None]:
-        self.calls.append({"bytes": Path(path).read_bytes(), **kwargs})
+    def transcribe(self, audio: Any, **kwargs: Any) -> tuple[list[Any], None]:
+        self.calls.append({"audio": audio, **kwargs})
         return [type("S", (), {"text": " Jarvis, open the pod bay doors."})()], None
 
 
@@ -864,6 +864,8 @@ async def test_whisper_listening_transcribes_on_this_machine(
     from fastapi.testclient import TestClient
 
     monkeypatch.setattr(J, "have_module", lambda name: True)
+    decoded: list[bytes] = []
+    monkeypatch.setattr(J, "decode_16k", lambda audio: decoded.append(audio) or [0.0] * 1600)
     jarvis = make(tmp_path, FakeWeb(reply({"text": "No."})), listen_provider="whisper")
     fake = FakeWhisper()
     jarvis._whisper = fake
@@ -875,7 +877,8 @@ async def test_whisper_listening_transcribes_on_this_machine(
                     files={"audio": ("u.webm", b"webm-bytes", "audio/webm")})
     assert r.status_code == 200
     assert r.json()["command"] == "open the pod bay doors."  # wake word stripped
-    assert fake.calls[0]["bytes"] == b"webm-bytes"  # no WAV conversion needed
+    assert decoded == [b"webm-bytes"]  # no WAV conversion needed: decoded here
+    assert fake.calls[0]["audio"] == [0.0] * 1600  # Whisper gets samples, not a file
     assert fake.calls[0]["language"] == "en" and "Jarvis" in fake.calls[0]["initial_prompt"]
 
 
@@ -1287,3 +1290,40 @@ def test_end_children_stops_a_command_but_keeps_the_shell() -> None:
     finally:
         shell.kill()
         shell.wait()
+
+
+@pytest.mark.asyncio
+async def test_a_reply_is_tagged_with_the_page_that_asked(tmp_path: Path) -> None:
+    web = FakeWeb(reply({"text": "Sunny."}), reply({"text": "Noted."}))
+    jarvis = make(tmp_path, web)
+    auth = {"Authorization": "Bearer secret-token"}
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=J.create_app(jarvis)),
+                                 base_url="http://jarvis") as client:
+        asked = (await client.post("/dash/api/command", headers=auth, json={
+            "text": "weather?", "client": "phone-123"})).json()
+        await finished(jarvis, jarvis.tasks[asked["task_id"]])
+        plain = (await client.post("/dash/api/command", headers=auth,
+                                   json={"text": "note it"})).json()
+        await finished(jarvis, jarvis.tasks[plain["task_id"]])
+    done = [e for e in jarvis.hub.history if e["type"] == "task.completed"]
+    assert done[0]["data"]["client"] == "phone-123"  # only the phone speaks it
+    assert done[1]["data"]["client"] is None  # every Core page does
+
+
+def test_recordings_are_decoded_without_faster_whispers_decoder(tmp_path: Path) -> None:
+    """faster-whisper's decoder passes PyAV an option PyAV 15 removed, so every
+    recording failed; Jarvis decodes them itself."""
+    av = pytest.importorskip("av")
+    np = pytest.importorskip("numpy")
+    path = tmp_path / "tone.webm"
+    with av.open(str(path), "w") as out:  # a second of tone, as a browser records it
+        stream = out.add_stream("libopus", rate=48000)
+        tone = (np.sin(np.arange(48000) * 2 * np.pi * 440 / 48000) * 8000).astype(np.int16)
+        frame = av.AudioFrame.from_ndarray(tone.reshape(1, -1), format="s16", layout="mono")
+        frame.rate = 48000
+        for packet in [*stream.encode(frame), *stream.encode(None)]:
+            out.mux(packet)
+    samples = J.decode_16k(path.read_bytes())
+    assert samples.dtype == np.float32 and 15000 < len(samples) < 17500
+    with pytest.raises(Exception):  # noqa: B017 - any decoding error will do
+        J.decode_16k(b"not audio at all")
