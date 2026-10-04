@@ -129,7 +129,11 @@ class LiveTrader:
             "signal_memory": self.signal_memory,
             "learning": self.learner.to_dict() if self.learner else None,
         }
-        self.state_path.write_text(json.dumps(state, indent=2))
+        # Write-then-swap: Jarvis's Stop can end the bot at any moment, and a
+        # half-written state file would lose the paper portfolio.
+        tmp = self.state_path.with_suffix(self.state_path.suffix + ".tmp")
+        tmp.write_text(json.dumps(state, indent=2))
+        tmp.replace(self.state_path)
         write_status(self.config)  # the summary Jarvis's TradeBot page shows
 
     # ---------------- one trading cycle ----------------

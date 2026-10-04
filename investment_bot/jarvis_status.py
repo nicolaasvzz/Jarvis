@@ -35,7 +35,7 @@ def _read(path: Path) -> dict[str, Any]:
 
 
 def _money(value: float) -> float:
-    return round(float(value), 2)
+    return round(float(value), 2) + 0.0  # + 0.0 turns -0.0 into 0.0
 
 
 def build_status(config: BotConfig, now: datetime | None = None) -> dict[str, Any]:
@@ -119,13 +119,13 @@ def build_status(config: BotConfig, now: datetime | None = None) -> dict[str, An
         out["Learned from backtests"] = learned
     if rounds:
         latest = rounds[-1]
-        out["What the last backtest taught it"] = [
-            {"Lesson": text} for text in latest.get("lessons") or []
-        ] + (
+        lessons = [{"Lesson": text} for text in latest.get("lessons") or []] + (
             [{"Lesson": f"Kept: {latest['adopted']['description']}."}]
             if latest.get("adopted")
             else [{"Lesson": f"No change kept ({latest.get('tested', 0)} tried)."}]
         )
+        # The page lists newest first; reversed, they read top to bottom in order.
+        out["What the last backtest taught it"] = lessons[::-1]
         out["Backtests"] = [
             {
                 "#": r.get("number"),

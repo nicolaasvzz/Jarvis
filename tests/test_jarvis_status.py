@@ -46,7 +46,7 @@ def test_summarises_paper_trading_and_backtest_memory(tmp_path):
     assert s["Equity curve"][-1] == ["2026-10-04 10:00", 1020.0]
     assert s["Learned from backtests"] == {"Long-only": "on", "Entry threshold": 0.3}
     assert s["Backtests"][0]["Losses"] == 38168.3
-    assert s["What the last backtest taught it"][-1] == {"Lesson": "Kept: long-only on."}
+    assert s["What the last backtest taught it"][0] == {"Lesson": "Kept: long-only on."}
     # Plain values first: the page turns those into tiles at the top.
     keys = list(s)
     assert keys.index("Halted") < keys.index("Equity curve")
