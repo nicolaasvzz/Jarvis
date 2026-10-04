@@ -49,6 +49,7 @@ LABELS = {
     "strategy.threshold": "entry threshold",
     "strategy.max_volatility": "volatility veto",
     "strategy.long_only": "long-only",
+    "strategy.short_threshold": "short entry threshold",
     "strategy.learned_weights": "strategy weights",
     "risk.atr_stop_multiple": "stop distance (ATRs)",
     "risk.risk_per_trade": "risk per trade",
@@ -161,6 +162,7 @@ def current_values(config: BotConfig) -> dict[str, Any]:
         "strategy.threshold": strategy.threshold,
         "strategy.max_volatility": strategy.max_volatility,
         "strategy.long_only": strategy.long_only,
+        "strategy.short_threshold": strategy.short_threshold,
         "risk.atr_stop_multiple": risk.atr_stop_multiple,
         "risk.risk_per_trade": risk.risk_per_trade,
         "risk.take_profit_multiple": risk.take_profit_multiple,
@@ -183,6 +185,8 @@ def candidates(
             if lo - 1e-9 <= new <= hi + 1e-9:
                 out.append({key: round(new, 4)})
     out.append({"strategy.long_only": not now["strategy.long_only"]})
+    if not now["strategy.long_only"]:  # shorts are on: their own entry bar is a knob too
+        out += short_candidates(now)
     tp = now["risk.take_profit_multiple"]
     if tp is None:
         out.append({"risk.take_profit_multiple": 6.0})
@@ -194,6 +198,20 @@ def candidates(
         if any(abs(learned_weights.get(n, 0) - w) >= 0.02 for n, w in current.items()):
             weights = {n: round(w, 4) for n, w in learned_weights.items()}
             out.append({"strategy.learned_weights": weights})
+    return out
+
+
+def short_candidates(now: dict[str, Any]) -> list[dict[str, Any]]:
+    """Raise or lower the bar for entering a short (it starts at the entry threshold)."""
+    current = now["strategy.short_threshold"]
+    value = now["strategy.threshold"] if current is None else current
+    out = [
+        {"strategy.short_threshold": round(new, 4)}
+        for new in (value - 0.05, value + 0.05, value + 0.15)
+        if 0.10 - 1e-9 <= new <= 0.90 + 1e-9
+    ]
+    if current is not None:
+        out.append({"strategy.short_threshold": None})
     return out
 
 

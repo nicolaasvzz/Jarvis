@@ -8,9 +8,12 @@
 # First run creates a .venv and installs dependencies; later runs reuse it.
 
 param(
-    [ValidateSet('terminal', 'api', 'once', 'backtest')]
+    [ValidateSet('terminal', 'api', 'once', 'backtest', 'learn')]
     [string]$Mode = 'terminal',
-    [int]$Port = 8000
+    [int]$Port = 8000,
+    [string]$For = '1h',      # learn: how long, e.g. 10m, 8h, 2d
+    [string]$Round = '30m',   # learn: test this long before each adjustment
+    [string]$Goal = ''        # learn: what to get better at
 )
 
 $ErrorActionPreference = 'Stop'
@@ -51,6 +54,14 @@ switch ($Mode) {
         Write-Host '=== Backtesting; report will open in your browser ===' -ForegroundColor Cyan
         & $venvPython -m investment_bot backtest -c $config --html report.html
         if (Test-Path 'report.html') { Start-Process 'report.html' }
+    }
+    'learn' {
+        Write-Host "=== Learning for $For (Ctrl-C stops; what it learns is kept) ===" -ForegroundColor Cyan
+        $learnArgs = @('-m', 'investment_bot', 'learn', '-c', $config, '--for', $For, '--round', $Round)
+        # Windows PowerShell drops empty arguments, so only pass a goal there is.
+        # Windows PowerShell also mangles double quotes inside native arguments.
+        if ($Goal.Trim()) { $learnArgs += @('--goal', ($Goal -replace '"', "'")) }
+        & $venvPython @learnArgs
     }
     'api' {
         Write-Host "=== API on http://localhost:$Port ===" -ForegroundColor Cyan

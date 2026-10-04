@@ -64,6 +64,8 @@ class BotConfig:
             max_volatility=strat.get("max_volatility"),
             long_only=bool(strat.get("long_only", False)),
         )
+        if strat.get("short_threshold") is not None:
+            ensemble.short_threshold = float(strat["short_threshold"])
         # Weights that backtest memory (investment_bot.memory) found to hold up.
         if strat.get("learned_weights"):
             ensemble.apply_weights(strat["learned_weights"])

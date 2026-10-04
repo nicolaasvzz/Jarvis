@@ -3,6 +3,7 @@
     investment-bot backtest  [-c config.yaml] [--html report.html]
     investment-bot optimize  --strategy sma_cross --grid "fast=10,20 slow=50,100"
     investment-bot trade     [-c config.yaml] [--once]
+    investment-bot learn     --for 8h [--round 30m] [--goal "learn shorts"]
     investment-bot learned   [-c config.yaml] [--reset]
     investment-bot strategies
 """
@@ -323,6 +324,39 @@ def cmd_learned(args: argparse.Namespace) -> None:
     print_learning(memory, console)
 
 
+def cmd_learn(args: argparse.Namespace) -> None:
+    from .session import Session, keep_awake, parse_duration, read_goal
+
+    try:
+        seconds, round_seconds = parse_duration(args.duration), parse_duration(args.round)
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
+    config = BotConfig.load(args.config)
+    tune = TuneConfig.from_config(config)
+    if not tune.enabled:
+        console.print("[yellow]learning.auto_tune is off in this config; learning anyway.[/yellow]")
+    memory = BacktestMemory.load(tune.memory_file)
+    days = args.days or config.backtest_settings["days"]
+    symbols = args.symbols.split(",") if args.symbols else None
+    goal = read_goal(args.goal, symbols or config.universe, tune.loss_aversion)
+    keep_awake()
+    session = Session(
+        config=config,
+        memory=memory,
+        tune=tune,
+        goal=goal,
+        seconds=seconds,
+        round_seconds=round_seconds,
+        load_data=lambda cfg: _load_data(cfg, days, symbols),
+        say=lambda line: console.print(line, markup=False, highlight=False, soft_wrap=True),
+        on_progress=lambda: write_status(config),
+    )
+    session.run()
+    if memory.rounds:
+        print_progress(memory, console)
+    console.print(DISCLAIMER)
+
+
 def cmd_status(args: argparse.Namespace) -> None:
     config, _ = _load_with_memory(args.config)
     path = write_status(config)
@@ -386,6 +420,14 @@ def build_parser() -> argparse.ArgumentParser:
     lrn = sub.add_parser("learned", parents=[common], help="What backtests have taught the bot")
     lrn.add_argument("--reset", action="store_true", help="Forget everything learned")
     lrn.set_defaults(func=cmd_learned)
+
+    ln = sub.add_parser(
+        "learn", parents=[common], help="Backtest over and over for a while, learning as it goes"
+    )
+    ln.add_argument("--for", dest="duration", required=True, help="How long: 10m, 8h, 2d...")
+    ln.add_argument("--round", default="30m", help="Test this long before each adjustment")
+    ln.add_argument("--goal", default="", help='What to get better at, e.g. "learn shorts"')
+    ln.set_defaults(func=cmd_learn)
 
     st = sub.add_parser("status", parents=[common], help="Rewrite jarvis_status.json for Jarvis")
     st.set_defaults(func=cmd_status)

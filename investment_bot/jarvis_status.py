@@ -8,6 +8,7 @@ human-readable keys, from the files the bot already keeps:
 
 - the paper-trading state (``live_state.json``): equity, positions, trades
 - backtest memory (``learned.json``): learned settings, run-by-run history
+- a learning session (``learning_session.json``): goal, time left, rounds
 
 It is rewritten after every trading cycle, every backtest, and on
 ``investment-bot status``. Reading only, never trading: if a file is missing,
@@ -16,7 +17,9 @@ that part is simply left out.
 from __future__ import annotations
 
 import json
-from datetime import datetime
+import os
+import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -32,6 +35,57 @@ def _read(path: Path) -> dict[str, Any]:
     except (OSError, ValueError):
         return {}
     return data if isinstance(data, dict) else {}
+
+
+def _alive(pid: Any) -> bool:
+    """Is process `pid` still running? (A session ended by force can't say so.)"""
+    try:
+        pid = int(pid)
+    except (TypeError, ValueError):
+        return False
+    if sys.platform == "win32":
+        import ctypes
+
+        kernel32 = ctypes.windll.kernel32
+        handle = kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+        if not handle:
+            return False
+        code = ctypes.c_ulong()
+        ok = kernel32.GetExitCodeProcess(handle, ctypes.byref(code))
+        kernel32.CloseHandle(handle)
+        return bool(ok) and code.value == 259  # STILL_ACTIVE
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    return True
+
+
+def _session(path: Path, now: datetime) -> dict[str, Any]:
+    """Tiles and a chart for the learning session, if there is or was one."""
+    session = _read(path)
+    if not session:
+        return {}
+    status = str(session.get("status", ""))
+    if status == "running" and not _alive(session.get("pid")):
+        status = "stopped"
+    out: dict[str, Any] = {"Learning": session.get("phase") if status == "running" else status}
+    out["Learning goal"] = session.get("goal") or "cut losses"
+    if status == "running":
+        try:
+            ends = datetime.fromisoformat(str(session["ends"]))
+            left = (ends - now.astimezone(timezone.utc)).total_seconds()
+            out["Learning time left"] = (
+                f"{int(left // 3600)}h {int(left % 3600 // 60):02d}m" if left > 0 else "finishing"
+            )
+        except (KeyError, ValueError):
+            pass
+    out["Learning rounds"] = session.get("rounds", 0)
+    out["Changes kept this session"] = len(session.get("kept") or [])
+    history = session.get("score_by_round") or []
+    if len(history) > 1:
+        out["Goal score by round"] = [[f"round {n}", value] for n, value in history]
+    return out
 
 
 def _money(value: float) -> float:
@@ -65,6 +119,7 @@ def build_status(config: BotConfig, now: datetime | None = None) -> dict[str, An
     rounds = memory.get("rounds") or []
     if rounds:
         out["Backtests learned from"] = len(rounds)
+    out.update(_session(Path("learning_session.json"), now))
 
     # ---- blocks ----
     curve = state.get("equity_curve") or []
