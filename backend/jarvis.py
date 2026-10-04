@@ -50,6 +50,7 @@ from typing import Annotated, Any, Literal, Protocol
 from urllib.parse import parse_qs, urlencode, urlparse
 
 import httpx
+import psutil
 from fastapi import Depends, FastAPI, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse, Response, StreamingResponse
@@ -388,6 +389,27 @@ def spawn_shell(cwd: Path, cols: int, rows: int) -> Pty:
     return process
 
 
+def end_children(process: Pty, wait: float = 3) -> int:
+    """End everything a shell started — the command it is running — but not
+    the shell. Ctrl+C typed into ConPTY doesn't reach every program (a Python
+    script, Start-Sleep), so it alone can't stop one. Returns how many ended."""
+    pid = getattr(process, "pid", None)
+    if not pid:
+        return 0
+    try:
+        children = psutil.Process(pid).children(recursive=True)
+    except psutil.Error:
+        return 0
+    for child in children:
+        with contextlib.suppress(psutil.Error):
+            child.terminate()
+    _, alive = psutil.wait_procs(children, timeout=wait)
+    for child in alive:
+        with contextlib.suppress(psutil.Error):
+            child.kill()
+    return len(children)
+
+
 #: A shell waiting for input: "PS C:\path>" or "user@host:~$".
 PROMPT = re.compile(r"^(PS [^>]*>|\S*[$#%])\s*$")
 PROMPT_PREFIX = re.compile(r"^(PS [^>]*>|\S*[$#%])\s*")
@@ -695,6 +717,24 @@ class Terminal:
                 await asyncio.sleep(0.1)
         finally:
             self.watchers -= 1
+
+    async def idle(self, limit: float) -> bool:
+        """Wait for the running command to finish and the prompt to return."""
+        start = time.monotonic()
+        while time.monotonic() - start < limit and self.status == "running":
+            if self.running is None and self.at_prompt:
+                return True
+            await asyncio.sleep(0.1)
+        return self.running is None and self.at_prompt
+
+    async def interrupt(self, by: str) -> None:
+        """Stop the running command: Ctrl+C, and if that isn't enough within a
+        few seconds, end the processes it started. The shell stays open."""
+        self.send("\x03", shown="[ctrl+c]", by=by)
+        if self.running is None or await self.idle(limit=3):
+            return
+        if await asyncio.to_thread(end_children, self.process):
+            self.note(by, "[ended the command's processes]")
 
     async def ready(self, limit: float = 10) -> None:
         """Wait for a new shell's first prompt."""
@@ -1565,9 +1605,15 @@ class Jarvis:
             Tool("run_control",
                  "Run one of the user's Mothership controls (listed in the system prompt) "
                  "— e.g. change the weather in a sim, start the trading bot. Match the "
-                 "user's words to the control's name.",
-                 params(["control"], control="string: the control's name or id"),
-                 self.use_control, lambda a: f"Control: {a.get('control', '?')}", risky=True),
+                 "user's words to the control's name. `action` stop or restart acts on a "
+                 "control that is running (e.g. stop or restart the trading bot).",
+                 params(["control"], control="string: the control's name or id",
+                        action="string: run (default), stop or restart"),
+                 self.use_control,
+                 lambda a: f"Control: {a.get('control', '?')}"
+                           + (f" ({a['action']})" if a.get("action") not in (None, "run")
+                              else ""),
+                 risky=True),
             Tool("add_idea",
                  "Note an idea on one of the user's Mothership projects.",
                  params(["project", "idea"], project="string: the project's name",
@@ -1977,11 +2023,17 @@ class Jarvis:
                             lines: int = 60) -> dict[str, Any]:
         return self._screen(self._terminal(terminal_id), max(5, min(int(lines or 60), 300)))
 
-    async def use_control(self, task: Task, control: str) -> dict[str, Any]:
+    async def use_control(self, task: Task, control: str,
+                          action: str = "run") -> dict[str, Any]:
         found = self.mothership.control(control)
         if found is None:
             names = ", ".join(str(c.get("name")) for c in self.mothership.controls) or "none"
             return {"error": f"There's no control like {control!r}. Controls: {names}."}
+        verb = str(action or "run").strip().lower()
+        if verb in {"stop", "restart"}:
+            return await self._stop_or_restart(task, found, verb)
+        if verb != "run":
+            return {"error": f"Unknown action {action!r} — use run, stop or restart."}
         name, kind = found.get("name"), found.get("kind")
         action = str(found.get("action") or "")
         if kind == "idea" or not action:
@@ -2004,6 +2056,26 @@ class Jarvis:
         terminal = self.terminals[started["terminal"]]
         await terminal.settle(limit=8)
         return {"control": name, **self._screen(terminal)}
+
+    async def _stop_or_restart(self, task: Task, control: dict[str, Any],
+                               verb: str) -> dict[str, Any]:
+        name = control.get("name")
+        terminal = self._control_terminal(control)
+        if verb == "stop" and (terminal is None or not terminal.running):
+            return {"error": f"“{name}” isn't running."}
+        if not control.get("trusted") and not await self._approve(
+                task, "run_control", {"control": name, "action": verb},
+                f"{verb.capitalize()} the control “{name}”"):
+            return {"denied": True,
+                    "note": "The user did not allow this. Don't retry unless asked."}
+        if verb == "stop":
+            terminal = await self.stop_control(str(control["id"]), by="jarvis")
+            await terminal.settle(limit=5)
+            return {"control": name, "stopped": True, **self._screen(terminal)}
+        started = await self.restart_control(str(control["id"]), by="jarvis")
+        terminal = self.terminals[started["terminal"]]
+        await terminal.settle(limit=8)
+        return {"control": name, "restarted": True, **self._screen(terminal)}
 
     async def note_idea(self, task: Task, project: str, idea: str) -> dict[str, Any]:
         found = self.mothership.project(project)
@@ -2145,17 +2217,33 @@ class Jarvis:
                                           control=control.get("id"), project=project)
             await terminal.ready()
         terminal.send(action + "\r", shown=action, by=by)
+        # The page reloaded its terminals when this one opened, before the
+        # shell was ready: without this it never learns the control is busy.
+        self.hub.emit("terminal.updated", f"{terminal.title}: running {action[:60]}",
+                      data={"terminal": terminal.out()})
         control["last_run"] = now()
         self._changed(f"Ran the control “{name}”.")
         return {"terminal": terminal.id}
 
-    def stop_control(self, control_id: str) -> Terminal:
+    async def stop_control(self, control_id: str, by: str = "you") -> Terminal:
         control = self._by_id(self.mothership.controls, control_id, "control")
         terminal = self._control_terminal(control)
         if terminal is None:
             raise JarvisError(f"“{control.get('name')}” isn't running.")
-        terminal.send("\x03", shown="[ctrl+c]", by="you")
+        await terminal.interrupt(by)
         return terminal
+
+    async def restart_control(self, control_id: str, by: str = "you") -> dict[str, Any]:
+        """Stop the control's command (Ctrl+C), wait for its prompt, run it again
+        — e.g. a bot picking up new code or settings. Not running? Just run it."""
+        control = self._by_id(self.mothership.controls, control_id, "control")
+        terminal = self._control_terminal(control)
+        if terminal is not None and terminal.running:
+            await terminal.interrupt(by)
+            if not await terminal.idle(limit=30):
+                raise JarvisError(f"“{control.get('name')}” didn't stop within 30 seconds — "
+                                  f"look at {terminal.title}.")
+        return await self.run_control(control, by=by)
 
     async def claude_terminal(self, title: str, cwd: Path, brief: str | None = None,
                               project: str | None = None) -> Terminal:
@@ -2652,7 +2740,12 @@ def create_app(jarvis: Jarvis) -> FastAPI:
     @app.post(f"{ms}/controls/{{control_id}}/stop", dependencies=guard)
     async def stop_control(control_id: str) -> dict[str, Any]:
         with answers():
-            return {"terminal": jarvis.stop_control(control_id).id}
+            return {"terminal": (await jarvis.stop_control(control_id)).id}
+
+    @app.post(f"{ms}/controls/{{control_id}}/restart", dependencies=guard)
+    async def restart_control(control_id: str) -> dict[str, Any]:
+        with answers():
+            return await jarvis.restart_control(control_id)
 
     @app.post(f"{ms}/controls/{{control_id}}/build", dependencies=guard)
     async def build_control(control_id: str) -> dict[str, Any]:

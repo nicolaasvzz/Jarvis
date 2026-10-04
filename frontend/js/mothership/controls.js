@@ -83,6 +83,7 @@ export function card(c) {
       ? `<button class="btn claude" data-build="${esc(c.id)}">${icon("claude")} Build with Claude</button>`
       : busy
       ? `<button class="btn bad" data-stop="${esc(c.id)}">${icon("stop")} Stop</button>
+         <button class="btn ghost" data-restart="${esc(c.id)}" title="Stop it, then run it again">${icon("redo")} Restart</button>
          <button class="btn ghost" data-terminal="${esc(running.id)}">${icon("terminal")} View</button>`
       : `<button class="btn primary" data-run="${esc(c.id)}">${icon(c.kind === "link" ? "external" : "play")} ${esc(kind.run)}</button>`;
   return `
@@ -116,6 +117,13 @@ export function wire(root) {
     b.addEventListener("click", () =>
       act(Hud.postJSON(Hud.route("msControlStop", { id: b.dataset.stop }), {}), "Sent Ctrl+C.")
     )
+  );
+  $$("[data-restart]", root).forEach((b) =>
+    b.addEventListener("click", () => {
+      b.disabled = true;
+      Hud.toast("Stopping it, then starting it again…");
+      act(Hud.postJSON(Hud.route("msControlRestart", { id: b.dataset.restart }), {}), "Restarted.");
+    })
   );
   $$("[data-build]", root).forEach((b) => b.addEventListener("click", () => build(b.dataset.build, b)));
   $$("[data-edit]", root).forEach((b) =>

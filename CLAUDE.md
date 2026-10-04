@@ -88,6 +88,11 @@ python -m mypy --strict --ignore-missing-imports jarvis.py
 - The user's typed commands are logged from the screen on Enter, after
   waiting for the echo (`Terminal.keys`). Keys reach the shell before it
   draws them.
+- Ctrl+C written into ConPTY (`\x03`, also pywinpty's `sendintr`) does
+  **not** interrupt every program: a Python script or `Start-Sleep` keeps
+  running. `Terminal.interrupt` sends it, then after ~3 s ends the processes
+  the shell started (`end_children`, psutil), keeping the shell. Stop and
+  Restart on controls go through it.
 - Press Enter in a PTY with `\r`, not `\r\n`: PowerShell reads the `\n` as
   a second line and shows a `>>` continuation prompt.
 - Shells start with a prompt wrapper (`PS_PROMPT_MARK`, or `PROMPT_COMMAND`

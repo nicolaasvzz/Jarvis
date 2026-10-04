@@ -54,6 +54,7 @@
       msControlDelete: "/dash/api/mothership/controls/{id}/delete",
       msControlRun: "/dash/api/mothership/controls/{id}/run",
       msControlStop: "/dash/api/mothership/controls/{id}/stop",
+      msControlRestart: "/dash/api/mothership/controls/{id}/restart",
       msControlBuild: "/dash/api/mothership/controls/{id}/build",
       msProjects: "/dash/api/mothership/projects",
       msProject: "/dash/api/mothership/projects/{id}",

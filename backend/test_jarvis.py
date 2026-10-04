@@ -8,11 +8,15 @@ import asyncio
 import json
 import os
 import queue
+import subprocess
+import sys
 import threading
+import time
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import httpx
+import psutil
 import pytest
 
 import jarvis as J
@@ -1196,3 +1200,90 @@ async def test_gemini_key_slots_and_token_rotation(tmp_path: Path) -> None:
         assert view["restart_needed"] == {"port": 9999} and jarvis.settings.port == 8765
         assert (await client.post("/dash/api/restart", headers=fresh)).status_code == 409
     assert J.read_env_file(env)["JARVIS_API_TOKEN"] == token
+
+
+@pytest.mark.asyncio
+async def test_restart_stops_a_running_control_and_runs_it_again(tmp_path: Path) -> None:
+    empty_mothership(tmp_path)
+    jarvis = make(tmp_path, FakeWeb())
+    shells = with_fake_shells(jarvis)
+    control = jarvis.save_control({"name": "Paper trading", "kind": "command",
+                                   "action": "slow bot"})
+    auth = {"Authorization": "Bearer secret-token"}
+    route = f"/dash/api/mothership/controls/{control['id']}/restart"
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=J.create_app(jarvis)),
+                                 base_url="http://jarvis") as client:
+        # Not running yet: restart just starts it.
+        first = (await client.post(route, headers=auth)).json()
+        terminal = jarvis.terminals[first["terminal"]]
+        await until(lambda: terminal.running is not None)
+        # The page hears that it started, so it can show Stop and Restart.
+        started = [e for e in jarvis.hub.history if e["type"] == "terminal.updated"]
+        assert started[-1]["data"]["terminal"]["running"]["command"] == "slow bot"
+        again = (await client.post(route, headers=auth)).json()
+        assert again["terminal"] == terminal.id  # same terminal, run again
+        assert shells[0].written == ["slow bot\r", "\x03", "slow bot\r"]
+        assert terminal.running is not None and terminal.running["command"] == "slow bot"
+    jarvis.close_all_terminals()
+
+
+@pytest.mark.asyncio
+async def test_jarvis_restarts_or_stops_a_control_by_voice_with_approval(
+        tmp_path: Path) -> None:
+    empty_mothership(tmp_path)
+    restart = {"functionCall": {"name": "run_control",
+                                "args": {"control": "paper", "action": "restart"}}}
+    stop = {"functionCall": {"name": "run_control",
+                             "args": {"control": "paper", "action": "stop"}}}
+    web = FakeWeb(reply(restart), reply({"text": "Restarted."}),
+                  reply(stop), reply({"text": "It wasn't running."}))
+    jarvis = make(tmp_path, web)
+    shells = with_fake_shells(jarvis)
+    control = jarvis.save_control({"name": "Paper trading", "kind": "command",
+                                   "action": "slow bot"})
+    await jarvis.run_control(control, by="you")
+    terminal = next(iter(jarvis.terminals.values()))
+    await until(lambda: terminal.running is not None)
+
+    task = jarvis.submit("restart the bot")
+    await until(lambda: bool(jarvis.approvals))
+    (approval,) = jarvis.approvals.values()
+    assert approval.arguments == {"control": "Paper trading", "action": "restart"}
+    jarvis.decide(approval.id, "allow")
+    await finished(jarvis, task)
+    assert shells[0].written == ["slow bot\r", "\x03", "slow bot\r"]
+    assert tool_result(web, 1)["restarted"] is True
+
+    await until(lambda: terminal.running is None)  # the slow command finishes
+    await finished(jarvis, jarvis.submit("stop the bot"))
+    assert not jarvis.approvals  # nothing to stop: it says so, no approval asked
+    assert "isn't running" in tool_result(web, 3)["error"]
+    jarvis.close_all_terminals()
+
+
+def test_end_children_stops_a_command_but_keeps_the_shell() -> None:
+    """Ctrl+C typed into ConPTY doesn't reach every program, so Stop ends the
+    processes the shell started. Here: a "shell" running a long "command"."""
+    sleeper = "import time; time.sleep(60)"
+    shell = subprocess.Popen([sys.executable, "-c",
+                              f"import subprocess, sys, time; "
+                              f"subprocess.Popen([sys.executable, '-c', {sleeper!r}]); "
+                              f"time.sleep(60)"])
+    try:
+        parent = psutil.Process(shell.pid)
+        for _ in range(100):
+            if parent.children():
+                break
+            time.sleep(0.05)
+        (command,) = parent.children()
+
+        class Shell:
+            pid = shell.pid
+
+        assert J.end_children(cast(J.Pty, Shell())) == 1
+        assert not command.is_running() or command.status() == psutil.STATUS_ZOMBIE
+        assert shell.poll() is None  # the shell itself is still there
+        assert J.end_children(cast(J.Pty, FakeShell(Path("."), 80, 24))) == 0  # no pid
+    finally:
+        shell.kill()
+        shell.wait()
