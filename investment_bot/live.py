@@ -24,6 +24,7 @@ from rich.table import Table
 from .broker.base import Broker, Order
 from .config import BotConfig
 from .data import DataFeed
+from .jarvis_status import write_status
 from .portfolio import Portfolio, Position, Trade
 from .risk import RiskEngine
 from .strategies import Ensemble
@@ -129,6 +130,7 @@ class LiveTrader:
             "learning": self.learner.to_dict() if self.learner else None,
         }
         self.state_path.write_text(json.dumps(state, indent=2))
+        write_status(self.config)  # the summary Jarvis's TradeBot page shows
 
     # ---------------- one trading cycle ----------------
 

@@ -20,3 +20,5 @@ report.html
 # backtest memory (what backtests taught the bot)
 learned.json
 learned.json.tmp
+jarvis_status.json
+jarvis_status.json.tmp

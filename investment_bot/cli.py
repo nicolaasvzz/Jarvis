@@ -17,6 +17,7 @@ from rich.table import Table
 from .backtest.engine import BacktestEngine
 from .backtest.optimizer import Optimizer
 from .config import BotConfig
+from .jarvis_status import write_status
 from .memory import BacktestMemory, TuneConfig
 from .report import print_terminal_report, write_html_report
 from .strategies import REGISTRY, build_strategy
@@ -117,6 +118,7 @@ def cmd_backtest(args: argparse.Namespace) -> None:
     if args.html:
         path = write_html_report(result, args.html, memory=memory if learned else None)
         console.print(f"HTML report written to [bold]{path}[/bold]")
+    write_status(config)
     console.print(DISCLAIMER)
 
 
@@ -307,6 +309,7 @@ def cmd_learned(args: argparse.Namespace) -> None:
     memory = BacktestMemory.load(tune.memory_file)
     if args.reset:
         memory.reset()
+        write_status(config)
         console.print(f"Forgot everything in {tune.memory_file}; back to the config's settings.")
         return
     if not tune.enabled:
@@ -318,6 +321,12 @@ def cmd_learned(args: argparse.Namespace) -> None:
     for key, value in memory.overrides.items():
         console.print(f"  {key}: {value}")
     print_learning(memory, console)
+
+
+def cmd_status(args: argparse.Namespace) -> None:
+    config, _ = _load_with_memory(args.config)
+    path = write_status(config)
+    console.print(f"Wrote {path}." if path else "[red]Couldn't write the status file.[/red]")
 
 
 def cmd_strategies(_args: argparse.Namespace) -> None:
@@ -377,6 +386,9 @@ def build_parser() -> argparse.ArgumentParser:
     lrn = sub.add_parser("learned", parents=[common], help="What backtests have taught the bot")
     lrn.add_argument("--reset", action="store_true", help="Forget everything learned")
     lrn.set_defaults(func=cmd_learned)
+
+    st = sub.add_parser("status", parents=[common], help="Rewrite jarvis_status.json for Jarvis")
+    st.set_defaults(func=cmd_status)
 
     ls = sub.add_parser("strategies", help="List available strategies")
     ls.set_defaults(func=cmd_strategies)
