@@ -1264,6 +1264,82 @@ async def test_jarvis_restarts_or_stops_a_control_by_voice_with_approval(
     jarvis.close_all_terminals()
 
 
+LEARN = {
+    "name": "Learn", "kind": "command",
+    "action": "learn -For {duration} -Goal {goal}",
+    "inputs": [
+        {"name": "duration", "label": "How long", "kind": "choice", "default": "1h",
+         "options": [{"label": "10 minutes", "value": "10m"}, {"label": "1 hour", "value": "1h"}]},
+        {"name": "goal", "label": "Goal", "kind": "text"},
+    ],
+}
+
+
+def test_inputs_go_into_the_command_quoted() -> None:
+    q = J.shell_quote
+    command, values = J.fill_inputs(LEARN, {"duration": "10m", "goal": "shorts'; rm -rf x\n"})
+    assert values == {"duration": "10m", "goal": "shorts'; rm -rf x"}
+    assert command == f"learn -For {q('10m')} -Goal {q(values['goal'])}"
+    assert J.fill_inputs(LEARN, {})[0] == f"learn -For {q('1h')} -Goal {q('')}"  # defaults
+    with pytest.raises(J.JarvisError, match="must be one of"):
+        J.fill_inputs(LEARN, {"duration": "1h; shutdown"})
+    # PowerShell ends a '…' string at a curly quote too: doubled, it can't.
+    assert J.ps_quote("it’s") == "'it’’s'"
+
+
+@pytest.mark.asyncio
+async def test_a_control_with_inputs_runs_with_what_you_chose(tmp_path: Path) -> None:
+    empty_mothership(tmp_path)
+    jarvis = make(tmp_path, FakeWeb())
+    shells = with_fake_shells(jarvis)
+    auth = {"Authorization": "Bearer secret-token"}
+    ms = "/dash/api/mothership"
+    q = J.shell_quote
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=J.create_app(jarvis)),
+                                 base_url="http://jarvis") as client:
+        bad = await client.post(f"{ms}/controls", headers=auth, json={
+            **LEARN, "inputs": [{"name": "x", "kind": "choice"}]})
+        assert bad.status_code == 422  # a choice with nothing to choose
+        control = (await client.post(f"{ms}/controls", headers=auth, json=LEARN)).json()
+        assert control["inputs"][0]["options"][1] == {"label": "1 hour", "value": "1h"}
+        run = f"{ms}/controls/{control['id']}/run"
+        wrong = await client.post(run, headers=auth, json={"inputs": {"duration": "3y"}})
+        assert wrong.status_code == 409 and shells == []
+        ran = await client.post(run, headers=auth,
+                                json={"inputs": {"duration": "10m", "goal": "learn shorts"}})
+        assert ran.status_code == 200
+        assert shells[0].written == [f"learn -For {q('10m')} -Goal {q('learn shorts')}\r"]
+        assert jarvis.mothership.controls[0]["last_inputs"] == {"duration": "10m",
+                                                                "goal": "learn shorts"}
+        # Restart runs it again with the same choices.
+        await client.post(f"{ms}/controls/{control['id']}/restart", headers=auth)
+        assert shells[0].written[-1] == shells[0].written[0]
+    assert "inputs: duration (How long: one of 10m, 1h, default 1h)" in \
+        jarvis.mothership_summary()
+    jarvis.close_all_terminals()
+
+
+@pytest.mark.asyncio
+async def test_jarvis_fills_a_controls_inputs_and_asks_first(tmp_path: Path) -> None:
+    empty_mothership(tmp_path)
+    press = {"functionCall": {"name": "run_control", "args": {
+        "control": "learn", "inputs": '{"duration": "10m", "goal": "shorts"}'}}}
+    web = FakeWeb(reply(press), reply({"text": "Learning."}))
+    jarvis = make(tmp_path, web)
+    shells = with_fake_shells(jarvis)
+    jarvis.save_control(dict(LEARN))
+    task = jarvis.submit("learn shorts for ten minutes")
+    await until(lambda: bool(jarvis.approvals))
+    (approval,) = jarvis.approvals.values()
+    q = J.shell_quote
+    command = f"learn -For {q('10m')} -Goal {q('shorts')}"
+    assert approval.arguments == {"control": "Learn", "command": command}
+    jarvis.decide(approval.id, "allow")
+    await finished(jarvis, task)
+    assert shells[0].written == [command + "\r"]
+    jarvis.close_all_terminals()
+
+
 def test_end_children_stops_a_command_but_keeps_the_shell() -> None:
     """Ctrl+C typed into ConPTY doesn't reach every program, so Stop ends the
     processes the shell started. Here: a "shell" running a long "command"."""

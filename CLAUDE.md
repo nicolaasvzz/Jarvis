@@ -117,6 +117,10 @@ python -m mypy --strict --ignore-missing-imports jarvis.py
   never touch the real folder.
 - A control the user presses runs without approval (they chose it); the
   same control pressed by Jarvis (`run_control`) asks unless `trusted`.
+- A command control can have `inputs` (choices or text, asked for in a form
+  when pressed); its command says `{name}` and `fill_inputs` puts each value
+  in as a quoted literal (`shell_quote`). Choices must match an option. Never
+  substitute a value unquoted: text comes from the user or from Jarvis.
 - **Phone access is Tailscale**, never a public tunnel: Jarvis stays on
   `127.0.0.1` and `tailscale serve --bg <port>` gives it an https address on
   the user's own tailnet (https is what lets a phone install the app and use

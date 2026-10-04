@@ -961,8 +961,60 @@ def params(required: list[str] | None = None, **props: str) -> dict[str, Any]:
 
 
 def ps_quote(value: str | Path) -> str:
-    """A PowerShell single-quoted literal: nothing inside is interpreted."""
-    return "'" + str(value).replace("'", "''") + "'"
+    """A PowerShell single-quoted literal: nothing inside is interpreted. PowerShell
+    also ends such a string at a curly single quote, so those are doubled too."""
+    return "'" + re.sub("['‘’‚‛]", lambda m: m.group() * 2,
+                        str(value)) + "'"
+
+
+def shell_quote(value: str) -> str:
+    """A literal for this PC's terminals: PowerShell on Windows, else bash."""
+    return ps_quote(value) if WINDOWS else shlex.quote(value)
+
+
+def fill_inputs(control: dict[str, Any],
+                given: dict[str, Any] | None) -> tuple[str, dict[str, str]]:
+    """A command control's command line with its inputs filled in.
+
+    A control may ask for inputs before it runs — `"inputs"`: a list of
+    `{"name", "label", "kind": "choice"|"text", "options", "default"}` — and its
+    command line names them as `{name}`. Each value goes in as a quoted literal:
+    a choice must be one of its options, and text loses control characters, so
+    nothing typed can run as a command. → (command, the values used).
+    """
+    action = str(control.get("action") or "").strip()
+    given = given or {}
+    values: dict[str, str] = {}
+    for spec in control.get("inputs") or []:
+        name = str(spec.get("name") or "")
+        if not name:
+            continue
+        value = given.get(name)
+        if value is None or not str(value).strip():
+            value = spec.get("default") or ""
+        value = " ".join(re.sub(r"[\x00-\x1f\x7f]", " ", str(value)).split())[:300]
+        if spec.get("kind") == "choice":
+            allowed = [str(o.get("value") if isinstance(o, dict) else o)
+                       for o in spec.get("options") or []]
+            if value not in allowed:
+                raise JarvisError(f"“{spec.get('label') or name}” must be one of: "
+                                  f"{', '.join(allowed)}.")
+        values[name] = value
+        action = action.replace("{" + name + "}", shell_quote(value))
+    return action, values
+
+
+def input_summary(spec: dict[str, Any]) -> str:
+    """One control input for the system prompt: `goal (What to learn: text)`."""
+    what = spec.get("label") or spec.get("kind") or "text"
+    if spec.get("kind") == "choice":
+        what += ": one of " + ", ".join(str(o.get("value") if isinstance(o, dict) else o)
+                                        for o in spec.get("options") or [])
+    else:
+        what += ": text"
+    if spec.get("default"):
+        what += f", default {spec['default']}"
+    return f"{spec.get('name')} ({what})"
 
 
 def slug(text: str) -> str:
@@ -1631,9 +1683,13 @@ class Jarvis:
                  "Run one of the user's Mothership controls (listed in the system prompt) "
                  "— e.g. change the weather in a sim, start the trading bot. Match the "
                  "user's words to the control's name. `action` stop or restart acts on a "
-                 "control that is running (e.g. stop or restart the trading bot).",
+                 "control that is running (e.g. stop or restart the trading bot). A control "
+                 "listed with inputs takes them in `inputs`; ask the user for any they "
+                 "didn't give that have no default.",
                  params(["control"], control="string: the control's name or id",
-                        action="string: run (default), stop or restart"),
+                        action="string: run (default), stop or restart",
+                        inputs='string: JSON object of the control\'s inputs, e.g. '
+                               '{"duration": "8h", "goal": "learn shorts"}'),
                  self.use_control,
                  lambda a: f"Control: {a.get('control', '?')}"
                            + (f" ({a['action']})" if a.get("action") not in (None, "run")
@@ -2048,8 +2104,8 @@ class Jarvis:
                             lines: int = 60) -> dict[str, Any]:
         return self._screen(self._terminal(terminal_id), max(5, min(int(lines or 60), 300)))
 
-    async def use_control(self, task: Task, control: str,
-                          action: str = "run") -> dict[str, Any]:
+    async def use_control(self, task: Task, control: str, action: str = "run",
+                          inputs: str = "") -> dict[str, Any]:
         found = self.mothership.control(control)
         if found is None:
             names = ", ".join(str(c.get("name")) for c in self.mothership.controls) or "none"
@@ -2071,13 +2127,20 @@ class Jarvis:
                 return {"error": "That control's link isn't a web address."}
             await asyncio.to_thread(webbrowser.open, action)
             return {"opened": action}
+        try:
+            given = json.loads(inputs) if str(inputs or "").strip() else {}
+        except ValueError:
+            given = None
+        if not isinstance(given, dict):
+            return {"error": 'inputs must be a JSON object, e.g. {"duration": "8h"}.'}
+        action, values = fill_inputs(found, given)
         free = ("the user lets you run this control without asking" if found.get("trusted")
                 else self._safe(action))
         if not await self._approve(task, "run_control", {"control": name, "command": action},
                                    f"Run the control “{name}”: {action}", free=free):
             return {"denied": True,
                     "note": "The user did not allow this. Don't retry unless asked."}
-        started = await self.run_control(found, by="jarvis")
+        started = await self.run_control(found, by="jarvis", inputs=values)
         terminal = self.terminals[started["terminal"]]
         await terminal.settle(limit=8)
         return {"control": name, **self._screen(terminal)}
@@ -2222,8 +2285,10 @@ class Jarvis:
         return next((t for t in self.terminals.values()
                      if t.control == control.get("id") and t.status == "running"), None)
 
-    async def run_control(self, control: dict[str, Any], by: str) -> dict[str, Any]:
-        """Do what a control does. Approval, if any, has happened already."""
+    async def run_control(self, control: dict[str, Any], by: str,
+                          inputs: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Do what a control does. Approval, if any, has happened already.
+        `inputs` fill a command control's `{name}`s (see `fill_inputs`)."""
         name, kind = control.get("name", "?"), control.get("kind", "idea")
         action = str(control.get("action") or "").strip()
         if kind == "idea" or not action:
@@ -2232,6 +2297,7 @@ class Jarvis:
             return {"url": action}
         if kind == "ask":
             return {"task_id": self.submit(action, kind="control").id}
+        action, values = fill_inputs(control, inputs)
         terminal = self._control_terminal(control)
         if terminal and terminal.running:
             raise JarvisError(f"“{name}” is still running in {terminal.title} — stop it first.")
@@ -2247,6 +2313,8 @@ class Jarvis:
         self.hub.emit("terminal.updated", f"{terminal.title}: running {action[:60]}",
                       data={"terminal": terminal.out()})
         control["last_run"] = now()
+        if values:
+            control["last_inputs"] = values  # the form starts from them; Restart reuses them
         self._changed(f"Ran the control “{name}”.")
         return {"terminal": terminal.id}
 
@@ -2268,7 +2336,7 @@ class Jarvis:
             if not await terminal.idle(limit=30):
                 raise JarvisError(f"“{control.get('name')}” didn't stop within 30 seconds — "
                                   f"look at {terminal.title}.")
-        return await self.run_control(control, by=by)
+        return await self.run_control(control, by=by, inputs=control.get("last_inputs"))
 
     async def claude_terminal(self, title: str, cwd: Path, brief: str | None = None,
                               project: str | None = None) -> Terminal:
@@ -2338,7 +2406,11 @@ class Jarvis:
                  f"(a script in {cwd} is ideal) and test it with me. When it works, update "
                  f"the entry with \"id\": \"{control_id}\" in {self.mothership.path}: set "
                  "\"kind\" to \"command\" and \"action\" to the command line that runs it. "
-                 "Leave the rest of the file as it is.\n")
+                 "If it needs something chosen each time it runs, give it \"inputs\": "
+                 "[{\"name\": \"duration\", \"label\": ..., \"kind\": \"choice\", \"options\": "
+                 "[{\"label\": \"1 hour\", \"value\": \"1h\"}], \"default\": \"1h\"}, or "
+                 "\"kind\": \"text\"], and put {duration} in the command where it goes — it "
+                 "arrives quoted, so don't add quotes. Leave the rest of the file as it is.\n")
         return await self.claude_terminal(name, cwd, brief, project_id)
 
     async def build_idea(self, project_id: str, idea_id: str) -> Terminal:
@@ -2367,8 +2439,9 @@ class Jarvis:
             what = c.get("description") or c.get("action") or ""
             ready = "not built yet" if c.get("kind") == "idea" else c.get("kind")
             trusted = ", runs without asking" if c.get("trusted") else ""
+            asks = "; ".join(input_summary(i) for i in c.get("inputs") or [])
             lines.append(f"- control `{c.get('name')}` [{c.get('group') or 'general'}; "
-                         f"{ready}{trusted}] — {what}")
+                         f"{ready}{trusted}] — {what}" + (f" — inputs: {asks}" if asks else ""))
         return "\n".join(lines) or "Nothing set up yet."
 
     # -- dashboard data ---------------------------------------------------
@@ -2536,6 +2609,25 @@ class TrustIn(BaseModel):
     trusted: bool
 
 
+class ChoiceIn(BaseModel):
+    label: str = Field(min_length=1, max_length=60)
+    value: str = Field(min_length=1, max_length=100)
+
+
+class InputIn(BaseModel):
+    """Something a control asks for before it runs; its command says `{name}`."""
+    name: str = Field(pattern=r"^[A-Za-z_][A-Za-z0-9_]{0,30}$")
+    label: str = Field(default="", max_length=80)
+    kind: Literal["choice", "text"] = "text"
+    options: list[ChoiceIn] = Field(default_factory=list, max_length=40)
+    default: str = Field(default="", max_length=300)
+    placeholder: str = Field(default="", max_length=200)
+
+
+class RunIn(BaseModel):
+    inputs: dict[str, str] = Field(default_factory=dict)
+
+
 class ShareIn(BaseModel):
     share: bool = True
 
@@ -2557,6 +2649,7 @@ class ControlIn(BaseModel):
     action: str = Field(default="", max_length=2000)
     description: str = Field(default="", max_length=2000)
     trusted: bool = False
+    inputs: list[InputIn] = Field(default_factory=list, max_length=10)
 
 
 class LinkIn(BaseModel):
@@ -2730,6 +2823,10 @@ def create_app(jarvis: Jarvis) -> FastAPI:
             raise HTTPException(status_code=422, detail="A link must start with http(s)://.")
         if body.project and jarvis.mothership.project(body.project) is None:
             raise HTTPException(status_code=422, detail="That project doesn't exist.")
+        if any(i.kind == "choice" and not i.options for i in body.inputs):
+            raise HTTPException(status_code=422, detail="A choice needs options to pick from.")
+        if len({i.name for i in body.inputs}) != len(body.inputs):
+            raise HTTPException(status_code=422, detail="Two inputs share a name.")
         return body.model_dump()
 
     def checked_project(body: ProjectIn) -> dict[str, Any]:
@@ -2759,11 +2856,12 @@ def create_app(jarvis: Jarvis) -> FastAPI:
         return {"ok": True}
 
     @app.post(f"{ms}/controls/{{control_id}}/run", dependencies=guard)
-    async def run_control(control_id: str) -> dict[str, Any]:
+    async def run_control(control_id: str, body: RunIn | None = None) -> dict[str, Any]:
         # You pressed the button yourself, so nothing waits for approval.
         with answers():
             control = jarvis._by_id(jarvis.mothership.controls, control_id, "control")
-            return await jarvis.run_control(control, by="you")
+            return await jarvis.run_control(control, by="you",
+                                            inputs=body.inputs if body else None)
 
     @app.post(f"{ms}/controls/{{control_id}}/stop", dependencies=guard)
     async def stop_control(control_id: str) -> dict[str, Any]:
