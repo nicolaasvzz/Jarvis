@@ -83,7 +83,8 @@ Only `type` and `message` are required. The types the pages react to:
 `step.completed`, `step.failed`, `step.retrying`, `approval.required`,
 `approval.resolved`, `approval.auto` (ran without asking — a read-only
 command or a trusted terminal), `error`, `heard`, and for the Terminal page
-`terminal.opened`, `terminal.exited`, `terminal.updated`,
+`terminal.opened`, `terminal.exited`, `terminal.updated` (also sent when a
+control's command starts, so its card shows Stop/Restart),
 `terminal.failed` (a command failed), `terminal.finished` (a long command
 worked), `terminal.closed` (`data` carries the `terminal`, or its
 `terminal_id`), `mothership.updated` (controls or projects changed) and `terminal.input` (the assistant typed into
@@ -206,7 +207,8 @@ assistant run a command control without asking. `project` is a project id or `""
 | `msControl` | `POST /dash/api/mothership/controls/{id}` | the same body → the updated Control |
 | `msControlDelete` | `POST …/controls/{id}/delete` | |
 | `msControlRun` | `POST …/controls/{id}/run` | You pressed it: runs now, no approval. → `{"terminal": "term-3"}`, `{"task_id": "t-…"}` (ask) or `{"url": "…"}` (link — the page opens it) |
-| `msControlStop` | `POST …/controls/{id}/stop` | Ctrl+C in the control's terminal → `{"terminal": …}` |
+| `msControlStop` | `POST …/controls/{id}/stop` | Ctrl+C in the control's terminal; still running ~3 s later → ends the processes the shell started (the shell stays) → `{"terminal": …}` |
+| `msControlRestart` | `POST …/controls/{id}/restart` | Stop as above, wait (≤ 30 s) for the prompt, run it again → same as `msControlRun`; 409 if it won't stop |
 | `msControlBuild` | `POST …/controls/{id}/build` | Opens Claude Code in a terminal with a brief → the Terminal |
 | `msProjects` | `POST /dash/api/mothership/projects` | `{name, description, folder, status_file, hue, links}` → the new Project |
 | `msProject` | `POST …/projects/{id}` | the same body → the updated Project |
