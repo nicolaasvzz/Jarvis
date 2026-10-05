@@ -26,6 +26,7 @@ import copy
 import json
 import os
 from collections import defaultdict
+from collections.abc import Iterable
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -366,9 +367,11 @@ class BacktestMemory:
         tune: TuneConfig,
         evaluate: Evaluator | None = None,
         progress: Callable[[str], None] | None = None,
+        pinned: Iterable[str] = (),
     ) -> Round:
         """Review `result` (a backtest of `config`, which already includes the
-        memory's overrides), try changes, adopt at most one, and save."""
+        memory's overrides), try changes, adopt at most one, and save.
+        `pinned` settings (a strategy picked in Jarvis) are left alone."""
         say = progress or (lambda _msg: None)
         m = result.metrics
         rnd = Round(
@@ -387,7 +390,8 @@ class BacktestMemory:
         )
 
         before = current_values(config)
-        options = candidates(config, learned_weights)
+        pinned = set(pinned)
+        options = [c for c in candidates(config, learned_weights) if not pinned & set(c)]
         try:
             train, hold = split(data, tune.holdout, config.build_strategy().warmup)
         except ValueError as exc:

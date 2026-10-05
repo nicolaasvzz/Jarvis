@@ -170,6 +170,17 @@ added or swapped in for the weakest of its family, and it stops by itself
 once all of them have been tried. `--for` is then only the longest it may
 take. A stopped builder carries on where it left off.
 
+**Strategy and money.** `backtest`, `learn`, `lab` and `trade-package` take
+`--style refine|fewer|more|custom [--custom "your words"] --money 10000`
+(`run-local.ps1 -Style ... -Custom ... -Money ...`). `fewer` = 70% confidence
+and 25% of the money a trade; `more` = 35% confidence, 5% a trade; `custom`
+is read for numbers and words ("80% sure, bet 10%, no shorts, hold longer")
+and the bot prints how it read them. The picked settings are pinned: learning
+and the builder refine everything else around them (and keep them as the
+current strategy); paper trading lays them over the champion. `--money` caps
+what the trader uses (only its own positions count against it), and sets the
+backtests' starting cash. See `investment_bot/style.py`.
+
 **Reports.** Every backtest, learning session, lab, builder, test-mode run
 and trading session keeps a dated page in `reports/`
 (`2026-10-05_213015_backtest.html`), labelled in its head with a title, a

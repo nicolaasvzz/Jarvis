@@ -30,6 +30,7 @@ from .jarvis_status import write_status
 from .memory import BacktestMemory, TuneConfig
 from .report import print_terminal_report, write_html_report
 from .strategies import REGISTRY, build_strategy
+from .style import Style, money_text, pick
 
 console = Console()
 
@@ -80,8 +81,32 @@ def _load_with_memory(path: str | None) -> tuple[BotConfig, BacktestMemory | Non
     return memory.apply(config), memory
 
 
+def _style(args: argparse.Namespace) -> Style:
+    style = pick(args.style, args.custom)
+    console.print(f"Strategy: {style.describe()}"
+                  + (f" (read from your words: {'; '.join(style.reading)})" if style.text else "")
+                  + f". Money: {money_text(args.money)}.", markup=False, highlight=False)
+    return style
+
+
+def _with_money(config: BotConfig, money: float) -> BotConfig:
+    """Backtests start with this much cash, if a sum was picked."""
+    from .memory import apply_overrides
+
+    return apply_overrides(config, {"backtest.starting_cash": money}) if money > 0 else config
+
+
 def cmd_backtest(args: argparse.Namespace) -> None:
+    style = _style(args)
     config, memory = _load_with_memory(args.config)
+    if style.pinned:  # the picked strategy becomes the current one
+        from .memory import apply_overrides
+
+        if memory is not None:
+            memory.overrides.update(style.config_overrides())
+            memory.save()
+        config = apply_overrides(config, style.config_overrides())
+    config = _with_money(config, args.money)
     settings = config.backtest_settings
     days = args.days or settings["days"]
     symbols = args.symbols.split(",") if args.symbols else None
@@ -121,6 +146,7 @@ def cmd_backtest(args: argparse.Namespace) -> None:
                 dict(learner.weights) if learner is not None else None,
                 TuneConfig.from_config(config),
                 progress=status.update,
+                pinned=style.config_overrides(),
             )
         learned = True
         print_learning(memory, console)
@@ -349,14 +375,17 @@ def cmd_learn(args: argparse.Namespace) -> None:
         seconds, round_seconds = parse_duration(args.duration), parse_duration(args.round)
     except ValueError as exc:
         raise SystemExit(str(exc)) from exc
-    config = BotConfig.load(args.config)
+    style = _style(args)
+    config = _with_money(BotConfig.load(args.config), args.money)
     tune = TuneConfig.from_config(config)
     if not tune.enabled:
         console.print("[yellow]learning.auto_tune is off in this config; learning anyway.[/yellow]")
     memory = BacktestMemory.load(tune.memory_file)
     days = args.days or config.backtest_settings["days"]
     symbols = args.symbols.split(",") if args.symbols else None
-    goal = read_goal(args.goal, symbols or config.universe, tune.loss_aversion)
+    # Custom words are the session's goal too (shorts, a symbol, win rate...).
+    goal_text = args.goal or (args.custom if args.style == "custom" else "")
+    goal = read_goal(goal_text, symbols or config.universe, tune.loss_aversion)
     keep_awake()
     session = Session(
         config=config,
@@ -368,6 +397,7 @@ def cmd_learn(args: argparse.Namespace) -> None:
         load_data=lambda cfg: _load_data(cfg, days, symbols),
         say=lambda line: console.print(line, markup=False, highlight=False, soft_wrap=True),
         on_progress=lambda: write_status(config),
+        style=style,
     )
     status = session.run()
     saved = session.report(status).save()
@@ -387,6 +417,7 @@ def cmd_lab(args: argparse.Namespace) -> None:
         seconds, round_seconds = parse_duration(args.duration), parse_duration(args.round)
     except ValueError as exc:
         raise SystemExit(str(exc)) from exc
+    style = _style(args)
     config = BotConfig.load(args.config)
     cfg = LabConfig.from_config(config)
     other = running_lab()
@@ -410,7 +441,8 @@ def cmd_lab(args: argparse.Namespace) -> None:
     if args.prepare_only or not universe:
         return
     lab = Lab(cfg, store, universe, seconds, round_seconds, say=say,
-              on_progress=lambda: write_status(config), until_done=args.until_done)
+              on_progress=lambda: write_status(config), until_done=args.until_done,
+              style=style, money=args.money)
     status = lab.run()
     saved = lab.session_report(status).save()
     if saved:
@@ -468,6 +500,7 @@ def cmd_trade_package(args: argparse.Namespace) -> None:
     from .lab.prepare import LabConfig
     from .lab.trader import PackageTrader
 
+    style = _style(args)
     config = BotConfig.load(args.config)
     try:
         broker = AlpacaBroker(execution=config.build_execution())
@@ -476,7 +509,8 @@ def cmd_trade_package(args: argparse.Namespace) -> None:
     say = lambda line: console.print(line, markup=False, highlight=False, soft_wrap=True)  # noqa: E731
     lab_cfg = LabConfig.from_config(config)
     data = AlpacaData(lab_cfg.cache_dir, feed=lab_cfg.feed, say=say)
-    trader = PackageTrader(config, broker, data, say=say, dry_run=args.dry_run)
+    trader = PackageTrader(config, broker, data, say=say, dry_run=args.dry_run, style=style,
+                           money=args.money)
     where = "PAPER" if "paper" in broker.base_url else "LIVE (real money)"
     console.print(f"[bold]Package trader[/bold] on Alpaca {where}"
                   + (" - dry run, no orders" if args.dry_run else "") + ".")
@@ -538,6 +572,13 @@ def build_parser() -> argparse.ArgumentParser:
     common.add_argument("-c", "--config", default=None, help="Path to YAML config")
     common.add_argument("--days", type=int, default=None, help="History length in trading days")
     common.add_argument("--symbols", default=None, help="Comma-separated symbol override")
+    common.add_argument("--style", default="refine", choices=["refine", "fewer", "more", "custom"],
+                        help="Strategy to try: refine the current one, fewer trades + more "
+                             "risk, less risk + more trades, or custom (--custom)")
+    common.add_argument("--custom", default="", help='Your own strategy in words, e.g. '
+                        '"80%% confidence, bet 10%% a trade, no shorts"')
+    common.add_argument("--money", type=float, default=0.0,
+                        help="Money to trade with (0 = the whole account / the config's cash)")
 
     bt = sub.add_parser("backtest", parents=[common], help="Run a backtest")
     bt.add_argument("--html", default=None, help="Write an HTML report to this path")

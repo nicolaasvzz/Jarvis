@@ -59,6 +59,7 @@ from .memory import (
     split,
 )
 from .reports import Report, tone_of
+from .style import Style
 from .workers import exit_with_parent
 
 SESSION_FILE = "learning_session.json"
@@ -215,6 +216,7 @@ class Session:
     state_file: Path = Path(SESSION_FILE)
     on_progress: Callable[[], None] = lambda: None
     seed: int | None = None
+    style: Style = field(default_factory=Style)   # a strategy picked in Jarvis
 
     def __post_init__(self) -> None:
         self.workers = self.workers or self.tune.workers or max((os.cpu_count() or 2) - 1, 1)
@@ -227,6 +229,12 @@ class Session:
         self.history: list[list[Any]] = []
         self.phase = "starting"
         self.pool: ProcessPoolExecutor | None = None
+        # A picked strategy becomes the current one: saved, then kept fixed while
+        # the session refines everything else around it.
+        self.pins = self.style.config_overrides()
+        if self.pins:
+            self.memory.overrides.update(self.pins)
+            self.memory.save()
 
     # -- settings ---------------------------------------------------------
 
@@ -234,11 +242,15 @@ class Session:
         """What this session backtests: the config plus everything learned, and
         for a shorts goal, shorts switched on (else there is nothing to learn)."""
         tuned = self.memory.apply(self.config)
-        if self.goal.side < 0 and current_values(tuned)["strategy.long_only"]:
+        if (self.goal.side < 0 and "strategy.long_only" not in self.pins
+                and current_values(tuned)["strategy.long_only"]):
             tuned = apply_overrides(tuned, {"strategy.long_only": False})
         return tuned
 
     def options(self, config: BotConfig) -> list[dict[str, Any]]:
+        return [c for c in self._options(config) if not set(self.pins) & set(c)]
+
+    def _options(self, config: BotConfig) -> list[dict[str, Any]]:
         if self.goal.side < 0:  # learning shorts: their knobs, not whether to short at all
             opts = [c for c in candidates(config) if "strategy.long_only" not in c]
             have = {repr(c) for c in opts}
@@ -253,6 +265,9 @@ class Session:
     def run(self) -> str:
         """Rounds until time is up. Returns 'finished' or 'stopped'."""
         status = "finished"
+        self.say(f"Strategy: {self.style.describe()}"
+                 + (f" (read from: {'; '.join(self.style.reading)})" if self.style.text else "")
+                 + ".")
         self.say(f"Goal: {self.goal.text or '(none)'} -> " + "; ".join(self.goal.reading) + ".")
         self.say(
             f"Learning for {human(self.seconds)}, analysing every {human(self.round_seconds)}, "
@@ -370,7 +385,8 @@ class Session:
         summary = (f"{self.rounds_done} round(s) in {took}, {kept} change(s) kept"
                    + (f", goal score {moved:+.2%}" if len(scores) > 1 else "") + f" ({word})")
         out = Report("learn", summary, tone_of(moved) if kept else "neutral",
-                     subtitle=f"goal: {self.goal.text or 'cut losses'}")
+                     subtitle=f"strategy: {self.style.describe()}; "
+                              f"goal: {self.goal.text or 'cut losses'}")
         out.stat("Rounds", self.rounds_done).stat("Changes kept", kept, "good" if kept else "neutral")
         out.stat("Ran for", took).stat("Analysed every", human(self.round_seconds))
         if len(scores) > 1:

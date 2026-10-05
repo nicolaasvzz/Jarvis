@@ -53,6 +53,7 @@ from typing import Any
 import numpy as np
 
 from ..reports import Report, tone_of
+from ..style import Style
 from .catalog import CATALOG, FAMILIES, family_of
 from .features import FeatureStore, ns
 from .package import EXIT_REASONS, Package, Trades, portfolio, score_of
@@ -139,6 +140,8 @@ class Lab:
         seed: int | None = None,
         state_file: str | Path = STATE_FILE,
         until_done: bool = False,
+        style: Style | None = None,
+        money: float = 0.0,
     ):
         self.cfg, self.store, self.say, self.on_progress = cfg, store, say, on_progress
         self.universe = universe
@@ -160,6 +163,10 @@ class Lab:
         self.tried: set[str] = set()  # changes already tested against the current champion
         self.windows = self._windows()
         self.until_done = until_done
+        # A strategy picked in Jarvis: its settings are pinned on every package tried.
+        self.style = style or Style()
+        self.pins = self.style.package_pins()
+        self.money = money
         self.done = False  # until_done: every indicator has been tried
 
     # ------------------------------------------------------------ persistence
@@ -344,6 +351,9 @@ class Lab:
         else:
             self.say(f"Running for {human(self.seconds)}, rounds of up to "
                      f"{human(self.round_seconds)}.")
+        self.say(f"Strategy: {self.style.describe()}"
+                 + (f" (read from: {'; '.join(self.style.reading)})" if self.style.text else "")
+                 + ".")
         self.say("Ctrl+C stops it; everything found so far is kept.")
         try:
             while self.left() > MIN_LEFT and not self.complete():
@@ -509,6 +519,7 @@ class Lab:
         """Backtest packages on one part of history (all symbols, all cores)."""
         if not packages:
             return []
+        packages = [self.styled(p) for p in packages]
         dicts = [p.with_(size=REF_SIZE).to_dict() for p in packages]
         parts = self._map(trades_job, [(dicts, c, self.windows[part]) for c in self._chunks()])
         results = []
@@ -585,6 +596,12 @@ class Lab:
                        + f": {self.report(champ)}")
         return lessons
 
+    def styled(self, pkg: Package) -> Package:
+        """The package with the picked strategy's settings (its bet size is applied
+        when it's crowned: every package is judged at REF_SIZE)."""
+        pins = {k: v for k, v in self.pins.items() if k != "size"}
+        return pkg.with_(**pins) if pins else pkg
+
     def fit_size(self, pkg: Package) -> tuple[float, dict[str, float]]:
         """How much to bet: the largest trade size whose training drawdown stays inside
         the budget. A package that loses on training gets the smallest size."""
@@ -608,7 +625,10 @@ class Lab:
         base = (self.state.get("baseline") or {}).get("scores", {}).get("hold", 0.0)
         hold = result.metrics.get("hold") or {}
         proven = hold.get("total_return", 0.0) > 0 and result.scores.get("hold", 0.0) >= base
-        size, at_size = self.fit_size(result.package) if proven else (0.02, {})
+        if "size" in self.pins:  # the bet you picked, proven or not
+            size, at_size = self.pins["size"], {}
+        else:
+            size, at_size = self.fit_size(result.package) if proven else (0.02, {})
         result.package = result.package.with_(size=size)
         data = result.to_dict()
         data["at_size"] = _round(at_size)
@@ -636,6 +656,16 @@ class Lab:
         champ.metrics, champ.scores = {}, {}  # re-test: the data may have grown since
         self._fill([champ], "train")
         self._fill([champ], "hold")
+        styled = self.styled(champ.package).with_(size=self.pins.get("size", champ.package.size))
+        if styled.to_dict() != champ.package.to_dict():
+            # A newly picked strategy: the champion trades it from now on.
+            champ.package = styled
+            self._fill([champ], "final")
+            self._crown(champ)
+            self.save()
+            self.on_progress()
+            lessons.append(f"Strategy picked: {self.style.describe()}. Champion re-tested with "
+                           f"it: {self.brief(champ)}")
         self.say(f"Champion: {self.report(champ)}")
         tried = adopted = 0
         batch = max(8, self.cfg.workers * 2)
@@ -734,7 +764,7 @@ class Lab:
                 w = dict(pkg.weights)
                 w[f] *= factor
                 out.append((pkg.with_(weights=w), f"{word} {f}"))
-        out += knob_changes(pkg)
+        out += knob_changes(pkg, skip=set(self.pins))
         self.rng.shuffle(out)
         unique = []
         for p, label in out:
@@ -830,7 +860,7 @@ class Lab:
                    + f" ({word})")
         out = Report(kind, summary, tone_of(hold.get("total_return", 0.0)) if hold else "neutral",
                      title="Champ-set builder" if self.until_done else "Indicator lab",
-                     subtitle=f"{len(self.symbols)} symbols")
+                     subtitle=f"{len(self.symbols)} symbols; strategy: {self.style.describe()}")
         out.stat("Rounds", self.rounds_done).stat("Changes kept", len(self.kept),
                                                    "good" if self.kept else "neutral")
         if self.until_done:
@@ -843,6 +873,13 @@ class Lab:
                 if m:
                     out.stat(f"Champion {_PART[part]}", f"{m['total_return']:+.1%}",
                              tone_of(m["total_return"]))
+            final = result.metrics.get("final") or result.metrics.get("hold")
+            if final and self.money > 0:
+                # Results are at REF_SIZE a trade; scaled to the real bet, roughly.
+                scaled = final["total_return"] * result.package.size / REF_SIZE
+                gain = scaled * self.money
+                out.stat(f"On ${self.money:,.0f} (final check)",
+                         f"{'+' if gain >= 0 else '-'}${abs(gain):,.0f}", tone_of(gain))
             out.text("Champion", self.report(result)
                      + ("" if champ.get("proven", True) else
                         " Not yet confirmed on held-out, so it trades at the smallest size."))
@@ -1004,10 +1041,14 @@ def greedy(x: np.ndarray, f: np.ndarray, cost: np.ndarray, pool: list[str], weig
     return out
 
 
-def knob_changes(pkg: Package) -> list[tuple[Package, str]]:
+def knob_changes(pkg: Package, skip: set[str] | frozenset[str] = frozenset()
+                 ) -> list[tuple[Package, str]]:
+    """Single changes to a package's rules; `skip` names settings left alone."""
     out: list[tuple[Package, str]] = []
 
     def add(label: str, **changes: Any) -> None:
+        if skip & set(changes):
+            return
         if any(getattr(pkg, k) != v for k, v in changes.items()):
             out.append((pkg.with_(**changes), label))
 

@@ -198,6 +198,18 @@ def test_until_done_tries_every_indicator_then_stops(tmp_path, monkeypatch):
     lab._mark_tested(pkg, [cand])
     assert lab.coverage() == (6, 6) and lab.complete()
 
+    # A picked strategy pins its settings on every package tried, and its bet when crowned.
+    from investment_bot.lab.lab import Result
+    from investment_bot.style import read_style
+
+    lab.style = read_style("80% confidence, bet 15%, no shorts")
+    lab.pins = lab.style.package_pins()
+    styled = lab.styled(pkg)
+    assert (styled.threshold, styled.shorts, styled.size) == (0.8, False, pkg.size)
+    hold = {"total_return": 0.01, "max_drawdown": -0.02, "num_trades": 9, "win_rate": 0.5}
+    lab._crown(Result(styled, {"hold": hold}, {"hold": 0.0}))
+    assert Package.from_dict(lab.state["champion"]["package"]).size == 0.15
+
     lab.rounds_done = 1
     lab.state["rounds"] = [{"number": 1, "kind": "challenge", "lessons": ["Tried 4 changes"]}]
     page = lab.session_report("finished").html()
