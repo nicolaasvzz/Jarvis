@@ -9,6 +9,7 @@ human-readable keys, from the files the bot already keeps:
 - the paper-trading state (``live_state.json``): equity, positions, trades
 - backtest memory (``learned.json``): learned settings, run-by-run history
 - a learning session (``learning_session.json``): goal, time left, rounds
+- news research (``research.json``): mood per symbol, signals, X spend
 
 It is rewritten after every trading cycle, every backtest, and on
 ``investment-bot status``. Reading only, never trading: if a file is missing,
@@ -174,6 +175,94 @@ def _lab(config: BotConfig, now: datetime) -> dict[str, Any]:
     return out
 
 
+def _news_trades(path: Path) -> dict[str, Any]:
+    """The news trader: open bets, closed ones, and whether its probabilities hold up."""
+    state = _read(path)
+    if not state:
+        return {}
+    closed = state.get("closed") or []
+    out: dict[str, Any] = {
+        "News trades open": len(state.get("holdings") or {}),
+        "News trades closed": len(closed),
+        "News trades P&L": _money(sum(float(t.get("pnl", 0)) for t in closed)),
+    }
+    if state.get("dry_run"):
+        out["News trading"] = "dry run (no orders)"
+    elif state.get("paused_today"):
+        out["News trading"] = "paused today (daily loss limit)"
+    out["News bet size by probability"] = {p: round(float(s) * 100, 1)
+                                           for p, s in (state.get("sizing") or {}).items()}
+    out["News positions"] = [
+        {"Symbol": s, "Side": "LONG" if h.get("direction", 1) > 0 else "SHORT",
+         "Probability %": round(float(h.get("probability", 0)) * 100),
+         "Bet % of equity": round(float(h.get("size", 0)) * 100, 1),
+         "Entry": _money(h.get("entry", 0)), "Stop": _money(h.get("stop", 0)),
+         "Target": _money(h["take"]) if h.get("take") else None,
+         "Until": str(h.get("until", ""))[:16].replace("T", " "),
+         "Article": str(h.get("headline", ""))[:140]}
+        for s, h in (state.get("holdings") or {}).items()
+    ]
+    if closed:
+        out["Closed news trades"] = [
+            {"Closed": str(t.get("closed", ""))[:16].replace("T", " "), "Symbol": t.get("symbol"),
+             "Side": str(t.get("side", "")).upper(),
+             "Probability %": round(float(t.get("probability", 0)) * 100),
+             "Bet %": round(float(t.get("size", 0)) * 100, 1), "P&L": _money(t.get("pnl", 0)),
+             "P&L %": t.get("pnl_pct"), "Why": t.get("why"),
+             "Article": str(t.get("headline", ""))[:120]}
+            for t in closed[-50:]
+        ]
+    calib = state.get("calibration") or []
+    if calib:
+        out["News win rate by probability %"] = {c["band"]: round(c["win_rate"] * 100, 1)
+                                                for c in calib}
+    return out
+
+
+def _research(path: Path, trade_file: str | Path = "news_trader.json") -> dict[str, Any]:
+    """News research: what it's reading, what X has cost, the mood per symbol."""
+    state = _read(path)
+    if not state:
+        return {}
+    counts = state.get("counts") or {}
+    hours = state.get("window_hours", 24)
+    out: dict[str, Any] = {
+        "Research updated": str(state.get("updated", ""))[:16],
+        f"News stories ({hours:g}h)": counts.get("alpaca", 0),
+        "X spend this month": (f"${float(state.get('x_spent', 0)):.2f} / "
+                               f"${float(state.get('x_cap', 0)):.2f}"
+                               if state.get("x_on") else "off"),
+        "News signals": len(state.get("signals") or []),
+    }
+    problems = [f"{name}: {text}" for name, text in (state.get("steps") or {}).items()
+                if str(text).startswith("error")]
+    if problems:
+        out["Research problems"] = "; ".join(problems)[:300]
+    moods = state.get("moods") or []
+    if moods:
+        out["News mood by symbol"] = {m["symbol"]: m["mood"] for m in moods[:15]}
+        out["News by symbol"] = [
+            {"Symbol": m["symbol"], "Mood": m["mood"], "Signal": m.get("signal") or "-",
+             "Stories": m.get("stories", 0), "X posts": m.get("posts", 0),
+             "Event": m.get("event", ""), "Top story": m.get("headline", "")[:140]}
+            for m in moods[:25]
+        ]
+    out.update(_news_trades(Path(trade_file)))
+    recent = state.get("recent") or []
+    if recent:
+        # Oldest first: the page shows the newest at the top.
+        out["Latest scored news"] = [
+            {"At": str(r.get("published", ""))[:16].replace("T", " "), "Symbol": r.get("symbol"),
+             "Direction": round(float(r.get("direction", 0)), 2),
+             "Strength": round(float(r.get("strength", 0)), 2),
+             "Probability %": round(float(r.get("probability", 0)) * 100),
+             "Move %": r.get("move_pct"), "Target": r.get("target"), "Event": r.get("event"),
+             "Headline": str(r.get("headline", ""))[:140]}
+            for r in recent[::-1]
+        ]
+    return out
+
+
 def _money(value: float) -> float:
     return round(float(value), 2) + 0.0  # + 0.0 turns -0.0 into 0.0
 
@@ -210,6 +299,14 @@ def build_status(config: BotConfig, now: datetime | None = None) -> dict[str, An
         out.update(_lab(config, now))
     except (OSError, ValueError, KeyError, TypeError):
         pass  # the lab's files are optional; never let them break the page
+    try:
+        from .research.runner import ResearchConfig
+        from .research.trader import TradeConfig
+
+        out.update(_research(Path(ResearchConfig.from_config(config).state_file),
+                             TradeConfig.from_config(config).state_file))
+    except (OSError, ValueError, KeyError, TypeError):
+        pass  # research is optional too
 
     # ---- blocks ----
     curve = state.get("equity_curve") or []

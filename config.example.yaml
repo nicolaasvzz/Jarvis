@@ -53,6 +53,37 @@ live:
 # and closed-trade outcomes, shifting ensemble weight toward whoever has been
 # right (multiplicative-weights update with a floor + shrink so nobody is
 # silenced and nothing overfits too fast). Weights persist in the state file.
+# Research (investment-bot research / run-local.ps1 -Mode research): news about the
+# lab's symbols from Alpaca (free, Benzinga), plus X when X_BEARER_TOKEN is set,
+# each item scored once by Gemini (GEMINI_API_KEY in .env). Reads only, no orders.
+research:
+  model: gemini-3.5-flash
+  poll_minutes: 5
+  first_hours: 24          # the first run reads the last day of news
+  max_scored_per_cycle: 200
+  x:
+    monthly_cap: 5.00      # dollars a month, spread evenly over the month; 0 = off
+    price_per_post: 0.005  # X's pay-per-use price for reading one post
+    posts_per_search: 10   # X's minimum
+    minutes_between: 120   # at most one search this often
+  signals:
+    window_hours: 24
+    half_life_hours: 6     # a story's weight halves every 6 hours
+    threshold: 0.5         # |mood| that flags a buy/sell (needs real news behind it)
+  # News trading (investment-bot research --trade / run-local.ps1 -Mode research-trade):
+  # Gemini gives each article a 1-100% probability; the bet grows with it.
+  trade:
+    min_probability: 0.55  # no trade below 55%
+    full_probability: 0.95 # 95%+ gets the biggest bet
+    min_size: 0.02         # 2% of equity at 55% ...
+    max_size: 0.50         # ... up to 50% at 95%
+    max_total: 1.0         # all news trades together, of equity
+    max_open: 10
+    entry_window_hours: 2  # only articles this fresh
+    stop_pct: 4.0          # stop loss, % against the entry
+    cooldown_hours: 6
+    allow_real_money: false
+
 learning:
   enabled: true
   eta_trade: 4.0         # step size for closed-trade lessons

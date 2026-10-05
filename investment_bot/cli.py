@@ -384,7 +384,7 @@ def cmd_lab(args: argparse.Namespace) -> None:
     if args.fresh:
         Path(cfg.results_file).unlink(missing_ok=True)
         console.print(f"Starting over: forgot {cfg.results_file}.")
-    say = lambda line: console.print(line, markup=False, highlight=False, soft_wrap=True)  # noqa: E731
+    say = lambda line: console.print(line, markup=False, highlight=False, soft_wrap=True)
     keep_awake()
     symbols = args.symbols.split(",") if args.symbols else None
     try:
@@ -455,7 +455,7 @@ def cmd_trade_package(args: argparse.Namespace) -> None:
         broker = AlpacaBroker(execution=config.build_execution())
     except AlpacaCredentialsError as exc:
         raise SystemExit(str(exc)) from exc
-    say = lambda line: console.print(line, markup=False, highlight=False, soft_wrap=True)  # noqa: E731
+    say = lambda line: console.print(line, markup=False, highlight=False, soft_wrap=True)
     lab_cfg = LabConfig.from_config(config)
     data = AlpacaData(lab_cfg.cache_dir, feed=lab_cfg.feed, say=say)
     trader = PackageTrader(config, broker, data, say=say, dry_run=args.dry_run)
@@ -467,6 +467,47 @@ def cmd_trade_package(args: argparse.Namespace) -> None:
         trader.cycle()
     else:
         trader.run_forever()
+
+
+def cmd_research(args: argparse.Namespace) -> None:
+    from .research.runner import Researcher
+
+    config = BotConfig.load(args.config)
+    say = lambda line: console.print(line, markup=False, highlight=False, soft_wrap=True)
+    researcher = Researcher(config, say=say)
+    cfg = researcher.cfg
+    if args.trade:
+        from .broker.alpaca import AlpacaBroker, AlpacaCredentialsError
+
+        try:
+            broker = AlpacaBroker(execution=config.build_execution())
+        except AlpacaCredentialsError as exc:
+            raise SystemExit(str(exc)) from exc
+        researcher.trade_with(broker, dry_run=args.dry_run)
+        where = "PAPER" if "paper" in broker.base_url else "LIVE (real money)"
+        t = researcher.trader.cfg
+        console.print(f"[bold]Trading the news[/bold] on Alpaca {where}"
+                      + (" - dry run, no orders" if args.dry_run else "")
+                      + f": bets {t.min_size:.0%}-{t.max_size:.0%} of equity for articles "
+                        f"{t.min_probability:.0%}-{t.full_probability:.0%} likely.")
+        console.print(DISCLAIMER)
+    x = (f"X on, cap ${cfg.x_monthly_cap:.2f}/month" if researcher.x.ready
+         else "X off (set X_BEARER_TOKEN in .env to turn it on)")
+    console.print(f"[bold]Research[/bold] on {len(researcher.symbols)} symbols, scored by "
+                  f"{cfg.model}; {x}."
+                  + ("" if args.trade else " Reads and judges only, places no orders."))
+    if args.once:
+        state = researcher.cycle()
+        write_status(config)
+        for mood in state["moods"][:15]:
+            flag = f"  -> {mood['signal'].upper()}" if mood["signal"] else ""
+            line = (f"{mood['symbol']:>9} {mood['mood']:+.2f}  {mood['stories']} stories"
+                    f"  {mood['event']}: {mood['headline'][:80]}{flag}")
+            # ASCII only: Jarvis's terminal is cp1252, and headlines have curly quotes.
+            console.print(line.encode("ascii", "replace").decode(), markup=False,
+                          highlight=False)
+    else:
+        researcher.run_forever()
 
 
 def cmd_status(args: argparse.Namespace) -> None:
@@ -559,6 +600,14 @@ def build_parser() -> argparse.ArgumentParser:
     tp.add_argument("--once", action="store_true", help="Run a single cycle and exit")
     tp.add_argument("--dry-run", action="store_true", help="Decide and log, place no orders")
     tp.set_defaults(func=cmd_trade_package)
+
+    rs = sub.add_parser("research", parents=[common],
+                        help="Watch news (and X) about the bot's symbols, scored by Gemini")
+    rs.add_argument("--once", action="store_true", help="Run a single cycle and exit")
+    rs.add_argument("--trade", action="store_true",
+                    help="Also trade the news on Alpaca (paper), sized by probability")
+    rs.add_argument("--dry-run", action="store_true", help="With --trade: decide, place no orders")
+    rs.set_defaults(func=cmd_research)
 
     st = sub.add_parser("status", parents=[common], help="Rewrite jarvis_status.json for Jarvis")
     st.set_defaults(func=cmd_status)

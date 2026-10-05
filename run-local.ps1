@@ -6,11 +6,13 @@
 #   .\run-local.ps1 -Mode backtest
 #   .\run-local.ps1 -Mode lab -For 8h -Round 1h   # find the clearest indicator package
 #   .\run-local.ps1 -Mode package                  # trade it on Alpaca paper, every 10 min
+#   .\run-local.ps1 -Mode research                 # watch news (and X) about the symbols
+#   .\run-local.ps1 -Mode research-trade           # ...and trade it on Alpaca paper
 #
 # First run creates a .venv and installs dependencies; later runs reuse it.
 
 param(
-    [ValidateSet('terminal', 'api', 'once', 'backtest', 'learn', 'lab', 'package')]
+    [ValidateSet('terminal', 'api', 'once', 'backtest', 'learn', 'lab', 'package', 'research', 'research-trade')]
     [string]$Mode = 'terminal',
     [int]$Port = 8000,
     [string]$For = '1h',      # learn: how long, e.g. 10m, 8h, 2d
@@ -73,6 +75,14 @@ switch ($Mode) {
     'package' {
         Write-Host '=== Trading the champion package on Alpaca (Ctrl-C stops) ===' -ForegroundColor Cyan
         & $venvPython -m investment_bot trade-package -c $config
+    }
+    'research' {
+        Write-Host '=== Watching the news (Ctrl-C stops; everything collected is kept) ===' -ForegroundColor Cyan
+        & $venvPython -m investment_bot research -c $config
+    }
+    'research-trade' {
+        Write-Host '=== Watching and trading the news on Alpaca paper (Ctrl-C stops) ===' -ForegroundColor Cyan
+        & $venvPython -m investment_bot research --trade -c $config
     }
     'api' {
         Write-Host "=== API on http://localhost:$Port ===" -ForegroundColor Cyan

@@ -55,3 +55,11 @@ lab_session.json.tmp
 universe.json
 package_trader.json
 package_trader.json.tmp
+
+# research (investment-bot research)
+news.db
+news.db-journal
+research.json
+research.json.tmp
+news_trader.json
+news_trader.json.tmp
