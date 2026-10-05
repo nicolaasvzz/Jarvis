@@ -35,6 +35,7 @@ live:
 # Stocks need ALPACA_API_KEY and ALPACA_SECRET_KEY in .env; crypto works without.
 lab:
   source: alpaca
+  feed: iex                # free real-time stock data; 'sip' needs a paid Alpaca data plan
   timeframes: [10m, 30m, 1h, 4h, 1d]
   intraday_days: 730       # two years of 10-minute candles
   stocks: 200              # the most-traded US stocks/ETFs (of ~11,000 on Alpaca)

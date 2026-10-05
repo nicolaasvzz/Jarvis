@@ -45,6 +45,7 @@ class LabConfig:
     min_dollar_volume: float = 5e6
     include: list[str] = field(default_factory=list)
     exclude: list[str] = field(default_factory=list)
+    feed: str = "iex"                      # stock candles: iex (free, real time) or sip
     cache_dir: str = "data_cache/alpaca"
     feature_dir: str = "data_cache/features"
     universe_file: str = "universe.json"
@@ -197,7 +198,7 @@ def prepare(
         from ..data.alpaca_data import AlpacaData, load_env
 
         load_env()
-        data = AlpacaData(cfg.cache_dir, say=say)
+        data = AlpacaData(cfg.cache_dir, feed=cfg.feed, say=say)
         universe = scan_universe(data, cfg, say)
 
         def fetch(sym: str) -> tuple[pd.DataFrame, pd.DataFrame | None]:

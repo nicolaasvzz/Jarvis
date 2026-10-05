@@ -456,7 +456,8 @@ def cmd_trade_package(args: argparse.Namespace) -> None:
     except AlpacaCredentialsError as exc:
         raise SystemExit(str(exc)) from exc
     say = lambda line: console.print(line, markup=False, highlight=False, soft_wrap=True)  # noqa: E731
-    data = AlpacaData(LabConfig.from_config(config).cache_dir, say=say)
+    lab_cfg = LabConfig.from_config(config)
+    data = AlpacaData(lab_cfg.cache_dir, feed=lab_cfg.feed, say=say)
     trader = PackageTrader(config, broker, data, say=say, dry_run=args.dry_run)
     where = "PAPER" if "paper" in broker.base_url else "LIVE (real money)"
     console.print(f"[bold]Package trader[/bold] on Alpaca {where}"

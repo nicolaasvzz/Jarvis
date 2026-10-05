@@ -4,11 +4,14 @@
     data.bars("AAPL", "10Min", days=730)     # cached on disk, topped up after
     data.bars("BTC/USD", "1Day", days=2500)
 
-Stocks need the account's key and secret; crypto candles are public. Free
-accounts may read the full-market ("sip") feed for anything older than 15
-minutes; if the account can't, it falls back to the "iex" feed by itself.
+Stocks need the account's key and secret; crypto candles are public. On the
+free plan the full-market ("sip") feed is only available 15 minutes late, so
+the default is the "iex" feed: real time, which is what trading every 10
+minutes needs, and the same feed the lab learns on. With a paid data plan set
+``lab.feed: sip``.
 
-Candles are cached per symbol and timeframe (``<cache_dir>/<tf>/<SYMBOL>.pkl``,
+Candles are cached per feed, symbol and timeframe
+(``<cache_dir>/<feed or crypto>/<tf>/<SYMBOL>.pkl``,
 pickle because pyarrow isn't installed) and later calls only download what
 is new since the last cached candle. Stock candles are trimmed to regular
 trading hours (9:30-16:00 New York): extended-hours prints are thin and the
@@ -58,7 +61,7 @@ class AlpacaData:
     def __init__(
         self,
         cache_dir: str | Path = "data_cache/alpaca",
-        feed: str = "sip",
+        feed: str = "iex",
         session: Any = None,
         say: Callable[[str], None] = lambda _line: None,
     ):
@@ -94,6 +97,8 @@ class AlpacaData:
             if resp.status_code in (500, 502, 503, 504):
                 time.sleep(2 + attempt * 2)
                 continue
+            if resp.status_code == 403 and "subscription" in resp.text:
+                raise AlpacaDataError(f"Your Alpaca data plan doesn't allow this: {resp.text[:200]}")
             if resp.status_code in (401, 403):
                 raise AlpacaDataError(
                     f"Alpaca refused the request ({resp.status_code}): {resp.text[:200]}. "
@@ -108,7 +113,8 @@ class AlpacaData:
 
     def bars(self, symbol: str, timeframe: str, days: int, refresh: bool = True) -> pd.DataFrame:
         """Up to `days` calendar days of candles, ending now (cached)."""
-        path = self.cache_dir / timeframe / (symbol.replace("/", "-") + ".pkl")
+        feed = "crypto" if is_crypto(symbol) else self.feed
+        path = self.cache_dir / feed / timeframe / (symbol.replace("/", "-") + ".pkl")
         start = pd.Timestamp.now(tz="UTC") - pd.Timedelta(days=days)
         cached = pd.read_pickle(path) if path.exists() else None
         if cached is not None and len(cached) and cached.index[0] > start + pd.Timedelta(days=7):
@@ -145,13 +151,17 @@ class AlpacaData:
         }
         if not crypto:
             params.update(adjustment="all", feed=self.feed)
+            if self.feed == "sip":  # the free plan only serves sip 15 minutes late
+                end = pd.Timestamp.now(tz="UTC") - pd.Timedelta(minutes=16)
+                params["end"] = end.strftime("%Y-%m-%dT%H:%M:%SZ")
         rows: list[dict[str, Any]] = []
         while True:
             try:
                 payload = self.get(url, params)
             except AlpacaDataError as exc:
                 if not crypto and self.feed == "sip" and "subscription" in str(exc).lower():
-                    self.say("Alpaca: no full-market (sip) data on this plan; using iex.")
+                    self.say("Alpaca: this plan has no full-market (sip) data; using iex.")
+                    params.pop("end", None)
                     self.feed = params["feed"] = "iex"
                     continue
                 raise
@@ -198,13 +208,16 @@ class AlpacaData:
         return sorted((payload.get("quotes") or {}).keys())
 
     def snapshots(self, symbols: list[str]) -> dict[str, Any]:
-        """Latest daily candle per symbol, in batches (for ranking by trading volume)."""
+        """Latest daily candle per symbol, in batches (for ranking by trading volume).
+
+        Always from the iex feed: it's free and current, and ranking only needs
+        volumes relative to each other."""
         out: dict[str, Any] = {}
         stocks = [s for s in symbols if not is_crypto(s)]
         crypto = [s for s in symbols if is_crypto(s)]
         for i in range(0, len(stocks), 200):
             out.update(self.get(f"{DATA_URL}/v2/stocks/snapshots",
-                                {"symbols": ",".join(stocks[i:i + 200]), "feed": self.feed}) or {})
+                                {"symbols": ",".join(stocks[i:i + 200]), "feed": "iex"}) or {})
         for i in range(0, len(crypto), 100):
             payload = self.get(f"{DATA_URL}/v1beta3/crypto/us/snapshots",
                                {"symbols": ",".join(crypto[i:i + 100])})
