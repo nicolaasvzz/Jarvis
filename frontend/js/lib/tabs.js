@@ -187,6 +187,7 @@ function swap(next) {
   if (next.bodyClass) document.body.classList.add(next.bodyClass);
   next.el.hidden = false;
   active = next.name;
+  Hud.markTabbar(Hud.pageName(FILES[next.name]));
   Connection.setTitle(next.title);
   call(next, "show");
 }

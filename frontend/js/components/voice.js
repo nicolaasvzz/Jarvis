@@ -19,6 +19,39 @@
  * so the core's pulse can be driven by the actual waveform.
  */
 
+/**
+ * This open page's id. Requests carry it, replies come back tagged with it,
+ * and only the page that asked speaks the answer — ask from the phone, hear
+ * it on the phone, not on the laptop across the room.
+ */
+export const CLIENT_ID = (() => {
+  try {
+    const saved = sessionStorage.getItem("jarvis-client");
+    if (saved) return saved;
+    const made = (crypto.randomUUID ? crypto.randomUUID() : String(Math.random()).slice(2)).slice(0, 36);
+    sessionStorage.setItem("jarvis-client", made);
+    return made;
+  } catch (_) {
+    return String(Math.random()).slice(2);
+  }
+})();
+
+/**
+ * iPhone Safari plays Web Audio as "ambient" sound: the silent switch mutes
+ * it, and while the mic is open it can come out of the earpiece. Asking for
+ * "playback" (or "play-and-record" while listening) makes replies audible
+ * through the speaker. Safari 16.4+; elsewhere this does nothing.
+ */
+export function audioSession(type) {
+  try {
+    if (navigator.audioSession && navigator.audioSession.type !== type) {
+      navigator.audioSession.type = type;
+    }
+  } catch (_) {
+    /* not supported here */
+  }
+}
+
 const SPEECH_START_RMS = 0.045;   // loudness that counts as "someone is talking"
 const SPEECH_END_RMS = 0.028;     // lower, so a brief dip does not cut a word
 const SILENCE_HOLD_MS = 850;      // quiet for this long ends the utterance
@@ -95,6 +128,18 @@ export class Voice {
     this.lastLoudAt = 0;
     this.segmentStartedAt = 0;
     this.busy = false;
+
+    // Phones only let a page make sound after a tap — iPhones only from
+    // inside the tap itself — and replies are spoken long after it. So the
+    // audio is switched on at the first tap or key, ready for later.
+    // (A touch counts as a tap when it ends, not when it starts.)
+    const unlock = () => {
+      audioSession(this.listening ? "play-and-record" : "playback");
+      this.ensureContext().catch(() => {});
+    };
+    for (const event of ["touchend", "click", "keydown"]) {
+      window.addEventListener(event, unlock, { once: true, capture: true });
+    }
   }
 
   /* -- audio context ----------------------------------------------------- */
@@ -104,8 +149,14 @@ export class Voice {
       const Ctx = window.AudioContext || window.webkitAudioContext;
       this.context = new Ctx();
     }
-    // Browsers start contexts suspended until a real user gesture.
-    if (this.context.state === "suspended") await this.context.resume();
+    // Browsers start contexts suspended until a real user gesture. Outside
+    // one an iPhone may never answer, so don't wait on it forever.
+    if (this.context.state === "suspended") {
+      await Promise.race([
+        this.context.resume(),
+        new Promise((resolve) => setTimeout(resolve, 1500)),
+      ]);
+    }
     return this.context;
   }
 
@@ -113,6 +164,7 @@ export class Voice {
 
   async startListening() {
     if (this.listening) return;
+    audioSession("play-and-record"); // the mic needs it; the speaker stays on
     if (this.browser) return this.startBrowserListening();
     try {
       this.stream = await navigator.mediaDevices.getUserMedia({
@@ -290,7 +342,7 @@ export class Voice {
           "Content-Type": "application/json",
           Authorization: `Bearer ${window.HudConnection.token()}`,
         },
-        body: JSON.stringify({ text: said, submit: true }),
+        body: JSON.stringify({ text: said, submit: true, client: CLIENT_ID }),
       });
       if (response.ok) this.onTranscript(await response.json());
       else this.onError(`Jarvis could not take that (${response.status}).`);
@@ -304,6 +356,7 @@ export class Voice {
 
   stopListening() {
     this.listening = false;
+    audioSession("playback");
     if (this.recognition) {
       this.recognition.onend = null;
       try {
@@ -442,6 +495,7 @@ export class Voice {
       if (this.wav) form.append("audio", await toWav16k(blob), "utterance.wav");
       else form.append("audio", blob, "utterance.webm");
       form.append("submit", "true");
+      form.append("client", CLIENT_ID);
       const response = await fetch(window.HudConnection.endpoint("listen"), {
         method: "POST",
         headers: { Authorization: `Bearer ${window.HudConnection.token()}` },
@@ -525,12 +579,20 @@ export class Voice {
 
   async playClip(blob) {
     const context = await this.ensureContext();
-    const url = URL.createObjectURL(blob);
-    const audio = new Audio(url);
-    audio.crossOrigin = "anonymous";
+    if (context.state !== "running") return; // no tap yet, so no sound: not fatal
+    // Played through the audio context rather than an <audio> element: a
+    // phone allows an element to play only straight after a tap, but a
+    // context, once started, can play whenever the reply comes in.
+    let clip;
+    try {
+      clip = await context.decodeAudioData(await blob.arrayBuffer());
+    } catch (_) {
+      return; // not audio after all — skip it
+    }
+    const source = context.createBufferSource();
+    source.buffer = clip;
 
     // Route through an analyser so the core can pulse with the waveform.
-    const source = context.createMediaElementSource(audio);
     const analyser = context.createAnalyser();
     analyser.fftSize = 512;
     source.connect(analyser);
@@ -552,12 +614,11 @@ export class Voice {
     };
 
     await new Promise((resolve) => {
-      audio.addEventListener("ended", resolve);
-      audio.addEventListener("error", resolve);
-      audio.play().then(follow, resolve); // autoplay blocked: not fatal
+      source.onended = resolve;
+      source.start();
+      follow();
     });
     playing = false;
-    URL.revokeObjectURL(url);
     try {
       source.disconnect();
       analyser.disconnect();

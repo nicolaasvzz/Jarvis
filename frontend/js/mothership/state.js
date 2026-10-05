@@ -15,6 +15,7 @@ export const state = {
   projects: [],
   claude: false,
   connections: null,
+  phone: null,
   events: [],
   stats: null,
   system: null,
@@ -55,6 +56,9 @@ const loaders = {
   },
   async connections() {
     state.connections = await Hud.getJSON(Hud.route("connections"));
+  },
+  async phone() {
+    state.phone = await Hud.getJSON(Hud.route("phone"));
   },
   async stats() {
     state.stats = await Hud.getJSON(Hud.route("stats"));

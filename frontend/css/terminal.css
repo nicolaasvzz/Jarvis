@@ -235,8 +235,110 @@
 .term-line.jarvis .by { color: var(--accent); }
 .term-line .what { color: var(--text); word-break: break-all; }
 
+/* -- touch screens: extra keys and a line to type on --------------------------- */
+
+.term-keys, .term-type, .term-zoom { display: none; }
+
+@media (max-width: 760px), (pointer: coarse) {
+  .term-keys {
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .term-keys button {
+    flex: 1 1 0;
+    min-width: 34px;
+    height: 40px;
+    padding: 0 4px;
+    font-size: 12px;
+    letter-spacing: 0.04em;
+    text-transform: none;
+    color: var(--text);
+    border-color: var(--line-soft);
+    background: rgba(3, 10, 15, 0.8);
+    -webkit-tap-highlight-color: transparent;
+  }
+  .term-keys button:active { background: var(--accent-faint); border-color: var(--accent); }
+  .term-keys button.hot { color: var(--amber); }
+
+  .term-type {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: #02060a;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 4px 4px 4px 12px;
+  }
+  .term-type:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-faint); }
+  .term-type-prompt { font-family: var(--mono); color: var(--accent); font-size: 13px; }
+  .term-type input {
+    flex: 1;
+    min-width: 0;
+    background: none;
+    border: 0;
+    outline: none;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 16px; /* iPhones zoom in on anything smaller */
+    padding: 6px 0;
+  }
+  .term-type input::placeholder { color: var(--text-faint); font-family: var(--sans); font-size: 14px; }
+  .term-type button { color: var(--accent); border-color: var(--line); padding: 9px 14px; }
+}
+
 @media (max-width: 900px) {
-  .hud.term-page { grid-template-columns: 1fr; grid-template-rows: auto auto 1fr; overflow-y: auto; }
+  .hud.term-page { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto 1fr; overflow-y: auto; }
   .term-page .col-left { grid-column: 1; grid-row: 2; max-height: 40vh; }
   .term-main { grid-column: 1; grid-row: 3; min-height: 60vh; }
+}
+
+/* -- phone: terminals as a row of tabs, the screen at a readable size ---------- */
+
+@media (max-width: 760px) {
+  .term-page .col-left { display: contents; }
+  .term-page #approvals-panel { order: 1; }
+  .term-page .col-left > .panel.grow {
+    order: 2;
+    flex: none;
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+    padding: 8px;
+  }
+  .term-page .col-left > .panel.grow > h2 { display: none; }
+  #term-list {
+    display: flex;
+    flex: 1;
+    gap: 6px;
+    min-width: 0;
+    max-height: none;
+    margin: 0;
+    padding: 0;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .term-item { flex: none; width: auto; max-width: 62vw; margin: 0; padding: 8px 11px; }
+  .term-item .who, .term-item .sub { display: none; }
+  .term-new { margin: 0; flex: none; padding: 9px 12px; }
+  .term-new .wide { display: none; }
+  .term-history { order: 4; max-height: none; }
+
+  .term-main { order: 3; min-height: 0; padding: 10px; }
+  .term-head { flex-wrap: wrap; gap: 8px 10px; }
+  .term-title { flex: 1 1 100%; min-width: 0; }
+  .term-title #term-name { overflow: hidden; text-overflow: ellipsis; }
+  .term-trust { margin-right: auto; }
+  .term-purpose { order: 9; flex-basis: 100%; white-space: normal; }
+  .term-zoom { display: inline-flex; }
+  .term-zoom button { padding: 7px 10px; letter-spacing: 0; text-transform: none; font-size: 12px; }
+  .term-zoom button + button { margin-left: -1px; }
+  .term-explain, .term-close { padding: 7px 10px; }
+
+  /* The terminal keeps its size; the screen scrolls sideways to show it. */
+  .term-screen.scrolls { flex: none; overflow-x: auto; overflow-y: hidden; padding: 6px; }
+  .term-screen.scrolls .xterm { height: auto; width: max-content; }
+  .term-reply { max-height: 40vh; }
+  .term-ask input { font-size: 16px; padding: 11px 12px; }
 }

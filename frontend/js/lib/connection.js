@@ -54,11 +54,14 @@
       msControlDelete: "/dash/api/mothership/controls/{id}/delete",
       msControlRun: "/dash/api/mothership/controls/{id}/run",
       msControlStop: "/dash/api/mothership/controls/{id}/stop",
+      msControlRestart: "/dash/api/mothership/controls/{id}/restart",
       msControlBuild: "/dash/api/mothership/controls/{id}/build",
       msProjects: "/dash/api/mothership/projects",
       msProject: "/dash/api/mothership/projects/{id}",
       msProjectDelete: "/dash/api/mothership/projects/{id}/delete",
       msProjectStatus: "/dash/api/mothership/projects/{id}/status",
+      msProjectReports: "/dash/api/mothership/projects/{id}/reports",
+      msProjectReport: "/dash/api/mothership/projects/{id}/reports/{name}",
       msProjectTerminal: "/dash/api/mothership/projects/{id}/terminal",
       msProjectClaude: "/dash/api/mothership/projects/{id}/claude",
       msIdeas: "/dash/api/mothership/projects/{id}/ideas",
@@ -69,6 +72,8 @@
       connectionsTest: "/dash/api/connections/test",
       connectionsToken: "/dash/api/connections/token",
       restart: "/dash/api/restart",
+      phone: "/dash/api/phone",
+      phoneTailscale: "/dash/api/phone/tailscale",
       tasks: "/tasks",
       task: "/tasks/{id}",
       approval: "/approvals/{id}",
@@ -175,6 +180,47 @@
     endpoint: function (name, params) {
       return this.url(this.route(name, params));
     },
+
+    /**
+     * A whole sign-in link pasted where the token goes (".../?token=…"):
+     * take its token, and its server if it isn't this page's own. True if
+     * it was one.
+     */
+    useLink: function (text) {
+      var link;
+      try {
+        link = new URL(String(text || "").trim());
+      } catch (_) {
+        return false;
+      }
+      var token = link.searchParams.get("token");
+      if (!token) return false;
+      if (link.origin !== window.location.origin) this.setServer(link.origin);
+      this.setToken(token);
+      return true;
+    },
+  };
+
+  /* -- installing as an app ---------------------------------------------- */
+
+  // An iPhone keeps a home-screen app's storage apart from Safari's, so the
+  // app would open logged out. The backend puts the token in the app's start
+  // address when asked with it — only here, only for its own pages (another
+  // server would just log the token), and only on iPhones and iPads.
+  var apple =
+    /iP(hone|ad|od)/.test(navigator.userAgent) ||
+    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  function pointManifest() {
+    var manifest = document.querySelector('link[rel="manifest"]');
+    if (!apple || !manifest || Connection.server()) return;
+    var token = Connection.token();
+    manifest.href = "manifest.webmanifest" + (token ? "?token=" + encodeURIComponent(token) : "");
+  }
+  pointManifest();
+  var setToken = Connection.setToken;
+  Connection.setToken = function (value) {
+    setToken.call(Connection, value);
+    pointManifest();
   };
 
   /* -- branding --------------------------------------------------------- */

@@ -88,6 +88,20 @@ python -m mypy --strict --ignore-missing-imports jarvis.py
 - The user's typed commands are logged from the screen on Enter, after
   waiting for the echo (`Terminal.keys`). Keys reach the shell before it
   draws them.
+- Ctrl+C written into ConPTY (`\x03`, also pywinpty's `sendintr`) does
+  **not** interrupt every program: a Python script or `Start-Sleep` keeps
+  running. `Terminal.interrupt` sends it, then after ~3 s ends the processes
+  the shell started (`end_children`, psutil), keeping the shell. Stop and
+  Restart on controls go through it.
+- Whisper gets 16 kHz samples from `decode_16k` (PyAV), never a file path:
+  faster-whisper's own decoder passes PyAV `metadata_errors`, which PyAV 15
+  removed, and every recording failed with it.
+- A reply is spoken only by the page that asked: pages send `client` (a
+  per-tab id) with `command`/`listen`, and `task.completed`/`task.failed`
+  carry it in `data.client`. Untagged frames (approvals, notices) are spoken
+  by every Core page. On iPhone, `audioSession()` in `voice.js` sets
+  Safari's audio session ("playback", "play-and-record" while listening):
+  otherwise Web Audio is "ambient", muted by the silent switch.
 - Press Enter in a PTY with `\r`, not `\r\n`: PowerShell reads the `\n` as
   a second line and shows a `>>` continuation prompt.
 - Shells start with a prompt wrapper (`PS_PROMPT_MARK`, or `PROMPT_COMMAND`
@@ -101,8 +115,28 @@ python -m mypy --strict --ignore-missing-imports jarvis.py
   finishing a control edits that file directly, so keep that working. Tests
   must pass `data_dir` inside `tmp_path` (`make()` in the tests does) and
   never touch the real folder.
+- A project's `reports_dir` pages are listed on its page (label from each
+  page's `<title>` and `description`/`tone` meta tags) and shown in a
+  sandboxed iframe (`allow-scripts`, never `allow-same-origin`); the file
+  route also sends `Content-Security-Policy: sandbox`. A report's scripts
+  must never run on Jarvis's origin, where the token lives. Names only, no
+  folders (`REPORT_NAME`).
 - A control the user presses runs without approval (they chose it); the
   same control pressed by Jarvis (`run_control`) asks unless `trusted`.
+- A command control can have `inputs` (choices or text, asked for in a form
+  when pressed); its command says `{name}` and `fill_inputs` puts each value
+  in as a quoted literal (`shell_quote`). Choices must match an option. Never
+  substitute a value unquoted: text comes from the user or from Jarvis.
+- **Phone access is Tailscale**, never a public tunnel: Jarvis stays on
+  `127.0.0.1` and `tailscale serve --bg <port>` gives it an https address on
+  the user's own tailnet (https is what lets a phone install the app and use
+  the mic). `tailscale_status()` only reads `tailscale status/serve status
+  --json`; the Phone card's button runs `tailscale serve` in a terminal
+  because the first run prints a link the user must open. Phone routes never
+  return the token. The page adds its own.
+- On a phone (≤ 760px) pages scroll instead of filling a fixed HUD, and
+  `hud.js` adds a bottom tab bar. A terminal opened from a phone sends no
+  size, so Jarvis's own terminals don't shrink to phone width.
 - Tests never start a real shell: `Jarvis.spawn_shell` is swapped for
   `FakeShell` in `test_jarvis.py`.
 - **The dashboard tabs are one page** (`frontend/js/lib/tabs.js`, which the

@@ -49,7 +49,9 @@ It is {{date}}. The computer runs {{os}}. The user's home location is
 The user's control centre on the dashboard. **Controls** are buttons they
 set up — change the weather in a sim, start the trading bot — and
 `run_control` presses one when they ask by voice or text ("make it rain in
-BeamNG"). Match their words to a control's name; if nothing fits, say which
+BeamNG"). With `action` stop or restart it stops a running control or
+restarts it ("restart the bot" — e.g. after an update). Match their words to
+a control's name; if nothing fits, say which
 controls there are. A control marked "not built yet" can't run: say so, and
 that **Build with Claude** on it will build it. **Projects** are what they
 are working on; `add_idea` notes an idea on one.

@@ -1,8 +1,8 @@
 # Jarvis — frontend
 
 A live web dashboard for an AI-agent backend. Plain HTML, CSS and JavaScript
-— no build step, no npm. The one library, xterm.js for the Terminal
-page, is loaded from a CDN. It holds no data and no secrets
+— no build step, no npm. The two libraries, xterm.js for the Terminal
+page and a QR-code maker for Connections, are loaded from a CDN. It holds no data and no secrets
 of its own: everything it shows comes from a backend over HTTP, described in
 [API.md](API.md). It was built for Jarvis, but nothing in it is tied to
 Jarvis beyond the defaults in one settings file, so it works as the UI for
@@ -25,6 +25,15 @@ is up the others are fetched in the background, and the Mothership's data
 is loaded, so even a first visit is quick. A hidden tab stops drawing and
 polling and catches up when shown; the voice keeps going, so Jarvis still
 answers out loud while you watch the Terminal.
+
+**On a phone** every page has a layout of its own, with a tab bar along the
+bottom (Mothership, Core, Terminal, Approve) that shows how many approvals
+are waiting. The Terminal page keeps each terminal at a readable size and
+scrolls it sideways. It adds the keys a phone keyboard hasn't got (Esc, Tab,
+arrows, Ctrl+C) and a line to type commands on. The folder is also an
+installable web app (`manifest.webmanifest`, `icons/`). Over https, *Add to
+Home Screen* gives it its own icon and window. Its name is in the manifest,
+which `config.js` doesn't reach.
 
 ## Open it
 
@@ -120,6 +129,7 @@ running, the server address is wrong, or the page's address isn't in
 ```
 frontend/
 ├── index.html  mothership.html  terminal.html  approve.html
+├── manifest.webmanifest   what a phone installs: name, start page, colours, icons/
 ├── config.js              project settings: server, name, routes
 ├── API.md                 the backend routes these pages use
 ├── start.bat  serve.py    serve the folder (Windows / any OS with Python)
@@ -127,7 +137,7 @@ frontend/
 └── js/
     ├── lib/
     │   ├── connection.js  settings, server, token, routes, branding (every page loads it first)
-    │   ├── hud.js         fetch + auth, the live event stream, connect screen, helpers
+    │   ├── hud.js         fetch + auth, the live event stream, connect screen, the phone's tab bar
     │   └── tabs.js        Core, Terminal and Mothership as one page: mounts, switches, prefetches
     ├── pages/             core.js, terminal.js (tabs: mount/show/hide), approve.js
     ├── mothership/        app.js (routing, live updates), state.js, overview.js,

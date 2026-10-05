@@ -23,7 +23,7 @@ body.ms {
 /* hud.css styles every button as a small uppercase HUD control; here buttons
    are ordinary text unless a class says otherwise. Zero specificity, so any
    class below wins. The connect screen keeps the HUD look. */
-:where(body.ms) :where(.ms-side, .ms-main, .ms-drawer, .ms-modal) button {
+:where(body.ms) :where(.ms-side, .ms-main, .ms-drawer, .ms-modal, .ms-viewer) button {
   font-family: inherit;
   font-size: inherit;
   letter-spacing: normal;
@@ -576,6 +576,34 @@ body.ms [hidden] { display: none !important; }
 :where(body.ms) .field.check input { accent-color: var(--amber); width: 16px; height: 16px; }
 :where(body.ms) .field.check .hint { grid-column: 2; }
 :where(body.ms) .ms-modal-err { color: var(--red); font-size: 12.5px; padding: 0 20px; min-height: 18px; }
+
+/* -- report viewer: a report over the page, in a sandboxed frame ------------------------------------------------ */
+
+:where(body.ms) .ms-viewer { position: fixed; inset: 0; z-index: 48; display: grid; place-items: center; padding: 16px; background: rgba(0, 0, 0, 0.6); }
+:where(body.ms) .ms-viewer-card {
+  width: min(1100px, 100%); height: calc(100vh - 32px); height: calc(100dvh - 32px);
+  display: flex; flex-direction: column; overflow: hidden;
+  background: var(--side); border: 1px solid var(--edge-hi); border-radius: 14px;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6);
+}
+:where(body.ms) .ms-viewer-card > header { display: flex; gap: 12px; align-items: flex-start; padding: 16px 20px 12px; border-bottom: 1px solid var(--edge); }
+:where(body.ms) .ms-viewer-card > header > div { flex: 1; min-width: 0; }
+:where(body.ms) .ms-viewer-card h2 { margin: 8px 0 0; font-size: 15px; line-height: 1.4; overflow-wrap: anywhere; }
+:where(body.ms) .ms-viewer-body { flex: 1; min-height: 0; background: #070b10; }
+:where(body.ms) .ms-viewer-body iframe { display: block; width: 100%; height: 100%; border: 0; }
+:where(body.ms) .viewer-text { margin: 0; height: 100%; overflow: auto; padding: 16px 20px; white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--mono); font-size: 12.5px; color: var(--text); }
+
+/* -- reports, listed on a project page ------------------------------------------------------------------------------------- */
+
+:where(body.ms) .chips.small { margin-bottom: 8px; }
+:where(body.ms) .chips.small .chip { padding: 4px 10px; font-size: 11.5px; }
+:where(body.ms) .activity.reports li { cursor: pointer; align-items: center; }
+:where(body.ms) .activity.reports li:hover .act-msg { color: var(--accent); }
+:where(body.ms) .activity.reports .act-msg { overflow-wrap: anywhere; }
+:where(body.ms) .activity.reports .act-msg b { font-weight: 650; }
+:where(body.ms) .report-open { color: var(--text-faint); flex: none; }
+:where(body.ms) .activity.reports li:hover .report-open { color: var(--accent); }
+:where(body.ms) .btn.more { margin-top: 8px; }
 :where(body.ms) .ms-modal-card > footer { display: flex; gap: 8px; align-items: center; padding: 10px 20px 18px; }
 
 /* -- connections -------------------------------------------------------------------------------------------------------- */
@@ -660,3 +688,48 @@ body.ms [hidden] { display: none !important; }
   :where(body.ms) .conn-form { grid-template-columns: minmax(0, 1fr); }
   :where(body.ms) .chip-count { margin-left: 0; }
 }
+
+/* -- phone: room for the tab bar (hud.js adds it), and denser numbers ------------------------------ */
+
+@media (max-width: 760px) {
+  body.ms { height: 100vh; height: 100dvh; }
+  :where(body.ms) .ms-top { padding-top: env(safe-area-inset-top); height: calc(58px + env(safe-area-inset-top)); }
+  :where(body.ms) .ms-view { padding: 14px 14px calc(var(--tabs-h) + 24px); }
+  :where(body.ms) .ms-ask input { font-size: 16px; } /* iPhones zoom in on anything smaller */
+  :where(body.ms) .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  :where(body.ms) .kpi { padding: 12px; gap: 10px; min-height: 0; flex-direction: column; }
+  :where(body.ms) .ms-drawer-body { padding-bottom: calc(24px + env(safe-area-inset-bottom)); }
+  :where(body.ms) .ms-modal-card { max-height: calc(100dvh - 32px); }
+  :where(body.ms) .ms-viewer { padding: 0; }
+  :where(body.ms) .ms-viewer-card { width: 100%; height: 100vh; height: 100dvh; border-radius: 0; border: 0; padding-top: env(safe-area-inset-top); }
+}
+
+/* -- your phone (Connections) ---------------------------------------------------------------------- */
+
+:where(body.ms) .phone-card { margin-top: 18px; }
+:where(body.ms) .phone-card .card-head { align-items: flex-start; }
+:where(body.ms) .phone-steps { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 14px; }
+:where(body.ms) .phone-steps li { display: flex; gap: 12px; align-items: flex-start; line-height: 1.55; }
+:where(body.ms) .phone-steps li > div { min-width: 0; flex: 1; }
+:where(body.ms) .phone-steps li .muted { overflow-wrap: anywhere; }
+:where(body.ms) .phone-steps a { color: var(--accent); }
+:where(body.ms) .step-mark {
+  width: 22px; height: 22px; flex: none; margin-top: 1px;
+  display: grid; place-items: center;
+  border-radius: 50%; border: 1px solid var(--edge-hi);
+  counter-increment: step;
+}
+:where(body.ms) .phone-steps { counter-reset: step; }
+:where(body.ms) .phone-steps li:not(.done) .step-mark::before {
+  content: counter(step); font-family: var(--mono); font-size: 11px; color: var(--text-dim);
+}
+:where(body.ms) .phone-steps li.done .step-mark { background: rgba(52, 211, 153, 0.14); border-color: rgba(52, 211, 153, 0.5); color: var(--green); }
+:where(body.ms) .phone-steps li.done .step-mark .ic { width: 13px; height: 13px; }
+:where(body.ms) .phone-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+:where(body.ms) .phone-qr {
+  width: min(240px, 100%); margin: 14px 0 8px;
+  padding: 0; border-radius: 12px; overflow: hidden; background: #fff;
+  box-shadow: 0 0 0 1px var(--edge-hi), 0 0 28px rgba(34, 211, 238, 0.18);
+}
+:where(body.ms) .phone-qr svg { display: block; width: 100%; height: auto; }
+:where(body.ms) .phone-qr p { padding: 12px; margin: 0; background: var(--card); }

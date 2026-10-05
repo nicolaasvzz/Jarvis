@@ -1,19 +1,39 @@
 /*
  * A project's page: what it is, its folder, a live view of its status file
- * (refreshed every few seconds while you look), its controls, an ideas board
- * — each idea one click from Claude — its terminals, and its links.
+ * (refreshed every few seconds while you look), its controls (a project can
+ * call them something else — TradeBot's are "Modes" — and pin some as buttons
+ * at the top), every report in its reports folder, an ideas board — each idea
+ * one click from Claude — its terminals, and its links.
  */
 
 import { Hud } from "../lib/hud.js";
 import { state, project as findProject } from "./state.js";
 import {
-  esc, $, $$, icon, ago, act, openForm, closeForm, showTerminal, drawCharts, shown,
+  esc, $, $$, icon, ago, clock, act, openForm, closeForm, showTerminal, drawCharts, shown,
+  openViewer,
 } from "./ui.js";
-import { card as controlCard, wire as wireControls, editControl } from "./controls.js";
+import {
+  card as controlCard, topButton, wire as wireControls, editControl,
+} from "./controls.js";
 import { renderStatus } from "./status.js";
 
 let statusTimer = null;
+let reportsTimer = null;
 let lastStatus = { id: null, html: "" };
+let lastReports = { id: null, data: null };
+let reportKind = "all";
+let allReports = false;
+
+// How each kind of report is labelled: [letter, name]. Others use their own name.
+const REPORT_KINDS = {
+  backtest: ["B", "Backtest"],
+  learn: ["L", "Learning"],
+  champ: ["C", "Champ-set builder"],
+  lab: ["X", "Indicator lab"],
+  check: ["T", "Test mode"],
+  trading: ["P", "Paper trading"],
+};
+const REPORTS_SHOWN = 8;
 
 export function title(params) {
   const p = findProject(params.id);
@@ -27,7 +47,11 @@ export function render(root, params) {
       <p>It may have been deleted.</p><a class="btn" href="#/overview">Back to the overview</a></div>`;
     return null;
   }
-  const controls = state.controls.filter((c) => c.project === p.id);
+  const mine = state.controls.filter((c) => c.project === p.id);
+  const pinned = mine.filter((c) => c.pinned);
+  const controls = mine.filter((c) => !c.pinned);
+  const section = (p.controls_title || "").trim() || "Controls";
+  const one = section.replace(/s$/i, "").toLowerCase();
   const terminals = state.terminals.filter((t) => t.project === p.id);
   const ideas = p.ideas || [];
   const open = ideas.filter((i) => !i.done);
@@ -41,6 +65,7 @@ export function render(root, params) {
         ${p.folder ? `<code class="folder">${icon("folder")} ${esc(p.folder)}</code>` : ""}
       </div>
       <div class="head-actions">
+        ${pinned.map(topButton).join("")}
         <button class="btn" data-open-terminal>${icon("terminal")} Terminal here</button>
         <button class="btn claude" data-claude>${icon("claude")} Work on it with Claude</button>
         <button class="btn ghost" data-edit-project>${icon("edit")} Edit</button>
@@ -57,13 +82,22 @@ export function render(root, params) {
         </section>` : ""}
 
         <section class="card">
-          <header class="card-head"><h2>${icon("bolt")} Controls <span class="muted">${controls.length}</span></h2>
-            <button class="btn small" data-new-control>${icon("plus")} Add control</button></header>
+          <header class="card-head"><h2>${icon("bolt")} ${esc(section)} <span class="muted">${controls.length}</span></h2>
+            <button class="btn small" data-new-control>${icon("plus")} Add ${esc(one)}</button></header>
           ${controls.length
-            ? `<div class="control-grid">${controls.map(controlCard).join("")}</div>`
-            : `<p class="muted pad">No controls yet — add one for anything you'd press often here
-               (start, stop, a backtest, open a report).</p>`}
+            ? `<div class="control-grid">${controls.map((c) => controlCard(c, { command: false })).join("")}</div>`
+            : `<p class="muted pad">No ${esc(section.toLowerCase())} yet — add one for anything you'd press
+               often here (start, stop, a backtest).</p>`}
         </section>
+
+        ${p.reports_dir ? `
+        <section class="card" id="reports">
+          <header class="card-head"><h2>${icon("report")} Reports <span class="muted" id="reports-count">${
+            lastReports.id === p.id && lastReports.data && lastReports.data.available ? lastReports.data.total : ""}</span></h2>
+            <code class="muted">${esc(p.reports_dir)}</code></header>
+          <div id="reports-body">${lastReports.id === p.id && lastReports.data
+            ? reportsHtml(lastReports.data) : '<p class="muted pad">Reading…</p>'}</div>
+        </section>` : ""}
       </div>
 
       <div class="col-side">
@@ -156,8 +190,107 @@ export function render(root, params) {
     pollStatus(p.id);
     statusTimer = setInterval(() => document.hidden || !shown(root) || pollStatus(p.id), 5000);
   }
+  const reports = root.querySelector("#reports");
+  if (reports) {
+    reports.addEventListener("click", (event) => {
+      const kind = event.target.closest("[data-report-kind]");
+      const more = event.target.closest("[data-more-reports]");
+      const row = event.target.closest("[data-report]");
+      if (kind) {
+        reportKind = kind.dataset.reportKind;
+        showReports(p.id);
+      } else if (more) {
+        allReports = !allReports;
+        showReports(p.id);
+      } else if (row) {
+        openReport(p.id, row.dataset.report);
+      }
+    });
+    pollReports(p.id);
+    reportsTimer = setInterval(() => document.hidden || !shown(root) || pollReports(p.id), 15000);
+  }
   drawCharts();
-  return () => clearInterval(statusTimer);
+  return () => {
+    clearInterval(statusTimer);
+    clearInterval(reportsTimer);
+  };
+}
+
+/* -- reports --------------------------------------------------------------- */
+
+async function pollReports(id) {
+  let data;
+  try {
+    data = await Hud.getJSON(Hud.route("msProjectReports", { id }));
+  } catch (err) {
+    data = { available: false, note: String(err.message || err) };
+  }
+  const changed = JSON.stringify(data) !== JSON.stringify(lastReports.data) || lastReports.id !== id;
+  lastReports = { id, data };
+  if (changed) showReports(id);
+}
+
+function showReports(id) {
+  const body = $("#reports-body");
+  if (!body || lastReports.id !== id || !lastReports.data) return;
+  body.innerHTML = reportsHtml(lastReports.data);
+  const count = $("#reports-count");
+  if (count) count.textContent = lastReports.data.available ? String(lastReports.data.total) : "";
+}
+
+const kindOf = (r) => REPORT_KINDS[r.kind] || [(r.kind || r.title || "?")[0].toUpperCase(), r.title];
+
+/** Every report, newest first, labelled like Recent activity on the overview. */
+function reportsHtml(data) {
+  if (!data.available) return `<p class="muted pad">${esc(data.note || "No reports yet.")}</p>`;
+  const reports = data.reports || [];
+  if (!reports.length) return '<p class="muted pad">No reports yet — every run of a mode leaves one here.</p>';
+  const kinds = [...new Set(reports.map((r) => r.kind || ""))];
+  if (reportKind !== "all" && !kinds.includes(reportKind)) reportKind = "all";
+  const matching = reports.filter((r) => reportKind === "all" || (r.kind || "") === reportKind);
+  const list = allReports ? matching : matching.slice(0, REPORTS_SHOWN);
+  const chips = kinds.length > 1
+    ? `<div class="chips small">${["all", ...kinds]
+        .map((k) => {
+          const n = k === "all" ? reports.length : reports.filter((r) => (r.kind || "") === k).length;
+          const name = k === "all" ? "All" : (REPORT_KINDS[k] || [null, k || "Other"])[1];
+          return `<button class="chip ${reportKind === k ? "on" : ""}" data-report-kind="${esc(k)}">${esc(name)} <span class="muted">${n}</span></button>`;
+        })
+        .join("")}</div>`
+    : "";
+  return `${chips}<ul class="activity reports">${list
+    .map((r) => {
+      const [mark, name] = kindOf(r);
+      const tone = r.tone === "good" ? "ok" : r.tone === "bad" ? "bad" : "";
+      const title = r.title && r.title !== name ? r.title : name;
+      return `<li data-report="${esc(r.name)}" title="${esc(r.name)}">
+        <span class="avatar ${tone}">${esc(mark)}</span>
+        <span class="grow"><span class="act-msg"><b>${esc(title)}</b>${r.summary ? ` — ${esc(r.summary)}` : ""}</span>
+        <small class="muted">${esc(ago(r.created_at))} · ${esc(clock(r.created_at))}</small></span>
+        <span class="report-open">${icon("external")}</span></li>`;
+    })
+    .join("")}</ul>${matching.length > REPORTS_SHOWN
+      ? `<button class="btn ghost small more" data-more-reports>${allReports ? "Show fewer" : `Show all ${matching.length}`}</button>`
+      : ""}${data.total > (data.reports || []).length
+      ? `<p class="muted pad">The newest ${(data.reports || []).length} of ${data.total} are listed.</p>` : ""}`;
+}
+
+async function openReport(id, name) {
+  const report = ((lastReports.data && lastReports.data.reports) || []).find((r) => r.name === name);
+  if (!report) return;
+  const [mark, kind] = kindOf(report);
+  const tone = report.tone === "good" ? "ok" : report.tone === "bad" ? "bad" : "";
+  const kicker = `<span class="avatar small ${tone}">${esc(mark)}</span> ${esc(kind)}
+    <span class="muted">${esc(clock(report.created_at))} · ${esc(report.name)}</span>`;
+  openViewer({ kicker, title: report.summary || report.title, text: "Opening…" });
+  try {
+    const response = await Hud.api(Hud.route("msProjectReport", { id, name }));
+    const text = await response.text();
+    if (report.type === "html") openViewer({ kicker, title: report.summary || report.title, html: text });
+    else openViewer({ kicker, title: report.summary || report.title, text });
+  } catch (err) {
+    openViewer({ kicker, title: report.title, text: `Couldn't open it: ${err.message || err}` });
+  }
 }
 
 async function pollStatus(id) {
@@ -199,6 +332,11 @@ export function editProject(existing) {
       { name: "status_file", label: "Status file (optional)", value: p.status_file,
         placeholder: "live_state.json",
         hint: "A JSON file in that folder that the project keeps up to date — shown live here." },
+      { name: "reports_dir", label: "Reports folder (optional)", value: p.reports_dir,
+        placeholder: "reports",
+        hint: "A folder in it whose pages (.html, .md, .txt) are listed here, newest first." },
+      { name: "controls_title", label: "Call its controls", value: p.controls_title,
+        placeholder: "Controls", hint: "e.g. Modes — the heading of its buttons on this page." },
       { name: "links", label: "Links (optional)", type: "textarea", rows: 2,
         value: (p.links || []).map((l) => `${l.label} | ${l.url}`).join("\n"),
         placeholder: "Website | https://example.com", hint: "One per line: label | address" },

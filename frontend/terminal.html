@@ -2,14 +2,21 @@
 <html lang="en" data-page="Terminal">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+  <meta name="theme-color" content="#03070b">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-title" content="Jarvis">
   <title>JARVIS — Terminal</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.min.css">
   <link rel="stylesheet" href="css/hud.css">
   <link rel="stylesheet" href="css/terminal.css">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='11' fill='none' stroke='%2322d3ee' stroke-width='3'/><circle cx='16' cy='16' r='4' fill='%2322d3ee'/></svg>">
 </head>
-<body>
+<body class="hud-page">
 
 <div class="screen" data-screen="terminal" data-title="Terminal" data-module="js/pages/terminal.js">
 
@@ -40,7 +47,7 @@
       <div class="body" id="term-list">
         <div class="empty">Loading…</div>
       </div>
-      <button class="term-new" id="term-new">+ New terminal</button>
+      <button class="term-new" id="term-new">+ New<span class="wide"> terminal</span></button>
     </section>
 
     <section class="panel term-history">
@@ -65,9 +72,22 @@
       </label>
       <button class="term-explain" id="term-explain" hidden
               title="Ask Jarvis what the screen shows and what went wrong">Explain</button>
+      <span class="term-zoom" title="Text size">
+        <button id="term-smaller" aria-label="Smaller text">A−</button><button id="term-bigger" aria-label="Bigger text">A+</button>
+      </span>
       <button class="term-close" id="term-close" title="Close this terminal" hidden>Close</button>
     </div>
     <div class="term-screen" id="term-screen"></div>
+    <!-- For touch screens: the keys a phone keyboard hasn't got, and a line to type commands on. -->
+    <div class="term-keys" id="term-keys">
+      <button data-key="esc">Esc</button><button data-key="tab">Tab</button><button data-key="up" aria-label="Up">↑</button><button data-key="down" aria-label="Down">↓</button><button data-key="left" aria-label="Left">←</button><button data-key="right" aria-label="Right">→</button><button data-key="ctrl-c" class="hot" aria-label="Ctrl C">^C</button><button data-key="enter" aria-label="Enter">⏎</button>
+    </div>
+    <form class="term-type" id="term-type-form" autocomplete="off">
+      <span class="term-type-prompt">›_</span>
+      <input id="term-type" type="text" enterkeyhint="send" autocapitalize="off" autocorrect="off"
+             spellcheck="false" placeholder="Type a command…">
+      <button type="submit">Run</button>
+    </form>
     <div class="term-reply" id="term-reply" hidden>
       <button class="reply-close" id="term-reply-close" title="Hide">×</button>
       <div class="term-reply-q" id="term-reply-q"></div>
@@ -89,9 +109,10 @@
   <div class="card">
     <h1 data-app-name>JARVIS</h1>
     <p data-token-hint>Connect to Jarvis. The token is <code>JARVIS_API_TOKEN</code> in
-       <code>backend/.env</code> — <code>jarvis.py</code> makes one on its first run.</p>
+       <code>backend/.env</code> — <code>jarvis.py</code> makes one on its first run. A whole
+       sign-in link works too.</p>
     <input name="server" type="url" placeholder="Server — blank means this site" autocomplete="off">
-    <input name="token" type="password" placeholder="API token" autocomplete="off">
+    <input name="token" type="password" placeholder="API token or sign-in link" autocomplete="off">
     <button>Connect</button>
     <div class="err"></div>
   </div>

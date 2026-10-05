@@ -21,6 +21,11 @@ import { Hud } from "../lib/hud.js";
 
 const el = (id) => document.getElementById(id);
 const FONT = 13; // the terminal's normal font size, in pixels
+// On a phone a terminal scaled down to fit would be unreadable, so it keeps
+// a readable size (A− / A+ change it) and the screen scrolls sideways.
+const narrow = window.matchMedia("(max-width: 760px)");
+const touch = window.matchMedia("(pointer: coarse)");
+let phoneFont = Number(Hud.load("terminalFont")) || 10;
 
 let terminals = [];
 let approvals = [];
@@ -30,6 +35,7 @@ let fit = null;
 let source = null;
 let visible = false;
 let started = null; // the first show()'s work: a terminal to look at
+let send = () => {};
 
 /* -- the tab's life ---------------------------------------------------------- */
 
@@ -131,13 +137,15 @@ function setupTerminal() {
       if (pending) flush();
     }
   };
-  term.onData((data) => {
+  send = (data) => {
     pending += data;
     flush();
-  });
+  };
+  term.onData(send);
 
   // A hidden screen measures nothing; show() fits it on the way back.
   window.addEventListener("resize", () => visible && fitScreen());
+  narrow.addEventListener("change", () => visible && fitScreen());
 }
 
 function fitScreen() {
@@ -172,6 +180,12 @@ function naturalSize() {
 
 function scaleTo(cols, rows) {
   attach();
+  el("term-screen").classList.toggle("scrolls", narrow.matches);
+  if (narrow.matches) {
+    term.options.fontSize = phoneFont;
+    term.resize(cols, rows);
+    return;
+  }
   let size = FONT + 2;
   term.options.fontSize = size;
   for (;;) {
@@ -201,7 +215,7 @@ function select(id) {
   const chosen = terminals.find((t) => t.id === id);
   if (chosen) scaleTo(chosen.cols, chosen.rows);
   term.reset();
-  term.focus();
+  if (!touch.matches) term.focus(); // on a phone, focus would pop the keyboard up
 
   // The stream's first message repaints the terminal's screen and scrollback.
   const query = new URLSearchParams({ token: Hud.token });
@@ -232,7 +246,9 @@ function select(id) {
 }
 
 async function openTerminal(title = "") {
-  return Hud.postJSON(Hud.route("terminals"), { title, ...naturalSize() });
+  // A phone-sized terminal would also become the size Jarvis opens its own
+  // at, so from a phone the size is left to the backend (the last one used).
+  return Hud.postJSON(Hud.route("terminals"), narrow.matches ? { title } : { title, ...naturalSize() });
 }
 
 /* -- live events ------------------------------------------------------------ */
@@ -341,9 +357,11 @@ function renderList() {
     button.addEventListener("click", () => {
       const id = button.getAttribute("data-term");
       if (id !== selected) select(id);
-      else term.focus();
+      else if (!touch.matches) term.focus();
     });
   });
+  const active = host.querySelector(".term-item.active");
+  if (active && narrow.matches) active.scrollIntoView({ block: "nearest", inline: "nearest" });
 }
 
 /** "jarvis" → "Jarvis", "startup" → "Startup", anyone else → "You". */
@@ -487,6 +505,37 @@ function setupControls() {
       Hud.toast(String(err.message || err), "bad");
     }
   });
+
+  // The keys a phone keyboard hasn't got. Arrows follow the shell's mode:
+  // full-screen programs (an editor, a pager) expect the "application" form.
+  const KEYS = { esc: "\x1b", tab: "\t", "ctrl-c": "\x03", enter: "\r" };
+  const ARROWS = { up: "A", down: "B", right: "C", left: "D" };
+  el("term-keys").addEventListener("click", (event) => {
+    const button = event.target.closest("[data-key]");
+    if (!button || !selected) return;
+    const arrow = ARROWS[button.dataset.key];
+    const mode = term.modes.applicationCursorKeysMode ? "\x1bO" : "\x1b[";
+    send(arrow ? mode + arrow : KEYS[button.dataset.key]);
+  });
+  // Mouse-down would move focus to the button and close the phone's keyboard.
+  el("term-keys").addEventListener("mousedown", (event) => event.preventDefault());
+
+  el("term-type-form").addEventListener("submit", (event) => {
+    event.preventDefault();
+    if (!selected) return;
+    const input = el("term-type");
+    send(`${input.value}\r`);
+    input.value = "";
+  });
+
+  const zoom = (by) => {
+    phoneFont = Math.max(6, Math.min(16, phoneFont + by));
+    Hud.save("terminalFont", String(phoneFont));
+    const t = terminals.find((x) => x.id === selected);
+    if (t) scaleTo(t.cols, t.rows);
+  };
+  el("term-smaller").addEventListener("click", () => zoom(-1));
+  el("term-bigger").addEventListener("click", () => zoom(1));
 
   const trust = el("term-trust");
   trust.addEventListener("change", async () => {

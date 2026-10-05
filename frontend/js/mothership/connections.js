@@ -11,7 +11,7 @@
 
 import { Hud } from "../lib/hud.js";
 import { state, load } from "./state.js";
-import { esc, $$, icon, act } from "./ui.js";
+import { esc, $$, icon, act, showTerminal } from "./ui.js";
 
 const LOGOS = {
   gemini: ["G", 210], anthropic: ["C", 20], openai: ["O", 160],
@@ -49,7 +49,7 @@ export function render(root) {
     ${restart.length ? `
     <div class="restart-card">
       ${icon("redo")}
-      <div><b>${esc(restart.map(([k, v]) => `${k === "host" ? (v === "0.0.0.0" ? "Phone access on" : "Phone access off") : `Port ${v}`}`).join(" · "))}</b>
+      <div><b>${esc(restart.map(([k, v]) => `${k === "host" ? (v === "0.0.0.0" ? "Wi-Fi access on" : "Wi-Fi access off") : `Port ${v}`}`).join(" · "))}</b>
         takes effect after a restart. Restarting closes open terminals.</div>
       <button class="btn primary" data-restart ${c.can_restart ? "" : "disabled"}>${icon("redo")} Restart Jarvis</button>
     </div>` : ""}
@@ -61,6 +61,8 @@ export function render(root) {
       <div class="conn-grid">${c.brain.brains.map((b) => brainCard(b, c)).join("")}</div>
     </section>
 
+    <section class="card phone-card" id="phone-card">${phoneCard()}</section>
+
     <div class="cols">
       <section class="card col-main">${voiceForm(c)}</section>
       <section class="card col-side">${accessForm(c)}</section>
@@ -69,6 +71,7 @@ export function render(root) {
   wireBrains(root, c);
   wireVoice(root, c);
   wireAccess(root, c);
+  wirePhone(root);
 }
 
 /* -- brains ---------------------------------------------------------------- */
@@ -248,6 +251,151 @@ function wireVoice(root, c) {
   });
 }
 
+/* -- your phone, from anywhere ------------------------------------------------------------
+
+   Tailscale puts this PC and the phone on one private network, wherever the
+   phone is, and `tailscale serve` gives Jarvis an https address on it — which
+   is what lets the phone install the dashboard as an app. The card checks
+   each step and offers the next; the backend only reports what it finds. The
+   links come without the token: this page adds its own when you ask for the
+   QR code or the link. */
+
+let phoneQr = false; // shown until the page is left: it carries the token
+
+function phoneCard() {
+  const p = state.phone;
+  const head = (note) => `
+    <header class="card-head"><div><h2>${icon("phone")} Your phone</h2>
+      <span class="muted">${note}</span></div>
+      <button class="btn small ghost" data-phone-check>${icon("redo")} Check again</button></header>`;
+  if (!p) {
+    load("phone");
+    return head("Checking how a phone can reach Jarvis…");
+  }
+  const ts = p.tailscale;
+  const best = p.links[0];
+  const phones = ts.phones || [];
+  const step = (done, title, body) => `
+    <li class="${done ? "done" : ""}">
+      <span class="step-mark">${done ? icon("check") : ""}</span>
+      <div><b>${title}</b><div class="muted">${body}</div></div></li>`;
+  const pc = ts.signed_in
+    ? `Signed in — this PC is <code>${esc(ts.name)}</code>.`
+    : !ts.installed
+      ? `Free for personal use. <a href="${esc(ts.download)}" target="_blank" rel="noopener">Get Tailscale ${icon("external")}</a>, install it and sign in.`
+      : ts.state === "NotRunning"
+        ? "Installed, but not running — start Tailscale from the Start menu."
+        : "Installed, but signed out — open Tailscale and sign in.";
+  const phone = phones.length
+    ? `Found ${phones.map((x) => `<b>${esc(x.name)}</b>${x.online ? "" : " (offline)"}`).join(", ")}.`
+    : "Install Tailscale from the App Store or Google Play and sign in with the same account.";
+  const https = ts.url
+    ? `<code>${esc(ts.url)}</code> — only your own devices can open it.
+       <button class="btn small ghost" data-phone-share="off">Turn off</button>`
+    : `Runs <code>tailscale serve --bg ${esc(String(p.port))}</code> in a terminal. The first time,
+       it shows a link to allow https in your Tailscale account — open it, then come back.
+       <div class="phone-actions"><button class="btn small primary" data-phone-share="on"
+         ${ts.signed_in ? "" : "disabled"}>${icon("bolt")} Turn it on</button></div>`;
+  const open = best
+    ? `Scan the code with your phone's camera, or send yourself the link. Then
+       <b>iPhone:</b> Share → Add to Home Screen. <b>Android:</b> ⋮ → Install app.
+       ${best.anywhere ? "" : '<br><span class="warn-text">This link only works on the same Wi-Fi.</span>'}
+       ${best.secure ? "" : '<br><span class="warn-text">Plain http: it works, but a phone only installs it as an app, and lets it use the microphone, over https (step 3).</span>'}
+       <div class="phone-actions">
+         <button class="btn small" data-phone-qr>${phoneQr ? "Hide the code" : "Show QR code"}</button>
+         <button class="btn small ghost" data-phone-copy>${icon("copy")} Copy link</button></div>
+       <div class="phone-qr" id="phone-qr" ${phoneQr ? "" : "hidden"}></div>
+       <small class="hint">The code and link hold your token: anyone who has them can use Jarvis.</small>`
+    : "Once the steps above are done, a QR code to scan appears here.";
+  return `${head("Use Jarvis from anywhere — it installs on your phone like an app.")}
+    <ol class="phone-steps">
+      ${step(ts.signed_in, "Tailscale on this PC", pc)}
+      ${step(phones.length > 0, "Tailscale on your phone", phone)}
+      ${step(Boolean(ts.url), "A private https address for Jarvis", https)}
+      ${step(false, "Open it on your phone", open)}
+    </ol>
+    ${p.links.length > 1 ? `<small class="hint">Other ways in: ${p.links
+      .slice(1)
+      .map((l) => `<code>${esc(l.url)}</code> (${esc(WAYS[l.via] || l.via)})`)
+      .join(" · ")}</small>` : ""}`;
+}
+
+const WAYS = {
+  tailscale: "anywhere",
+  "tailscale-ip": "anywhere, plain http",
+  wifi: "same Wi-Fi",
+};
+
+/** The phone's link, with this page's token so it opens logged in. */
+function phoneLink() {
+  const best = state.phone && state.phone.links[0];
+  return best ? `${best.url}?token=${encodeURIComponent(Hud.token)}` : "";
+}
+
+function wirePhone(root) {
+  const card = root.querySelector("#phone-card");
+  if (phoneQr) drawQr(card.querySelector("#phone-qr"));
+  const on = (selector, fn) => {
+    const el = card.querySelector(selector);
+    if (el) el.addEventListener("click", fn);
+  };
+  on("[data-phone-check]", () => {
+    state.phone = null;
+    render(root);
+  });
+  card.querySelectorAll("[data-phone-share]").forEach((button) =>
+    button.addEventListener("click", async () => {
+      const share = button.dataset.phoneShare === "on";
+      if (!share && !window.confirm("Turn off Jarvis's https address? Your phone can't reach it until it's back on.")) return;
+      const terminal = await act(Hud.postJSON(Hud.route("phoneTailscale"), { share }));
+      if (terminal) showTerminal(terminal.id); // it may have a link to show you
+    })
+  );
+  on("[data-phone-qr]", () => {
+    phoneQr = !phoneQr;
+    render(root);
+  });
+  on("[data-phone-copy]", async () => {
+    const link = phoneLink();
+    try {
+      await navigator.clipboard.writeText(link);
+      Hud.toast("Link copied — it holds your token, so send it only to yourself.", "ok");
+    } catch (_) {
+      window.prompt("Copy this link:", link); // no clipboard over plain http
+    }
+  });
+}
+
+/** QR codes come from a small library, fetched the first time one is needed. */
+let qrLibrary = null;
+
+function drawQr(host) {
+  qrLibrary =
+    qrLibrary ||
+    new Promise((resolve, reject) => {
+      const script = document.createElement("script");
+      script.src = "https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js";
+      script.integrity = "sha384-8FWZA6BGMXhsfO+BLtrJK0We6gg5o1JyO8xQm6peWDEUs17ACA5ziE/NIAkl9z2k";
+      script.crossOrigin = "anonymous";
+      script.onload = () => resolve(window.qrcode);
+      script.onerror = () => {
+        qrLibrary = null;
+        reject(new Error("The QR code library couldn't load — copy the link instead."));
+      };
+      document.head.appendChild(script);
+    });
+  qrLibrary
+    .then((qrcode) => {
+      const qr = qrcode(0, "M");
+      qr.addData(phoneLink());
+      qr.make();
+      host.innerHTML = qr.createSvgTag({ cellSize: 4, margin: 4, scalable: true });
+    })
+    .catch((err) => {
+      host.innerHTML = `<p class="muted">${esc(err.message)}</p>`;
+    });
+}
+
 /* -- dashboard access ------------------------------------------------------------------- */
 
 function accessForm(c) {
@@ -262,8 +410,8 @@ function accessForm(c) {
         <small class="hint">Anyone with the token can use Jarvis. A new one logs out every other
           page and your phone; this page switches over by itself.</small></div>
       <label class="field check"><input type="checkbox" id="phone" ${a.phone ? "checked" : ""}>
-        <span>Reachable from my phone (same Wi-Fi)</span></label>
-      ${a.phone ? `<small class="hint">Phone page: <code>${esc(a.phone_link)}</code></small>` : ""}
+        <span>Reachable from other devices on my Wi-Fi</span></label>
+      <small class="hint">Not needed for your phone through Tailscale — see <b>Your phone</b>.</small>
       <label class="field"><span class="label">Port</span>
         <input type="text" id="port" value="${esc(String(a.port))}" inputmode="numeric"></label>
       <footer><button class="btn" data-save-access>${icon("check")} Save</button></footer>
@@ -296,15 +444,17 @@ function wireAccess(root, c) {
       const port = (c.restart_needed || {}).port || c.access.port;
       if (!(await act(Hud.postJSON(Hud.route("restart"), {})))) return;
       root.innerHTML = `<div class="empty-card big"><h3>Restarting…</h3><p>Back in a few seconds.</p></div>`;
-      comeBack(port);
+      comeBack(port, c.access.port);
     });
 }
 
-/** Wait for Jarvis to answer again — on its new port, if that changed. */
-function comeBack(port) {
+/** Wait for Jarvis to answer again — on its new port, if that changed. A
+    page opened through Tailscale's https address isn't on Jarvis's port at
+    all, so "the same port" means "the same address", not this host + port. */
+function comeBack(port, oldPort) {
   const here = new URL(window.location.href);
-  const moved = String(port) !== (here.port || "80");
-  const target = `${here.protocol}//${here.hostname}:${port}`;
+  const moved = String(port) !== String(oldPort);
+  const target = moved ? `${here.protocol}//${here.hostname}:${port}` : here.origin;
   let tries = 0;
   const poll = async () => {
     tries += 1;

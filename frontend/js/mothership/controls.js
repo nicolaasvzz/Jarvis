@@ -3,7 +3,11 @@
  * start the trading bot, open a page, or ask Jarvis something you ask often.
  * Jarvis can press them too when you ask by voice. A control that isn't
  * built yet is an "idea": Build with Claude opens Claude Code in a terminal
- * with a brief, and when it works Claude switches the control on.
+ * with a brief, and when it works Claude switches the control on. A command
+ * control can ask for inputs first (a dropdown, some text): pressing it opens
+ * a small form, and the backend fills them into the command line, quoted.
+ * A control can be pinned: a button at the top of its project's page (like
+ * "Update the bot") instead of a card in its grid.
  */
 
 import { Hud } from "../lib/hud.js";
@@ -51,7 +55,7 @@ export function render(root) {
         ? [...byGroup].map(([g, list]) => `
           <section class="group">
             <h2 class="group-title">${esc(g)} <span class="muted">${list.length}</span></h2>
-            <div class="control-grid">${list.map(card).join("")}</div>
+            <div class="control-grid">${list.map((c) => card(c)).join("")}</div>
           </section>`).join("")
         : `<div class="empty-card big">
             <h3>No controls yet</h3>
@@ -72,8 +76,9 @@ export function render(root) {
   wire(root);
 }
 
-/** One control as a card; used here and on project pages. */
-export function card(c) {
+/** One control as a card; used here and on project pages. Project pages leave
+ * out the command line (`{ command: false }`): the card says it's a command. */
+export function card(c, { command = true } = {}) {
   const kind = KINDS[c.kind] || KINDS.idea;
   const running = controlTerminal(c.id);
   const busy = running && running.running;
@@ -83,8 +88,9 @@ export function card(c) {
       ? `<button class="btn claude" data-build="${esc(c.id)}">${icon("claude")} Build with Claude</button>`
       : busy
       ? `<button class="btn bad" data-stop="${esc(c.id)}">${icon("stop")} Stop</button>
+         <button class="btn ghost" data-restart="${esc(c.id)}" title="Stop it, then run it again">${icon("redo")} Restart</button>
          <button class="btn ghost" data-terminal="${esc(running.id)}">${icon("terminal")} View</button>`
-      : `<button class="btn primary" data-run="${esc(c.id)}">${icon(c.kind === "link" ? "external" : "play")} ${esc(kind.run)}</button>`;
+      : `<button class="btn primary" data-run="${esc(c.id)}">${icon(c.kind === "link" ? "external" : "play")} ${esc(kind.run)}${asks(c) ? "…" : ""}</button>`;
   return `
     <article class="control ${esc(c.kind)} ${busy ? "busy" : ""}">
       <header>
@@ -96,10 +102,11 @@ export function card(c) {
       </header>
       <h3>${esc(c.name)}</h3>
       ${c.description ? `<p class="control-desc">${esc(c.description)}</p>` : ""}
-      ${c.action && c.kind !== "idea" ? `<code class="control-action" title="${esc(c.action)}">${esc(c.action)}</code>` : ""}
+      ${command && c.action && c.kind !== "idea" ? `<code class="control-action" title="${esc(c.action)}">${esc(c.action)}</code>` : ""}
       <div class="control-meta">
         ${owner ? `<a class="tag" href="#/projects/${esc(owner.id)}">${icon("folder")} ${esc(owner.name)}</a>` : ""}
         ${busy ? `<span class="tag warn">running</span>` : ""}
+        ${asks(c) ? `<span class="muted" title="It asks for these when you press it">asks: ${esc(c.inputs.map((i) => i.label || i.name).join(", "))}</span>` : ""}
         ${c.last_run ? `<span class="muted">ran ${esc(ago(c.last_run))}</span>` : ""}
       </div>
       <footer>
@@ -107,6 +114,19 @@ export function card(c) {
         ${c.kind !== "idea" && c.action ? `<button class="icon-btn" data-build="${esc(c.id)}" title="Improve it with Claude">${icon("claude")}</button>` : ""}
       </footer>
     </article>`;
+}
+
+/** A pinned control: a button for the top of its project's page. */
+export function topButton(c) {
+  const running = controlTerminal(c.id);
+  if (running && running.running) {
+    return `<button class="btn bad" data-stop="${esc(c.id)}" title="${esc(c.name)} is running">
+        ${icon("stop")} Stop: ${esc(c.name)}</button>
+      <button class="btn ghost" data-terminal="${esc(running.id)}" title="See it run">${icon("terminal")}</button>`;
+  }
+  if (c.kind === "idea" || !c.action) return "";
+  return `<button class="btn" data-run="${esc(c.id)}" title="${esc(c.description || c.name)}">
+      ${icon(/update|pull|upgrade/i.test(c.name) ? "update" : "play")} ${esc(c.name)}${asks(c) ? "…" : ""}</button>`;
 }
 
 /** Wire every control button inside `root`. */
@@ -117,6 +137,13 @@ export function wire(root) {
       act(Hud.postJSON(Hud.route("msControlStop", { id: b.dataset.stop }), {}), "Sent Ctrl+C.")
     )
   );
+  $$("[data-restart]", root).forEach((b) =>
+    b.addEventListener("click", () => {
+      b.disabled = true;
+      Hud.toast("Stopping it, then starting it again…");
+      act(Hud.postJSON(Hud.route("msControlRestart", { id: b.dataset.restart }), {}), "Restarted.");
+    })
+  );
   $$("[data-build]", root).forEach((b) => b.addEventListener("click", () => build(b.dataset.build, b)));
   $$("[data-edit]", root).forEach((b) =>
     b.addEventListener("click", () => editControl(state.controls.find((c) => c.id === b.dataset.edit)))
@@ -126,12 +153,46 @@ export function wire(root) {
   );
 }
 
+/** Does pressing this control ask for inputs first? */
+function asks(c) {
+  return c.kind === "command" && Array.isArray(c.inputs) && c.inputs.length > 0;
+}
+
 async function run(id, button) {
   const c = state.controls.find((x) => x.id === id);
   if (!c) return;
+  if (asks(c)) {
+    askInputs(c);
+    return;
+  }
   if (button) button.disabled = true;
   const result = await act(Hud.postJSON(Hud.route("msControlRun", { id }), {}));
   if (button) button.disabled = false;
+  started(c, result);
+}
+
+/** The form a control with inputs opens; it starts from what you chose last time. */
+function askInputs(c) {
+  const last = c.last_inputs || {};
+  openForm({
+    title: c.name,
+    submit: "Start",
+    fields: c.inputs.map((i) => {
+      const value = last[i.name] ?? i.default ?? "";
+      return i.kind === "choice"
+        ? { name: i.name, label: i.label || i.name, type: "select", value,
+            options: i.options.map((o) => [o.value, o.label]) }
+        : { name: i.name, label: i.label || i.name, type: "textarea", rows: 2, value,
+            placeholder: i.placeholder || "" };
+    }),
+    onSubmit: async (inputs) => {
+      const result = await Hud.postJSON(Hud.route("msControlRun", { id: c.id }), { inputs });
+      started(c, result);
+    },
+  });
+}
+
+function started(c, result) {
   if (!result) return;
   if (result.url) window.open(result.url, "_blank", "noopener");
   else if (result.task_id) {
@@ -174,15 +235,33 @@ export function editControl(existing, preset = {}) {
         placeholder: "BeamNG.drive, Assetto Corsa, TradeBot…" },
       { name: "project", label: "Project", type: "select", value: c.project || "", options: projects,
         hint: "Command controls run in the project's folder." },
+      { name: "inputs", label: "Asks for, before it runs (JSON)", type: "textarea", rows: 4,
+        value: c.inputs && c.inputs.length ? JSON.stringify(c.inputs, null, 1) : "",
+        show: (v) => v.kind === "command",
+        placeholder: '[{"name": "duration", "label": "How long", "kind": "choice", "options": [{"label": "1 hour", "value": "1h"}], "default": "1h"}]',
+        hint: "Optional. Write {name} in the command line where each one goes; it arrives quoted." },
       { name: "trusted", label: "Jarvis may run this without asking me", type: "checkbox",
         value: c.trusted, show: (v) => v.kind === "command",
         hint: "For harmless buttons you'll say out loud often, like weather changes." },
+      { name: "pinned", label: "A button at the top of its project's page", type: "checkbox",
+        value: c.pinned, show: (v) => Boolean(v.project) && v.kind !== "idea",
+        hint: "For something you press now and then, like updating — not one of its modes." },
     ],
     extra: existing ? `<button type="button" class="btn bad ghost" data-delete>${icon("trash")} Delete</button>` : "",
     onSubmit: async (v) => {
       if (!v.name) throw new Error("Give it a name.");
       if (v.kind !== "idea" && !v.action) throw new Error("Fill in what it runs, or make it an idea.");
-      const body = { ...v, action: v.kind === "idea" ? v.action || "" : v.action };
+      let inputs = [];
+      if (v.kind === "command" && v.inputs) {
+        try {
+          inputs = JSON.parse(v.inputs);
+        } catch {
+          throw new Error("The inputs aren't valid JSON.");
+        }
+        if (!Array.isArray(inputs)) throw new Error("Inputs must be a list: [ … ].");
+      }
+      const body = { ...v, inputs, action: v.kind === "idea" ? v.action || "" : v.action,
+        pinned: v.pinned && Boolean(v.project) };
       if (existing) await Hud.postJSON(Hud.route("msControl", { id: existing.id }), body);
       else await Hud.postJSON(Hud.route("msControls"), body);
       Hud.toast(existing ? "Saved." : `Created “${v.name}”.`, "ok");

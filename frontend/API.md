@@ -7,10 +7,11 @@ paths are defaults — rename any of them under `routes` in `config.js`.
 
 | Page | Routes it uses |
 |---|---|
-| `mothership.html` | `snapshot`, `stream`, `tasks`, `task`, `approvals`, `approval`, `terminals`, `stats`, `system`, `command`, `mothership` and the `ms…` routes below |
+| `mothership.html` | `snapshot`, `stream`, `tasks`, `task`, `approvals`, `approval`, `terminals`, `stats`, `system`, `command`, `mothership`, the `ms…` routes, and `connections…` and `phone…` below |
 | `index.html` (Core) | `snapshot`, `stream`, `stats`, `command`, `approval`, `tasks`, `approvals`, `terminals` (re-read on events; without them it re-reads `snapshot`), optionally `system`, `listen`, `speak`, `docs` |
 | `terminal.html` | `snapshot`, `stream`, `terminals`, `terminalStream`, `terminalInput`, `terminalClose`, `terminalExplain`, `terminalTrust`, `approvals`, `approval`, `command` |
 | `approve.html` | `snapshot`, `stream`, `approvals`, `approval` |
+| every page, on a phone | `approvals` (the tab bar's count) |
 
 The smallest useful backend is `snapshot` + `stream` + `command`: that gives
 the Core page live activity and a working command bar.
@@ -87,7 +88,8 @@ Only `type` and `message` are required. The types the pages react to:
 `step.completed`, `step.failed`, `step.retrying`, `approval.required`,
 `approval.resolved`, `approval.auto` (ran without asking — a read-only
 command or a trusted terminal), `error`, `heard`, and for the Terminal page
-`terminal.opened`, `terminal.exited`, `terminal.updated`,
+`terminal.opened`, `terminal.exited`, `terminal.updated` (also sent when a
+control's command starts, so its card shows Stop/Restart),
 `terminal.failed` (a command failed), `terminal.finished` (a long command
 worked), `terminal.closed` (`data` carries the `terminal`, or its
 `terminal_id`), `mothership.updated` (controls or projects changed) and `terminal.input` (the assistant typed into
@@ -111,8 +113,11 @@ Any of the inner objects may be `null`.
 
 ### `command` — `POST /dash/api/command`
 
-The command bar. Request `{"text": "summarise notes.txt", "submit": true}`;
-response:
+The command bar. Request `{"text": "summarise notes.txt", "submit": true}`,
+optionally with `"client": "<the page's id>"` (≤ 64 chars): the reply's
+`task.completed` / `task.failed` frame then carries it in `data.client`, and
+only that page speaks it (frames without `data.client` are spoken by every
+Core page). Response:
 
 ```json
 {"text": "summarise notes.txt", "addressed": true, "command": "summarise notes.txt",
@@ -128,8 +133,9 @@ Allow or deny a pending action. Request `{"decision": "allow"}` or
 ### `listen` / `speak` — voice (optional)
 
 - `POST /dash/api/listen` (`whisper` and `wispr` only; the `browser` option never calls it) — multipart form: `audio` (a webm recording; a 16 kHz
-  mono WAV when `voice.listen_provider` is `wispr`) and
-  `submit` (`"true"`). Responds like `command`. Answer `503` with a `detail`
+  mono WAV when `voice.listen_provider` is `wispr`),
+  `submit` (`"true"`) and, optionally, `client` (as for `command`). Responds
+  like `command`. Answer `503` with a `detail`
   to switch the microphone off with that message.
 - `POST /dash/api/speak` — JSON `{"text": "..."}`. Responds with audio bytes
   (`audio/mpeg`, or any type an `<audio>` element plays).
@@ -195,27 +201,41 @@ The Mothership page's controls and projects. All of them answer `404` for an
 unknown id and `409` (with a `detail`) for something that can't be done right
 now, e.g. running a control that isn't built.
 
-**Control** — `{id, name, group, project, kind, action, description, trusted, last_run, created_at, updated_at}`.
+**Control** — `{id, name, group, project, kind, action, description, trusted, inputs, pinned, last_inputs, last_run, created_at, updated_at}`.
 `kind` is `idea` (not built yet), `command` (`action` is a command line, run
 in a terminal in the project's folder), `ask` (`action` is a request for the
 assistant) or `link` (`action` is an http(s) address). `trusted` lets the
 assistant run a command control without asking. `project` is a project id or `""`.
+`pinned` shows it as a button at the top of its project's page instead of in
+its grid (TradeBot's "Update the bot").
 
-**Project** — `{id, name, description, folder, status_file, hue, links: [{label, url}], ideas: [{id, text, done, by, created_at}], created_at, updated_at}`.
+**Project** — `{id, name, description, folder, status_file, reports_dir, controls_title, hue, links: [{label, url}], ideas: [{id, text, done, by, created_at}], created_at, updated_at}`.
+`reports_dir` is a folder inside `folder` whose pages are listed on the
+project's page; `controls_title` is what the page calls its controls ("Modes";
+blank → "Controls").
+
+**Report** — `{name, title, summary, tone, kind, type, size, created_at}`. `title`,
+`summary` and `tone` (`good`/`bad`/`""`) come from the page's own `<title>`,
+`<meta name="description">` and `<meta name="tone">`. A name that starts with
+when it was made and what made it — `2026-10-05_213015_backtest.html` — gives
+`created_at` and `kind`; otherwise the file's time. `type` is `html` or `text`.
 
 | Route | Default | |
 |---|---|---|
 | `mothership` | `GET /dash/api/mothership` | `{"controls": [Control], "projects": [Project], "claude": true}` — `claude`: Claude Code is installed |
-| `msControls` | `POST /dash/api/mothership/controls` | `{name, group, project, kind, action, description, trusted}` → the new Control |
+| `msControls` | `POST /dash/api/mothership/controls` | `{name, group, project, kind, action, description, trusted, inputs, pinned}` → the new Control. `inputs` (optional): `[{name, label, kind: "choice"\|"text", options: [{label, value}], default, placeholder}]`, asked for when it's pressed; the command line says `{name}` where each goes |
 | `msControl` | `POST /dash/api/mothership/controls/{id}` | the same body → the updated Control |
 | `msControlDelete` | `POST …/controls/{id}/delete` | |
-| `msControlRun` | `POST …/controls/{id}/run` | You pressed it: runs now, no approval. → `{"terminal": "term-3"}`, `{"task_id": "t-…"}` (ask) or `{"url": "…"}` (link — the page opens it) |
-| `msControlStop` | `POST …/controls/{id}/stop` | Ctrl+C in the control's terminal → `{"terminal": …}` |
+| `msControlRun` | `POST …/controls/{id}/run` | You pressed it: runs now, no approval. Body (optional) `{"inputs": {name: value}}` — each is filled into the command quoted (a choice must be one of its options, else 409; missing → its default) and kept as the Control's `last_inputs`, which Restart reuses. → `{"terminal": "term-3"}`, `{"task_id": "t-…"}` (ask) or `{"url": "…"}` (link — the page opens it) |
+| `msControlStop` | `POST …/controls/{id}/stop` | Ctrl+C in the control's terminal; still running ~3 s later → ends the processes the shell started (the shell stays) → `{"terminal": …}` |
+| `msControlRestart` | `POST …/controls/{id}/restart` | Stop as above, wait (≤ 30 s) for the prompt, run it again → same as `msControlRun`; 409 if it won't stop |
 | `msControlBuild` | `POST …/controls/{id}/build` | Opens Claude Code in a terminal with a brief → the Terminal |
-| `msProjects` | `POST /dash/api/mothership/projects` | `{name, description, folder, status_file, hue, links}` → the new Project |
+| `msProjects` | `POST /dash/api/mothership/projects` | `{name, description, folder, status_file, reports_dir, controls_title, hue, links}` → the new Project |
 | `msProject` | `POST …/projects/{id}` | the same body → the updated Project |
 | `msProjectDelete` | `POST …/projects/{id}/delete` | its controls stay, unfiled |
 | `msProjectStatus` | `GET …/projects/{id}/status` | `{"available": true, "file", "modified", "data": <its JSON>}` (or `"text"`), or `{"available": false, "note"}` |
+| `msProjectReports` | `GET …/projects/{id}/reports` | `{"available": true, "total": 41, "reports": [Report]}`, newest first (at most 300), or `{"available": false, "note"}`. `.html .htm .md .txt .log .json .csv` files only |
+| `msProjectReport` | `GET …/projects/{id}/reports/{name}` | The file itself (`text/html` or `text/plain`), by its plain name — nothing outside the folder. Sent with `Content-Security-Policy: sandbox`; the page shows it in a sandboxed frame |
 | `msProjectTerminal` | `POST …/projects/{id}/terminal` | a terminal in the folder → the Terminal |
 | `msProjectClaude` | `POST …/projects/{id}/claude` | Claude Code in the folder → the Terminal |
 | `msIdeas` | `POST …/projects/{id}/ideas` | `{"text": "…"}` → the new idea |
@@ -231,13 +251,29 @@ and applied live; none is ever sent back whole — only a `key_hint` like
 
 | Route | Default | |
 |---|---|---|
-| `connections` | `GET /dash/api/connections` | `{brain: {active, brains: [{id, name, maker, configured, key_hint, model, models, key_env, model_env, key_url, note}], gemini_slot, gemini_keys: [{slot, configured, key_hint}], thinking}, voice: {...}, listen: {...}, access: {token_hint, host, port, phone, phone_link}, restart_needed: {host?, port?}, can_restart, env_file, overridden: [env names set outside .env]}` |
+| `connections` | `GET /dash/api/connections` | `{brain: {active, brains: [{id, name, maker, configured, key_hint, model, models, key_env, model_env, key_url, note}], gemini_slot, gemini_keys: [{slot, configured, key_hint}], thinking}, voice: {...}, listen: {...}, access: {token_hint, host, port, phone}, restart_needed: {host?, port?}, can_restart, env_file, overridden: [env names set outside .env]}` |
 | `connections` | `POST /dash/api/connections` | `{"values": {"GROQ_API_KEY": "…", "JARVIS_BRAIN": "groq"}}` — `null` clears one. Only the backend's whitelisted names; `422` with a `detail` otherwise. → the view above |
 | `connectionsTest` | `POST /dash/api/connections/test` | `{"brain": "groq"}` → `{"ok": true, "detail": "connected — …"}`; a lookup, no tokens spent |
 | `connectionsToken` | `POST /dash/api/connections/token` | A new dashboard token → `{"token": "…"}` — the one route that returns a secret, so the asking page stays logged in |
 | `restart` | `POST /dash/api/restart` | Restarts the backend (for host/port); `409` when it can't restart itself |
 
 Saving emits `connections.updated` on the stream (names of what changed, never values).
+
+## Phone routes
+
+How a phone reaches the backend, for the Connections tab's **Your phone**
+card. Nothing here carries the token: the page adds its own to the link it
+shows.
+
+| Route | Default | |
+|---|---|---|
+| `phone` | `GET /dash/api/phone` | `{port, wifi, tailscale: {installed, state, signed_in, name, address, https, url, phones: [{name, os, online}], download}, links: [{via, url, anywhere, secure}]}`. `links` are best first: `via` is `tailscale` (its https address, from `tailscale serve`), `tailscale-ip` or `wifi`. `state` is Tailscale's own (`Running`, `NeedsLogin`, …) or `NotRunning` |
+| `phoneTailscale` | `POST /dash/api/phone/tailscale` | `{"share": true}` runs `tailscale serve --bg <port>` in a new terminal; `false` turns it off → the Terminal. `409` with a `detail` when Tailscale isn't installed |
+
+`GET /dash/manifest.webmanifest` is the installable app's manifest: the
+static file, plus the token in `start_url` when the request carries the
+right `?token=`. Only iPhones and iPads ask for that, because their
+home-screen apps don't share Safari's storage and would open logged out.
 
 ## Other routes
 

@@ -8,11 +8,15 @@ import asyncio
 import json
 import os
 import queue
+import subprocess
+import sys
 import threading
+import time
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import httpx
+import psutil
 import pytest
 
 import jarvis as J
@@ -591,7 +595,125 @@ async def test_startup_terminals_open_and_run_their_commands(tmp_path: Path) -> 
 
 def test_the_phone_link_needs_the_network_opened_up() -> None:
     local = J.phone_link(J.Settings(api_token="tok"))
-    assert "approve.html?token=tok" in local and "JARVIS_HOST=0.0.0.0" in local
+    assert "mothership.html?token=tok" in local and "Connections → Phone" in local
+    anywhere = J.phone_link(J.Settings(api_token="tok"),
+                            {"url": "https://pc.tail-1.ts.net"})
+    assert anywhere.startswith("https://pc.tail-1.ts.net/dash/mothership.html?token=tok")
+
+
+SERVING_JARVIS = {"TCP": {"443": {"HTTPS": True}},
+                  "Web": {"pc.tail-1.ts.net:443": {
+                      "Handlers": {"/": {"Proxy": "http://127.0.0.1:8765"}}}}}
+
+
+def test_the_https_address_tailscale_passes_to_jarvis() -> None:
+    assert J.served_url(SERVING_JARVIS, 8765) == "https://pc.tail-1.ts.net"
+    assert J.served_url(SERVING_JARVIS, 9000) == ""  # serving something else
+    other_port = {"Web": {"pc.tail-1.ts.net:8443": {
+        "Handlers": {"/": {"Proxy": "http://localhost:8765/"}}}}}
+    assert J.served_url(other_port, 8765) == "https://pc.tail-1.ts.net:8443"
+    # Under a sub-path Jarvis's own /dash/api/... addresses wouldn't line up.
+    sub_path = {"Web": {"pc.tail-1.ts.net:443": {
+        "Handlers": {"/jarvis": {"Proxy": "http://127.0.0.1:8765"}}}}}
+    for nothing in (sub_path, {}, None, {"Web": "odd"}):
+        assert J.served_url(nothing, 8765) == ""
+
+
+def fake_tailscale(monkeypatch: pytest.MonkeyPatch, state: str = "Running",
+                   serve: Any = None) -> list[tuple[str, ...]]:
+    asked: list[tuple[str, ...]] = []
+
+    def run(*args: str) -> Any:
+        asked.append(args)
+        if args == ("status",):
+            return {"BackendState": state, "CertDomains": ["pc.tail-1.ts.net"],
+                    "Self": {"DNSName": "pc.tail-1.ts.net.",
+                             "TailscaleIPs": ["100.64.0.7", "fd7a:115c::7"]},
+                    "Peer": {"k1": {"HostName": "Pixel 9", "OS": "android", "Online": True},
+                             "k2": {"HostName": "desktop", "OS": "windows", "Online": True}}}
+        return serve if serve is not None else {}
+
+    monkeypatch.setattr(J, "tailscale_exe", lambda: "C:/Program Files/Tailscale/tailscale.exe")
+    monkeypatch.setattr(J, "run_tailscale", run)
+    monkeypatch.setattr(J, "lan_address", lambda: "192.168.1.20")
+    return asked
+
+
+def test_phone_access_without_tailscale(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(J, "tailscale_exe", lambda: None)
+    monkeypatch.setattr(J, "lan_address", lambda: "192.168.1.20")
+    alone = J.phone_access(J.Settings(api_token="tok"))
+    assert alone["tailscale"]["installed"] is False and alone["links"] == []
+    assert alone["tailscale"]["download"].startswith("https://tailscale.com")
+    wifi = J.phone_access(J.Settings(api_token="tok", host="0.0.0.0"))
+    assert wifi["links"] == [{"via": "wifi", "anywhere": False, "secure": False,
+                              "url": "http://192.168.1.20:8765/dash/mothership.html"}]
+
+
+def test_phone_access_through_tailscale(monkeypatch: pytest.MonkeyPatch) -> None:
+    fake_tailscale(monkeypatch, serve=SERVING_JARVIS)
+    access = J.phone_access(J.Settings(api_token="tok"))
+    ts = access["tailscale"]
+    assert (ts["signed_in"], ts["name"], ts["address"], ts["https"]) == (
+        True, "pc.tail-1.ts.net", "100.64.0.7", True)
+    assert ts["phones"] == [{"name": "Pixel 9", "os": "android", "online": True}]
+    assert [link["url"] for link in access["links"]] == [
+        "https://pc.tail-1.ts.net/dash/mothership.html"]
+    assert "tok" not in json.dumps(access)  # the page adds its own token
+
+    asked = fake_tailscale(monkeypatch, state="NeedsLogin")
+    signed_out = J.phone_access(J.Settings(api_token="tok", host="0.0.0.0"))
+    assert signed_out["tailscale"]["signed_in"] is False
+    assert asked == [("status",)]  # no point asking what it serves
+    assert [link["via"] for link in signed_out["links"]] == ["wifi"]
+
+
+@pytest.mark.asyncio
+async def test_the_phone_card_turns_tailscale_serve_on_in_a_terminal(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    fake_tailscale(monkeypatch, serve=SERVING_JARVIS)
+    monkeypatch.setattr(J.shutil, "which", lambda name: None)  # not on PATH
+    jarvis = make(tmp_path, FakeWeb())
+    shells = with_fake_shells(jarvis)
+    auth = {"Authorization": "Bearer secret-token"}
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=J.create_app(jarvis)),
+                                 base_url="http://jarvis") as client:
+        assert (await client.get("/dash/api/phone")).status_code == 401
+        view = (await client.get("/dash/api/phone", headers=auth)).json()
+        assert view["links"][0]["url"] == "https://pc.tail-1.ts.net/dash/mothership.html"
+        opened = (await client.post("/dash/api/phone/tailscale", headers=auth,
+                                    json={"share": True})).json()
+        assert opened["title"] == "Phone access"
+        off = await client.post("/dash/api/phone/tailscale", headers=auth,
+                                json={"share": False})
+        assert off.status_code == 200
+        exe = "& 'C:/Program Files/Tailscale/tailscale.exe'" if J.WINDOWS else (
+            "'C:/Program Files/Tailscale/tailscale.exe'")
+        assert shells[0].written == [f"{exe} serve --bg 8765\r"]  # you pressed it: no asking
+        assert shells[1].written == [f"{exe} serve --https=443 off\r"]
+        monkeypatch.setattr(J, "tailscale_exe", lambda: None)
+        missing = await client.post("/dash/api/phone/tailscale", headers=auth, json={})
+        assert missing.status_code == 409 and "tailscale.com" in missing.json()["detail"]
+    assert jarvis.approvals == {}
+    jarvis.close_all_terminals()
+
+
+@pytest.mark.asyncio
+async def test_the_app_manifest_carries_the_token_only_to_whoever_sent_it(
+        tmp_path: Path) -> None:
+    jarvis = make(tmp_path, FakeWeb())
+    (tmp_path / "frontend").mkdir()
+    (tmp_path / "frontend" / "manifest.webmanifest").write_text(
+        json.dumps({"name": "JARVIS", "start_url": "mothership.html"}), encoding="utf-8")
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=J.create_app(jarvis)),
+                                 base_url="http://jarvis") as client:
+        plain = await client.get("/dash/manifest.webmanifest")
+        assert plain.headers["content-type"].startswith("application/manifest+json")
+        assert plain.json() == {"name": "JARVIS", "start_url": "mothership.html"}
+        wrong = await client.get("/dash/manifest.webmanifest?token=guess")
+        assert wrong.json()["start_url"] == "mothership.html"
+        right = await client.get("/dash/manifest.webmanifest?token=secret-token")
+        assert right.json()["start_url"] == "mothership.html?token=secret-token"
 
 
 def openai_web(seen: list[httpx.Request]) -> FakeWeb:
@@ -731,8 +853,8 @@ class FakeWhisper:
     def __init__(self) -> None:
         self.calls: list[dict[str, Any]] = []
 
-    def transcribe(self, path: str, **kwargs: Any) -> tuple[list[Any], None]:
-        self.calls.append({"bytes": Path(path).read_bytes(), **kwargs})
+    def transcribe(self, audio: Any, **kwargs: Any) -> tuple[list[Any], None]:
+        self.calls.append({"audio": audio, **kwargs})
         return [type("S", (), {"text": " Jarvis, open the pod bay doors."})()], None
 
 
@@ -742,6 +864,8 @@ async def test_whisper_listening_transcribes_on_this_machine(
     from fastapi.testclient import TestClient
 
     monkeypatch.setattr(J, "have_module", lambda name: True)
+    decoded: list[bytes] = []
+    monkeypatch.setattr(J, "decode_16k", lambda audio: decoded.append(audio) or [0.0] * 1600)
     jarvis = make(tmp_path, FakeWeb(reply({"text": "No."})), listen_provider="whisper")
     fake = FakeWhisper()
     jarvis._whisper = fake
@@ -753,7 +877,8 @@ async def test_whisper_listening_transcribes_on_this_machine(
                     files={"audio": ("u.webm", b"webm-bytes", "audio/webm")})
     assert r.status_code == 200
     assert r.json()["command"] == "open the pod bay doors."  # wake word stripped
-    assert fake.calls[0]["bytes"] == b"webm-bytes"  # no WAV conversion needed
+    assert decoded == [b"webm-bytes"]  # no WAV conversion needed: decoded here
+    assert fake.calls[0]["audio"] == [0.0] * 1600  # Whisper gets samples, not a file
     assert fake.calls[0]["language"] == "en" and "Jarvis" in fake.calls[0]["initial_prompt"]
 
 
@@ -847,6 +972,64 @@ async def test_controls_projects_and_ideas_over_the_api(tmp_path: Path) -> None:
     saved = json.loads((tmp_path / "data" / "mothership.json").read_text(encoding="utf-8"))
     assert saved["controls"][0]["name"] == "One cycle"
     jarvis.close_all_terminals()
+
+
+@pytest.mark.asyncio
+async def test_a_projects_reports_are_listed_newest_first_with_their_labels(
+        tmp_path: Path) -> None:
+    empty_mothership(tmp_path)
+    folder = tmp_path / "bot"
+    reports = folder / "reports"
+    reports.mkdir(parents=True)
+    (reports / "2026-10-04_201500_backtest.html").write_text(
+        '<html><head><meta name="description" content="+3.2% return, 41 trades &amp; more">'
+        '<meta name="tone" content="good"><title>Backtest</title></head>'
+        "<body><script>steal()</script></body></html>", encoding="utf-8")
+    (reports / "2026-10-05_063000_learn.html").write_text(
+        "<html><head><title>Learning session</title></head></html>", encoding="utf-8")
+    (reports / "notes.md").write_text("# by hand", encoding="utf-8")
+    os.utime(reports / "notes.md", (1759300000, 1759300000))  # Oct 1: dated by its file time
+    (reports / "picture.png").write_bytes(b"\x89PNG")  # not a report
+    (folder / "secret.txt").write_text("outside", encoding="utf-8")
+    jarvis = make(tmp_path, FakeWeb())
+    auth = {"Authorization": "Bearer secret-token"}
+    ms = "/dash/api/mothership"
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=J.create_app(jarvis)),
+                                 base_url="http://jarvis") as client:
+        project = (await client.post(f"{ms}/projects", headers=auth, json={
+            "name": "TradeBot", "folder": str(folder), "reports_dir": "reports",
+            "controls_title": "Modes"})).json()
+        assert project["controls_title"] == "Modes"
+        pinned = (await client.post(f"{ms}/controls", headers=auth, json={
+            "name": "Update the bot", "kind": "command", "action": "git pull",
+            "project": project["id"], "pinned": True})).json()
+        assert pinned["pinned"] is True
+        listed = (await client.get(f"{ms}/projects/{project['id']}/reports", headers=auth)).json()
+        assert listed["available"] and listed["total"] == 3
+        by_name = {r["name"]: r for r in listed["reports"]}
+        assert [r["name"] for r in listed["reports"]][:2] == [
+            "2026-10-05_063000_learn.html", "2026-10-04_201500_backtest.html"]
+        backtest = by_name["2026-10-04_201500_backtest.html"]
+        assert (backtest["title"], backtest["summary"], backtest["tone"], backtest["kind"]) == (
+            "Backtest", "+3.2% return, 41 trades & more", "good", "backtest")
+        assert backtest["created_at"].startswith("2026-10-0")  # from the name, in UTC
+        assert by_name["notes.md"]["type"] == "text" and by_name["notes.md"]["title"] == "Notes"
+
+        page = await client.get(
+            f"{ms}/projects/{project['id']}/reports/2026-10-04_201500_backtest.html", headers=auth)
+        assert page.status_code == 200 and "steal()" in page.text
+        assert page.headers["content-type"].startswith("text/html")
+        assert page.headers["content-security-policy"] == "sandbox"  # its scripts can't reach us
+        for sneaky in ("..%2Fsecret.txt", "..%5Csecret.txt", ".hidden.html", "picture.png"):
+            outside = await client.get(f"{ms}/projects/{project['id']}/reports/{sneaky}",
+                                       headers=auth)
+            assert outside.status_code == 404, sneaky
+        assert (await client.get(f"{ms}/projects/{project['id']}/reports")).status_code == 401
+
+        await client.post(f"{ms}/projects/{project['id']}", headers=auth, json={
+            "name": "TradeBot", "folder": str(folder)})
+        assert not (await client.get(f"{ms}/projects/{project['id']}/reports",
+                                     headers=auth)).json()["available"]
 
 
 @pytest.mark.asyncio
@@ -1078,3 +1261,203 @@ async def test_gemini_key_slots_and_token_rotation(tmp_path: Path) -> None:
         assert view["restart_needed"] == {"port": 9999} and jarvis.settings.port == 8765
         assert (await client.post("/dash/api/restart", headers=fresh)).status_code == 409
     assert J.read_env_file(env)["JARVIS_API_TOKEN"] == token
+
+
+@pytest.mark.asyncio
+async def test_restart_stops_a_running_control_and_runs_it_again(tmp_path: Path) -> None:
+    empty_mothership(tmp_path)
+    jarvis = make(tmp_path, FakeWeb())
+    shells = with_fake_shells(jarvis)
+    control = jarvis.save_control({"name": "Paper trading", "kind": "command",
+                                   "action": "slow bot"})
+    auth = {"Authorization": "Bearer secret-token"}
+    route = f"/dash/api/mothership/controls/{control['id']}/restart"
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=J.create_app(jarvis)),
+                                 base_url="http://jarvis") as client:
+        # Not running yet: restart just starts it.
+        first = (await client.post(route, headers=auth)).json()
+        terminal = jarvis.terminals[first["terminal"]]
+        await until(lambda: terminal.running is not None)
+        # The page hears that it started, so it can show Stop and Restart.
+        started = [e for e in jarvis.hub.history if e["type"] == "terminal.updated"]
+        assert started[-1]["data"]["terminal"]["running"]["command"] == "slow bot"
+        again = (await client.post(route, headers=auth)).json()
+        assert again["terminal"] == terminal.id  # same terminal, run again
+        assert shells[0].written == ["slow bot\r", "\x03", "slow bot\r"]
+        assert terminal.running is not None and terminal.running["command"] == "slow bot"
+    jarvis.close_all_terminals()
+
+
+@pytest.mark.asyncio
+async def test_jarvis_restarts_or_stops_a_control_by_voice_with_approval(
+        tmp_path: Path) -> None:
+    empty_mothership(tmp_path)
+    restart = {"functionCall": {"name": "run_control",
+                                "args": {"control": "paper", "action": "restart"}}}
+    stop = {"functionCall": {"name": "run_control",
+                             "args": {"control": "paper", "action": "stop"}}}
+    web = FakeWeb(reply(restart), reply({"text": "Restarted."}),
+                  reply(stop), reply({"text": "It wasn't running."}))
+    jarvis = make(tmp_path, web)
+    shells = with_fake_shells(jarvis)
+    control = jarvis.save_control({"name": "Paper trading", "kind": "command",
+                                   "action": "slow bot"})
+    await jarvis.run_control(control, by="you")
+    terminal = next(iter(jarvis.terminals.values()))
+    await until(lambda: terminal.running is not None)
+
+    task = jarvis.submit("restart the bot")
+    await until(lambda: bool(jarvis.approvals))
+    (approval,) = jarvis.approvals.values()
+    assert approval.arguments == {"control": "Paper trading", "action": "restart"}
+    jarvis.decide(approval.id, "allow")
+    await finished(jarvis, task)
+    assert shells[0].written == ["slow bot\r", "\x03", "slow bot\r"]
+    assert tool_result(web, 1)["restarted"] is True
+
+    await until(lambda: terminal.running is None)  # the slow command finishes
+    await finished(jarvis, jarvis.submit("stop the bot"))
+    assert not jarvis.approvals  # nothing to stop: it says so, no approval asked
+    assert "isn't running" in tool_result(web, 3)["error"]
+    jarvis.close_all_terminals()
+
+
+LEARN = {
+    "name": "Learn", "kind": "command",
+    "action": "learn -For {duration} -Goal {goal}",
+    "inputs": [
+        {"name": "duration", "label": "How long", "kind": "choice", "default": "1h",
+         "options": [{"label": "10 minutes", "value": "10m"}, {"label": "1 hour", "value": "1h"}]},
+        {"name": "goal", "label": "Goal", "kind": "text"},
+    ],
+}
+
+
+def test_inputs_go_into_the_command_quoted() -> None:
+    q = J.shell_quote
+    command, values = J.fill_inputs(LEARN, {"duration": "10m", "goal": "shorts'; rm -rf x\n"})
+    assert values == {"duration": "10m", "goal": "shorts'; rm -rf x"}
+    assert command == f"learn -For {q('10m')} -Goal {q(values['goal'])}"
+    assert J.fill_inputs(LEARN, {})[0] == f"learn -For {q('1h')} -Goal {q('')}"  # defaults
+    with pytest.raises(J.JarvisError, match="must be one of"):
+        J.fill_inputs(LEARN, {"duration": "1h; shutdown"})
+    # PowerShell ends a '…' string at a curly quote too: doubled, it can't.
+    assert J.ps_quote("it’s") == "'it’’s'"
+
+
+@pytest.mark.asyncio
+async def test_a_control_with_inputs_runs_with_what_you_chose(tmp_path: Path) -> None:
+    empty_mothership(tmp_path)
+    jarvis = make(tmp_path, FakeWeb())
+    shells = with_fake_shells(jarvis)
+    auth = {"Authorization": "Bearer secret-token"}
+    ms = "/dash/api/mothership"
+    q = J.shell_quote
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=J.create_app(jarvis)),
+                                 base_url="http://jarvis") as client:
+        bad = await client.post(f"{ms}/controls", headers=auth, json={
+            **LEARN, "inputs": [{"name": "x", "kind": "choice"}]})
+        assert bad.status_code == 422  # a choice with nothing to choose
+        control = (await client.post(f"{ms}/controls", headers=auth, json=LEARN)).json()
+        assert control["inputs"][0]["options"][1] == {"label": "1 hour", "value": "1h"}
+        run = f"{ms}/controls/{control['id']}/run"
+        wrong = await client.post(run, headers=auth, json={"inputs": {"duration": "3y"}})
+        assert wrong.status_code == 409 and shells == []
+        ran = await client.post(run, headers=auth,
+                                json={"inputs": {"duration": "10m", "goal": "learn shorts"}})
+        assert ran.status_code == 200
+        assert shells[0].written == [f"learn -For {q('10m')} -Goal {q('learn shorts')}\r"]
+        assert jarvis.mothership.controls[0]["last_inputs"] == {"duration": "10m",
+                                                                "goal": "learn shorts"}
+        # Restart runs it again with the same choices.
+        await client.post(f"{ms}/controls/{control['id']}/restart", headers=auth)
+        assert shells[0].written[-1] == shells[0].written[0]
+    assert "inputs: duration (How long: one of 10m, 1h, default 1h)" in \
+        jarvis.mothership_summary()
+    jarvis.close_all_terminals()
+
+
+@pytest.mark.asyncio
+async def test_jarvis_fills_a_controls_inputs_and_asks_first(tmp_path: Path) -> None:
+    empty_mothership(tmp_path)
+    press = {"functionCall": {"name": "run_control", "args": {
+        "control": "learn", "inputs": '{"duration": "10m", "goal": "shorts"}'}}}
+    web = FakeWeb(reply(press), reply({"text": "Learning."}))
+    jarvis = make(tmp_path, web)
+    shells = with_fake_shells(jarvis)
+    jarvis.save_control(dict(LEARN))
+    task = jarvis.submit("learn shorts for ten minutes")
+    await until(lambda: bool(jarvis.approvals))
+    (approval,) = jarvis.approvals.values()
+    q = J.shell_quote
+    command = f"learn -For {q('10m')} -Goal {q('shorts')}"
+    assert approval.arguments == {"control": "Learn", "command": command}
+    jarvis.decide(approval.id, "allow")
+    await finished(jarvis, task)
+    assert shells[0].written == [command + "\r"]
+    jarvis.close_all_terminals()
+
+
+def test_end_children_stops_a_command_but_keeps_the_shell() -> None:
+    """Ctrl+C typed into ConPTY doesn't reach every program, so Stop ends the
+    processes the shell started. Here: a "shell" running a long "command"."""
+    sleeper = "import time; time.sleep(60)"
+    shell = subprocess.Popen([sys.executable, "-c",
+                              f"import subprocess, sys, time; "
+                              f"subprocess.Popen([sys.executable, '-c', {sleeper!r}]); "
+                              f"time.sleep(60)"])
+    try:
+        parent = psutil.Process(shell.pid)
+        for _ in range(100):
+            if parent.children():
+                break
+            time.sleep(0.05)
+        (command,) = parent.children()
+
+        class Shell:
+            pid = shell.pid
+
+        assert J.end_children(cast(J.Pty, Shell())) == 1
+        assert not command.is_running() or command.status() == psutil.STATUS_ZOMBIE
+        assert shell.poll() is None  # the shell itself is still there
+        assert J.end_children(cast(J.Pty, FakeShell(Path("."), 80, 24))) == 0  # no pid
+    finally:
+        shell.kill()
+        shell.wait()
+
+
+@pytest.mark.asyncio
+async def test_a_reply_is_tagged_with_the_page_that_asked(tmp_path: Path) -> None:
+    web = FakeWeb(reply({"text": "Sunny."}), reply({"text": "Noted."}))
+    jarvis = make(tmp_path, web)
+    auth = {"Authorization": "Bearer secret-token"}
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=J.create_app(jarvis)),
+                                 base_url="http://jarvis") as client:
+        asked = (await client.post("/dash/api/command", headers=auth, json={
+            "text": "weather?", "client": "phone-123"})).json()
+        await finished(jarvis, jarvis.tasks[asked["task_id"]])
+        plain = (await client.post("/dash/api/command", headers=auth,
+                                   json={"text": "note it"})).json()
+        await finished(jarvis, jarvis.tasks[plain["task_id"]])
+    done = [e for e in jarvis.hub.history if e["type"] == "task.completed"]
+    assert done[0]["data"]["client"] == "phone-123"  # only the phone speaks it
+    assert done[1]["data"]["client"] is None  # every Core page does
+
+
+def test_recordings_are_decoded_without_faster_whispers_decoder(tmp_path: Path) -> None:
+    """faster-whisper's decoder passes PyAV an option PyAV 15 removed, so every
+    recording failed; Jarvis decodes them itself."""
+    av = pytest.importorskip("av")
+    np = pytest.importorskip("numpy")
+    path = tmp_path / "tone.webm"
+    with av.open(str(path), "w") as out:  # a second of tone, as a browser records it
+        stream = out.add_stream("libopus", rate=48000)
+        tone = (np.sin(np.arange(48000) * 2 * np.pi * 440 / 48000) * 8000).astype(np.int16)
+        frame = av.AudioFrame.from_ndarray(tone.reshape(1, -1), format="s16", layout="mono")
+        frame.rate = 48000
+        for packet in [*stream.encode(frame), *stream.encode(None)]:
+            out.mux(packet)
+    samples = J.decode_16k(path.read_bytes())
+    assert samples.dtype == np.float32 and 15000 < len(samples) < 17500
+    with pytest.raises(Exception):  # noqa: B017 - any decoding error will do
+        J.decode_16k(b"not audio at all")

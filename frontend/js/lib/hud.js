@@ -88,9 +88,12 @@ export const Hud = (() => {
     const submit = async () => {
       if (!input.value.trim()) return;
       if (server) Connection.setServer(server.value);
-      Connection.setToken(input.value);
+      // A whole sign-in link pasted in works too — handy on a phone.
+      if (!Connection.useLink(input.value)) Connection.setToken(input.value);
       try {
-        onReady(await getJSON(Connection.route("snapshot")));
+        const snapshot = await getJSON(Connection.route("snapshot"));
+        setWaiting((snapshot.approvals || []).length);
+        onReady(snapshot);
       } catch (err) {
         showGate(String(err.message || err));
       }
@@ -215,6 +218,7 @@ export const Hud = (() => {
     let snapshot;
     try {
       snapshot = await getJSON(Connection.route("snapshot"));
+      setWaiting((snapshot.approvals || []).length);
     } catch (err) {
       // Unreachable is as likely as unauthorised when the frontend is opened
       // on its own, so both lead back to the connect screen.
@@ -223,6 +227,50 @@ export const Hud = (() => {
     }
     ready(snapshot);
   }
+
+  /* -- the phone's tab bar ------------------------------------------------
+
+     On a phone the top navigation gives way to a bar of tabs along the
+     bottom, the way apps do it, with the number of approvals waiting on
+     Approve — on every page, so nothing waits unseen. CSS shows it only on
+     narrow screens. */
+
+  const TABS = [
+    ["mothership.html", "Mothership",
+      '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>'],
+    ["index.html", "Core", '<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/>'],
+    ["terminal.html", "Terminal", '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3M13 15h4"/>'],
+    ["approve.html", "Approve", '<path d="m5 12 4.5 4.5L19 7"/>'],
+  ];
+
+  function buildTabs() {
+    if (document.querySelector(".tabbar") || !document.getElementById("gate")) return;
+    const bar = document.createElement("nav");
+    bar.className = "tabbar";
+    bar.setAttribute("aria-label", "Pages");
+    bar.innerHTML = TABS.map(
+      ([href, label, icon]) => `
+      <a href="${href}">
+        <svg viewBox="0 0 24 24" aria-hidden="true">${icon}</svg><span>${label}</span>
+        ${href === "approve.html" ? '<b class="tab-badge" data-waiting hidden></b>' : ""}
+      </a>`
+    ).join("");
+    document.body.appendChild(bar);
+  }
+
+  function setWaiting(count) {
+    document.querySelectorAll("[data-waiting]").forEach((badge) => {
+      badge.textContent = count > 9 ? "9+" : String(count);
+      badge.hidden = !count;
+    });
+  }
+
+  onEvent((frame) => {
+    if (frame.type !== "approval.required" && frame.type !== "approval.resolved") return;
+    getJSON(Connection.route("approvals"))
+      .then((list) => setWaiting(list.length))
+      .catch(() => {});
+  });
 
   /* -- helpers ----------------------------------------------------------- */
 
@@ -285,12 +333,24 @@ export const Hud = (() => {
     return path.replace(/\/$/, "/index").split("/").pop().replace(/\.html$/, "") || "index";
   }
 
+  /** Light the phone tab bar's link to `page` (tabs.js calls it on every switch). */
+  function markTabbar(page = pageName(window.location.pathname)) {
+    document.querySelectorAll(".tabbar a").forEach((link) => {
+      link.classList.toggle("active", pageName(new URL(link.href).pathname) === page);
+    });
+  }
+
   /**
    * Bring a page part's chrome up to date: the nav link to the page it
    * belongs to (`page`, default this address's), links into the backend,
    * and the connection light. Tabs mounted later are decorated on arrival.
+   * The whole document also gets the phone's tab bar, once.
    */
   function decorate(root = document, page = pageName(window.location.pathname)) {
+    if (root === document) {
+      buildTabs();
+      markTabbar(page);
+    }
     root.querySelectorAll(".nav a").forEach((link) => {
       link.classList.toggle("active", pageName(new URL(link.href).pathname) === page);
     });
@@ -312,6 +372,7 @@ export const Hud = (() => {
     onEvent,
     onResync,
     decorate,
+    markTabbar,
     pageName,
     toast,
     ago,

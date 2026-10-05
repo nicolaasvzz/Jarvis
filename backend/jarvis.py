@@ -23,6 +23,7 @@ import contextlib
 import hmac
 import html
 import importlib.util
+import io
 import ipaddress
 import json
 import mimetypes
@@ -30,11 +31,11 @@ import os
 import platform
 import re
 import secrets
+import shlex
 import shutil
 import socket
 import subprocess
 import sys
-import tempfile
 import threading
 import time
 import uuid
@@ -49,6 +50,7 @@ from typing import Annotated, Any, Literal, Protocol
 from urllib.parse import parse_qs, urlencode, urlparse
 
 import httpx
+import psutil
 from fastapi import Depends, FastAPI, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse, Response, StreamingResponse
@@ -304,6 +306,9 @@ class Task:
     #: Who started it: "asked" (you), "notice" (a long command finished),
     #: "explain" (the Explain button) or "control" (a Mothership control).
     kind: str = "asked"
+    #: The page that asked (a random id per open page), so only it speaks the
+    #: reply — a question from the phone is answered on the phone.
+    client: str | None = None
     id: str = field(default_factory=lambda: short_id("t"))
     status: str = "pending"
     steps: list[Step] = field(default_factory=list)
@@ -385,6 +390,47 @@ def spawn_shell(cwd: Path, cols: int, rows: int) -> Pty:
                           "run: pip install -r requirements.txt") from exc
     process: Pty = PtyProcess.spawn(argv, cwd=str(cwd), env=env, dimensions=(rows, cols))
     return process
+
+
+def end_children(process: Pty, wait: float = 3) -> int:
+    """End everything a shell started — the command it is running — but not
+    the shell. Ctrl+C typed into ConPTY doesn't reach every program (a Python
+    script, Start-Sleep), so it alone can't stop one. Returns how many ended."""
+    pid = getattr(process, "pid", None)
+    if not pid:
+        return 0
+    try:
+        children = psutil.Process(pid).children(recursive=True)
+    except psutil.Error:
+        return 0
+    for child in children:
+        with contextlib.suppress(psutil.Error):
+            child.terminate()
+    _, alive = psutil.wait_procs(children, timeout=wait)
+    for child in alive:
+        with contextlib.suppress(psutil.Error):
+            child.kill()
+    return len(children)
+
+
+def decode_16k(audio: bytes) -> Any:
+    """A recording (the browser's webm/opus, Safari's mp4, wav, mp3…) as 16 kHz
+    mono float32 samples, the way Whisper wants them. Decoded here rather than
+    by faster-whisper, whose decoder passes PyAV an option (`metadata_errors`)
+    that PyAV 15 removed — every recording failed with it."""
+    import av
+    import numpy as np
+
+    resampler = av.AudioResampler(format="s16", layout="mono", rate=16000)
+    chunks: list[Any] = []
+    with av.open(io.BytesIO(audio), mode="r") as container:
+        for frame in container.decode(audio=0):
+            frame.pts = None  # browser recordings' timestamps can trip the resampler
+            chunks.extend(f.to_ndarray().reshape(-1) for f in resampler.resample(frame))
+        chunks.extend(f.to_ndarray().reshape(-1) for f in resampler.resample(None))
+    if not chunks:
+        return np.zeros(0, dtype=np.float32)
+    return np.concatenate(chunks).astype(np.float32) / 32768.0
 
 
 #: A shell waiting for input: "PS C:\path>" or "user@host:~$".
@@ -695,6 +741,24 @@ class Terminal:
         finally:
             self.watchers -= 1
 
+    async def idle(self, limit: float) -> bool:
+        """Wait for the running command to finish and the prompt to return."""
+        start = time.monotonic()
+        while time.monotonic() - start < limit and self.status == "running":
+            if self.running is None and self.at_prompt:
+                return True
+            await asyncio.sleep(0.1)
+        return self.running is None and self.at_prompt
+
+    async def interrupt(self, by: str) -> None:
+        """Stop the running command: Ctrl+C, and if that isn't enough within a
+        few seconds, end the processes it started. The shell stays open."""
+        self.send("\x03", shown="[ctrl+c]", by=by)
+        if self.running is None or await self.idle(limit=3):
+            return
+        if await asyncio.to_thread(end_children, self.process):
+            self.note(by, "[ended the command's processes]")
+
     async def ready(self, limit: float = 10) -> None:
         """Wait for a new shell's first prompt."""
         start = time.monotonic()
@@ -897,8 +961,111 @@ def params(required: list[str] | None = None, **props: str) -> dict[str, Any]:
 
 
 def ps_quote(value: str | Path) -> str:
-    """A PowerShell single-quoted literal: nothing inside is interpreted."""
-    return "'" + str(value).replace("'", "''") + "'"
+    """A PowerShell single-quoted literal: nothing inside is interpreted. PowerShell
+    also ends such a string at a curly single quote, so those are doubled too."""
+    return "'" + re.sub("['‘’‚‛]", lambda m: m.group() * 2,
+                        str(value)) + "'"
+
+
+def shell_quote(value: str) -> str:
+    """A literal for this PC's terminals: PowerShell on Windows, else bash."""
+    return ps_quote(value) if WINDOWS else shlex.quote(value)
+
+
+REPORT_TYPES = {".html": "html", ".htm": "html", ".md": "text", ".txt": "text",
+                ".log": "text", ".json": "text", ".csv": "text"}
+REPORT_NAME = re.compile(r"[\w][\w .()+,=-]{0,199}")  # a plain file name: no folders
+REPORTS_LISTED = 300
+_REPORT_STAMP = re.compile(r"(\d{4}-\d\d-\d\d)[_ T](\d\d)(\d\d)(\d\d)?[_-]?([A-Za-z][\w-]*)?")
+_report_labels: dict[tuple[str, float], dict[str, Any]] = {}
+
+
+def report_label(path: Path, mtime: float, size: int) -> dict[str, Any]:
+    """How a report is listed: its title and summary from the page's own head
+    (<title>, <meta name="description">, <meta name="tone">), else from its file
+    name, which may start with when it was made: 2026-10-05_213015_backtest.html."""
+    key = (str(path), mtime)
+    if key in _report_labels:
+        return _report_labels[key]
+    title = summary = tone = ""
+    kind = ""
+    made = datetime.fromtimestamp(mtime, UTC).isoformat()
+    stamp = _REPORT_STAMP.match(path.stem)
+    if stamp:
+        day, hour, minute, second, kind = stamp.groups()
+        with contextlib.suppress(ValueError):
+            made = datetime.fromisoformat(
+                f"{day}T{hour}:{minute}:{second or '00'}").astimezone(UTC).isoformat()
+        kind = (kind or "").split("-")[0]
+    if REPORT_TYPES.get(path.suffix.lower()) == "html":
+        with contextlib.suppress(OSError):
+            with path.open("r", encoding="utf-8", errors="replace") as handle:
+                head = handle.read(12_000)
+
+            def meta(name: str) -> str:
+                found = re.search(rf'<meta\s+name=["\']{name}["\']\s+content=(["\'])(.*?)\1',
+                                  head, re.I | re.S)
+                return html.unescape(found.group(2)).strip() if found else ""
+
+            found = re.search(r"<title[^>]*>(.*?)</title>", head, re.I | re.S)
+            title = " ".join(html.unescape(found.group(1)).split()) if found else ""
+            summary, tone = meta("description"), meta("tone").lower()
+    if not title:
+        words = (kind or path.stem).replace("_", " ").replace("-", " ").strip()
+        title = words[:1].upper() + words[1:]
+    label = {"name": path.name, "title": title[:120], "summary": summary[:300],
+             "tone": tone if tone in {"good", "bad"} else "", "kind": kind.lower(),
+             "created_at": made, "size": size,
+             "type": REPORT_TYPES.get(path.suffix.lower(), "text")}
+    if len(_report_labels) > 2000:
+        _report_labels.clear()
+    _report_labels[key] = label
+    return label
+
+
+def fill_inputs(control: dict[str, Any],
+                given: dict[str, Any] | None) -> tuple[str, dict[str, str]]:
+    """A command control's command line with its inputs filled in.
+
+    A control may ask for inputs before it runs — `"inputs"`: a list of
+    `{"name", "label", "kind": "choice"|"text", "options", "default"}` — and its
+    command line names them as `{name}`. Each value goes in as a quoted literal:
+    a choice must be one of its options, and text loses control characters, so
+    nothing typed can run as a command. → (command, the values used).
+    """
+    action = str(control.get("action") or "").strip()
+    given = given or {}
+    values: dict[str, str] = {}
+    for spec in control.get("inputs") or []:
+        name = str(spec.get("name") or "")
+        if not name:
+            continue
+        value = given.get(name)
+        if value is None or not str(value).strip():
+            value = spec.get("default") or ""
+        value = " ".join(re.sub(r"[\x00-\x1f\x7f]", " ", str(value)).split())[:300]
+        if spec.get("kind") == "choice":
+            allowed = [str(o.get("value") if isinstance(o, dict) else o)
+                       for o in spec.get("options") or []]
+            if value not in allowed:
+                raise JarvisError(f"“{spec.get('label') or name}” must be one of: "
+                                  f"{', '.join(allowed)}.")
+        values[name] = value
+        action = action.replace("{" + name + "}", shell_quote(value))
+    return action, values
+
+
+def input_summary(spec: dict[str, Any]) -> str:
+    """One control input for the system prompt: `goal (What to learn: text)`."""
+    what = spec.get("label") or spec.get("kind") or "text"
+    if spec.get("kind") == "choice":
+        what += ": one of " + ", ".join(str(o.get("value") if isinstance(o, dict) else o)
+                                        for o in spec.get("options") or [])
+    else:
+        what += ": text"
+    if spec.get("default"):
+        what += f", default {spec['default']}"
+    return f"{spec.get('name')} ({what})"
 
 
 def slug(text: str) -> str:
@@ -1044,8 +1211,9 @@ class Jarvis:
         return bool(self.listen_provider)
 
     # -- requests -------------------------------------------------------
-    def submit(self, request: str, prompt: str | None = None, kind: str = "asked") -> Task:
-        task = Task(request=request.strip(), prompt=prompt, kind=kind)
+    def submit(self, request: str, prompt: str | None = None, kind: str = "asked",
+               client: str | None = None) -> Task:
+        task = Task(request=request.strip(), prompt=prompt, kind=kind, client=client)
         self.tasks[task.id] = task
         self.hub.emit("task.created", task.request, task_id=task.id)
         asyncio.get_running_loop().create_task(self._run(task))
@@ -1060,7 +1228,8 @@ class Jarvis:
             except JarvisError as exc:
                 task.error = str(exc)
                 task.set("failed")
-                self.hub.emit("task.failed", task.error, task_id=task.id, speak=True)
+                self.hub.emit("task.failed", task.error, task_id=task.id, speak=True,
+                              data={"client": task.client})
             except Exception as exc:  # noqa: BLE001 - one bad request must not stop the server
                 task.error = f"Unexpected error: {type(exc).__name__}: {exc}"
                 task.set("failed")
@@ -1069,7 +1238,7 @@ class Jarvis:
                 task.result = answer
                 task.set("completed")
                 self.hub.emit("task.completed", answer, task_id=task.id, speak=True,
-                              data={"request": task.request})
+                              data={"request": task.request, "client": task.client})
             finally:
                 self._save_history()
 
@@ -1453,7 +1622,7 @@ class Jarvis:
                        "wispr_configured": bool(s.wispr_api_key),
                        "wispr_hint": mask(s.wispr_api_key), "wispr_language": s.wispr_language},
             "access": {"token_hint": mask(s.api_token), "host": s.host, "port": s.port,
-                       "phone": s.host in {"0.0.0.0", "::"}, "phone_link": phone_link(s)},
+                       "phone": s.host in {"0.0.0.0", "::"}},
             "restart_needed": restart,
             "can_restart": self.restart is not None,
             "env_file": str(s.env_file),
@@ -1564,9 +1733,19 @@ class Jarvis:
             Tool("run_control",
                  "Run one of the user's Mothership controls (listed in the system prompt) "
                  "— e.g. change the weather in a sim, start the trading bot. Match the "
-                 "user's words to the control's name.",
-                 params(["control"], control="string: the control's name or id"),
-                 self.use_control, lambda a: f"Control: {a.get('control', '?')}", risky=True),
+                 "user's words to the control's name. `action` stop or restart acts on a "
+                 "control that is running (e.g. stop or restart the trading bot). A control "
+                 "listed with inputs takes them in `inputs`; ask the user for any they "
+                 "didn't give that have no default.",
+                 params(["control"], control="string: the control's name or id",
+                        action="string: run (default), stop or restart",
+                        inputs='string: JSON object of the control\'s inputs, e.g. '
+                               '{"duration": "8h", "goal": "learn shorts"}'),
+                 self.use_control,
+                 lambda a: f"Control: {a.get('control', '?')}"
+                           + (f" ({a['action']})" if a.get("action") not in (None, "run")
+                              else ""),
+                 risky=True),
             Tool("add_idea",
                  "Note an idea on one of the user's Mothership projects.",
                  params(["project", "idea"], project="string: the project's name",
@@ -1976,11 +2155,17 @@ class Jarvis:
                             lines: int = 60) -> dict[str, Any]:
         return self._screen(self._terminal(terminal_id), max(5, min(int(lines or 60), 300)))
 
-    async def use_control(self, task: Task, control: str) -> dict[str, Any]:
+    async def use_control(self, task: Task, control: str, action: str = "run",
+                          inputs: str = "") -> dict[str, Any]:
         found = self.mothership.control(control)
         if found is None:
             names = ", ".join(str(c.get("name")) for c in self.mothership.controls) or "none"
             return {"error": f"There's no control like {control!r}. Controls: {names}."}
+        verb = str(action or "run").strip().lower()
+        if verb in {"stop", "restart"}:
+            return await self._stop_or_restart(task, found, verb)
+        if verb != "run":
+            return {"error": f"Unknown action {action!r} — use run, stop or restart."}
         name, kind = found.get("name"), found.get("kind")
         action = str(found.get("action") or "")
         if kind == "idea" or not action:
@@ -1993,16 +2178,43 @@ class Jarvis:
                 return {"error": "That control's link isn't a web address."}
             await asyncio.to_thread(webbrowser.open, action)
             return {"opened": action}
+        try:
+            given = json.loads(inputs) if str(inputs or "").strip() else {}
+        except ValueError:
+            given = None
+        if not isinstance(given, dict):
+            return {"error": 'inputs must be a JSON object, e.g. {"duration": "8h"}.'}
+        action, values = fill_inputs(found, given)
         free = ("the user lets you run this control without asking" if found.get("trusted")
                 else self._safe(action))
         if not await self._approve(task, "run_control", {"control": name, "command": action},
                                    f"Run the control “{name}”: {action}", free=free):
             return {"denied": True,
                     "note": "The user did not allow this. Don't retry unless asked."}
-        started = await self.run_control(found, by="jarvis")
+        started = await self.run_control(found, by="jarvis", inputs=values)
         terminal = self.terminals[started["terminal"]]
         await terminal.settle(limit=8)
         return {"control": name, **self._screen(terminal)}
+
+    async def _stop_or_restart(self, task: Task, control: dict[str, Any],
+                               verb: str) -> dict[str, Any]:
+        name = control.get("name")
+        terminal = self._control_terminal(control)
+        if verb == "stop" and (terminal is None or not terminal.running):
+            return {"error": f"“{name}” isn't running."}
+        if not control.get("trusted") and not await self._approve(
+                task, "run_control", {"control": name, "action": verb},
+                f"{verb.capitalize()} the control “{name}”"):
+            return {"denied": True,
+                    "note": "The user did not allow this. Don't retry unless asked."}
+        if verb == "stop":
+            terminal = await self.stop_control(str(control["id"]), by="jarvis")
+            await terminal.settle(limit=5)
+            return {"control": name, "stopped": True, **self._screen(terminal)}
+        started = await self.restart_control(str(control["id"]), by="jarvis")
+        terminal = self.terminals[started["terminal"]]
+        await terminal.settle(limit=8)
+        return {"control": name, "restarted": True, **self._screen(terminal)}
 
     async def note_idea(self, task: Task, project: str, idea: str) -> dict[str, Any]:
         found = self.mothership.project(project)
@@ -2120,12 +2332,60 @@ class Jarvis:
             return {"available": True, "file": str(path), "modified": modified,
                     "text": text[-6000:]}
 
+    def _reports_folder(self, project_id: str) -> Path | None:
+        """The project's reports folder: inside its folder, and only if it exists."""
+        project = self._by_id(self.mothership.projects, project_id, "project")
+        folder = self.mothership.folder(project_id)
+        name = str(project.get("reports_dir") or "").strip()
+        if not folder or not name:
+            return None
+        path = (folder / name).resolve()
+        if path != folder.resolve() and folder.resolve() not in path.parents:
+            return None
+        return path if path.is_dir() else None
+
+    def project_reports(self, project_id: str) -> dict[str, Any]:
+        """Every report in the project's reports folder, newest first, each with
+        its label — the page's <title>, and its description and tone meta tags."""
+        project = self._by_id(self.mothership.projects, project_id, "project")
+        if not str(project.get("reports_dir") or "").strip():
+            return {"available": False, "note": "No reports folder set for this project."}
+        folder = self._reports_folder(project_id)
+        if folder is None:
+            return {"available": False,
+                    "note": f"There's no {project.get('reports_dir')} folder yet — "
+                            "the first run that writes a report makes it."}
+        found = []
+        for path in folder.iterdir():
+            if path.suffix.lower() in REPORT_TYPES and path.is_file():
+                stat = path.stat()
+                found.append((stat.st_mtime, stat.st_size, path))
+        found.sort(key=lambda item: item[0], reverse=True)
+        # Newest first by when each was made: the date in its name, else its file time.
+        labels = [report_label(path, mtime, size) for mtime, size, path in found[:2000]]
+        labels.sort(key=lambda label: str(label["created_at"]), reverse=True)
+        return {"available": True, "total": len(found), "reports": labels[:REPORTS_LISTED]}
+
+    def project_report(self, project_id: str, name: str) -> tuple[Path, str]:
+        """One report's file, by its plain name; nothing outside the folder."""
+        folder = self._reports_folder(project_id)
+        if folder is None or not REPORT_NAME.fullmatch(name):
+            raise KeyError(f"No report {name!r}.")
+        path = folder / name
+        if path.suffix.lower() not in REPORT_TYPES or not path.is_file():
+            raise KeyError(f"No report {name!r}.")
+        if path.stat().st_size > 30_000_000:
+            raise JarvisError(f"{name} is too big to show here.")
+        return path, REPORT_TYPES[path.suffix.lower()]
+
     def _control_terminal(self, control: dict[str, Any]) -> Terminal | None:
         return next((t for t in self.terminals.values()
                      if t.control == control.get("id") and t.status == "running"), None)
 
-    async def run_control(self, control: dict[str, Any], by: str) -> dict[str, Any]:
-        """Do what a control does. Approval, if any, has happened already."""
+    async def run_control(self, control: dict[str, Any], by: str,
+                          inputs: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Do what a control does. Approval, if any, has happened already.
+        `inputs` fill a command control's `{name}`s (see `fill_inputs`)."""
         name, kind = control.get("name", "?"), control.get("kind", "idea")
         action = str(control.get("action") or "").strip()
         if kind == "idea" or not action:
@@ -2134,6 +2394,7 @@ class Jarvis:
             return {"url": action}
         if kind == "ask":
             return {"task_id": self.submit(action, kind="control").id}
+        action, values = fill_inputs(control, inputs)
         terminal = self._control_terminal(control)
         if terminal and terminal.running:
             raise JarvisError(f"“{name}” is still running in {terminal.title} — stop it first.")
@@ -2144,17 +2405,35 @@ class Jarvis:
                                           control=control.get("id"), project=project)
             await terminal.ready()
         terminal.send(action + "\r", shown=action, by=by)
+        # The page reloaded its terminals when this one opened, before the
+        # shell was ready: without this it never learns the control is busy.
+        self.hub.emit("terminal.updated", f"{terminal.title}: running {action[:60]}",
+                      data={"terminal": terminal.out()})
         control["last_run"] = now()
+        if values:
+            control["last_inputs"] = values  # the form starts from them; Restart reuses them
         self._changed(f"Ran the control “{name}”.")
         return {"terminal": terminal.id}
 
-    def stop_control(self, control_id: str) -> Terminal:
+    async def stop_control(self, control_id: str, by: str = "you") -> Terminal:
         control = self._by_id(self.mothership.controls, control_id, "control")
         terminal = self._control_terminal(control)
         if terminal is None:
             raise JarvisError(f"“{control.get('name')}” isn't running.")
-        terminal.send("\x03", shown="[ctrl+c]", by="you")
+        await terminal.interrupt(by)
         return terminal
+
+    async def restart_control(self, control_id: str, by: str = "you") -> dict[str, Any]:
+        """Stop the control's command (Ctrl+C), wait for its prompt, run it again
+        — e.g. a bot picking up new code or settings. Not running? Just run it."""
+        control = self._by_id(self.mothership.controls, control_id, "control")
+        terminal = self._control_terminal(control)
+        if terminal is not None and terminal.running:
+            await terminal.interrupt(by)
+            if not await terminal.idle(limit=30):
+                raise JarvisError(f"“{control.get('name')}” didn't stop within 30 seconds — "
+                                  f"look at {terminal.title}.")
+        return await self.run_control(control, by=by, inputs=control.get("last_inputs"))
 
     async def claude_terminal(self, title: str, cwd: Path, brief: str | None = None,
                               project: str | None = None) -> Terminal:
@@ -2173,6 +2452,24 @@ class Jarvis:
         cwd.mkdir(parents=True, exist_ok=True)
         terminal = self.open_terminal(f"Claude: {title}", "building with Claude Code", "you",
                                       cwd=cwd, project=project)
+        await terminal.ready()
+        terminal.send(command + "\r", shown=command, by="you")
+        return terminal
+
+    async def tailscale_terminal(self, share: bool) -> Terminal:
+        """Turn Jarvis's private https address on (or off) with `tailscale
+        serve`, in a terminal you can watch: the first time, it may print a
+        link for allowing https in your Tailscale account, then wait for it."""
+        if tailscale_exe() is None:
+            raise JarvisError(f"Tailscale isn't installed on this PC — {TAILSCALE_DOWNLOAD}")
+        port = self.settings.port
+        if share:
+            command = tailscale_command("serve", "--bg", str(port))
+        else:
+            url = (await asyncio.to_thread(tailscale_status, port))["url"]
+            command = tailscale_command("serve", f"--https={urlparse(url).port or 443}", "off")
+        terminal = self.open_terminal("Phone access", "tailscale serve: Jarvis's private https "
+                                      "address, for your phone", "you")
         await terminal.ready()
         terminal.send(command + "\r", shown=command, by="you")
         return terminal
@@ -2206,7 +2503,11 @@ class Jarvis:
                  f"(a script in {cwd} is ideal) and test it with me. When it works, update "
                  f"the entry with \"id\": \"{control_id}\" in {self.mothership.path}: set "
                  "\"kind\" to \"command\" and \"action\" to the command line that runs it. "
-                 "Leave the rest of the file as it is.\n")
+                 "If it needs something chosen each time it runs, give it \"inputs\": "
+                 "[{\"name\": \"duration\", \"label\": ..., \"kind\": \"choice\", \"options\": "
+                 "[{\"label\": \"1 hour\", \"value\": \"1h\"}], \"default\": \"1h\"}, or "
+                 "\"kind\": \"text\"], and put {duration} in the command where it goes — it "
+                 "arrives quoted, so don't add quotes. Leave the rest of the file as it is.\n")
         return await self.claude_terminal(name, cwd, brief, project_id)
 
     async def build_idea(self, project_id: str, idea_id: str) -> Terminal:
@@ -2235,8 +2536,9 @@ class Jarvis:
             what = c.get("description") or c.get("action") or ""
             ready = "not built yet" if c.get("kind") == "idea" else c.get("kind")
             trusted = ", runs without asking" if c.get("trusted") else ""
+            asks = "; ".join(input_summary(i) for i in c.get("inputs") or [])
             lines.append(f"- control `{c.get('name')}` [{c.get('group') or 'general'}; "
-                         f"{ready}{trusted}] — {what}")
+                         f"{ready}{trusted}] — {what}" + (f" — inputs: {asks}" if asks else ""))
         return "\n".join(lines) or "Nothing set up yet."
 
     # -- dashboard data ---------------------------------------------------
@@ -2311,20 +2613,22 @@ class Jarvis:
                                          compute_type="int8")
 
     def _whisper_text(self, audio: bytes) -> str:
-        """Whisper on this machine. It decodes webm/mp3/wav itself (PyAV)."""
+        """Whisper on this machine, on audio decoded here (see decode_16k)."""
         self.load_whisper()
-        with tempfile.NamedTemporaryFile(suffix=".audio", delete=False) as handle:
-            handle.write(audio)
+        try:
+            samples = decode_16k(audio)
+        except Exception as exc:  # noqa: BLE001 - undecodable audio is reported, not raised
+            raise JarvisError(f"Could not read that recording: {exc}") from exc
+        if not len(samples):
+            return ""
         try:
             english = self.settings.whisper_model.endswith(".en")
             segments, _ = self._whisper.transcribe(
-                handle.name, language="en" if english else self.settings.listen_language[:2],
+                samples, language="en" if english else self.settings.listen_language[:2],
                 beam_size=1, vad_filter=True, initial_prompt="Jarvis, hey Jarvis.")
             return " ".join(segment.text.strip() for segment in segments).strip()
-        except Exception as exc:  # noqa: BLE001 - undecodable audio is reported, not raised
+        except Exception as exc:  # noqa: BLE001 - a failed transcription is reported
             raise JarvisError(f"Could not transcribe that recording: {exc}") from exc
-        finally:
-            Path(handle.name).unlink(missing_ok=True)
 
     async def _wispr_text(self, wav: bytes) -> str:
         """Speech to text through Wispr Flow. `wav` is 16 kHz mono WAV."""
@@ -2372,6 +2676,7 @@ def machine_stats() -> dict[str, Any]:
 class CommandIn(BaseModel):
     text: str = Field(min_length=1, max_length=8000)
     submit: bool = True
+    client: str | None = Field(default=None, max_length=64)
 
 
 class TaskIn(BaseModel):
@@ -2401,6 +2706,29 @@ class TrustIn(BaseModel):
     trusted: bool
 
 
+class ChoiceIn(BaseModel):
+    label: str = Field(min_length=1, max_length=60)
+    value: str = Field(min_length=1, max_length=100)
+
+
+class InputIn(BaseModel):
+    """Something a control asks for before it runs; its command says `{name}`."""
+    name: str = Field(pattern=r"^[A-Za-z_][A-Za-z0-9_]{0,30}$")
+    label: str = Field(default="", max_length=80)
+    kind: Literal["choice", "text"] = "text"
+    options: list[ChoiceIn] = Field(default_factory=list, max_length=40)
+    default: str = Field(default="", max_length=300)
+    placeholder: str = Field(default="", max_length=200)
+
+
+class RunIn(BaseModel):
+    inputs: dict[str, str] = Field(default_factory=dict)
+
+
+class ShareIn(BaseModel):
+    share: bool = True
+
+
 class ConnectionsIn(BaseModel):
     #: .env keys to set; null clears one. Only Jarvis.EDITABLE keys are accepted.
     values: dict[str, str | None] = Field(max_length=40)
@@ -2418,6 +2746,8 @@ class ControlIn(BaseModel):
     action: str = Field(default="", max_length=2000)
     description: str = Field(default="", max_length=2000)
     trusted: bool = False
+    inputs: list[InputIn] = Field(default_factory=list, max_length=10)
+    pinned: bool = False  # a button at the top of its project's page, not in the grid
 
 
 class LinkIn(BaseModel):
@@ -2430,6 +2760,8 @@ class ProjectIn(BaseModel):
     description: str = Field(default="", max_length=2000)
     folder: str = Field(default="", max_length=400)
     status_file: str = Field(default="", max_length=200)
+    reports_dir: str = Field(default="", max_length=200)
+    controls_title: str = Field(default="", max_length=40)
     hue: int = Field(default=190, ge=0, le=360)
     links: list[LinkIn] = Field(default_factory=list, max_length=20)
 
@@ -2591,6 +2923,10 @@ def create_app(jarvis: Jarvis) -> FastAPI:
             raise HTTPException(status_code=422, detail="A link must start with http(s)://.")
         if body.project and jarvis.mothership.project(body.project) is None:
             raise HTTPException(status_code=422, detail="That project doesn't exist.")
+        if any(i.kind == "choice" and not i.options for i in body.inputs):
+            raise HTTPException(status_code=422, detail="A choice needs options to pick from.")
+        if len({i.name for i in body.inputs}) != len(body.inputs):
+            raise HTTPException(status_code=422, detail="Two inputs share a name.")
         return body.model_dump()
 
     def checked_project(body: ProjectIn) -> dict[str, Any]:
@@ -2620,16 +2956,22 @@ def create_app(jarvis: Jarvis) -> FastAPI:
         return {"ok": True}
 
     @app.post(f"{ms}/controls/{{control_id}}/run", dependencies=guard)
-    async def run_control(control_id: str) -> dict[str, Any]:
+    async def run_control(control_id: str, body: RunIn | None = None) -> dict[str, Any]:
         # You pressed the button yourself, so nothing waits for approval.
         with answers():
             control = jarvis._by_id(jarvis.mothership.controls, control_id, "control")
-            return await jarvis.run_control(control, by="you")
+            return await jarvis.run_control(control, by="you",
+                                            inputs=body.inputs if body else None)
 
     @app.post(f"{ms}/controls/{{control_id}}/stop", dependencies=guard)
     async def stop_control(control_id: str) -> dict[str, Any]:
         with answers():
-            return {"terminal": jarvis.stop_control(control_id).id}
+            return {"terminal": (await jarvis.stop_control(control_id)).id}
+
+    @app.post(f"{ms}/controls/{{control_id}}/restart", dependencies=guard)
+    async def restart_control(control_id: str) -> dict[str, Any]:
+        with answers():
+            return await jarvis.restart_control(control_id)
 
     @app.post(f"{ms}/controls/{{control_id}}/build", dependencies=guard)
     async def build_control(control_id: str) -> dict[str, Any]:
@@ -2655,6 +2997,23 @@ def create_app(jarvis: Jarvis) -> FastAPI:
     async def project_status(project_id: str) -> dict[str, Any]:
         with answers():
             return await asyncio.to_thread(jarvis.project_status, project_id)
+
+    @app.get(f"{ms}/projects/{{project_id}}/reports", dependencies=guard)
+    async def project_reports(project_id: str) -> dict[str, Any]:
+        with answers():
+            return await asyncio.to_thread(jarvis.project_reports, project_id)
+
+    @app.get(f"{ms}/projects/{{project_id}}/reports/{{name}}", dependencies=guard)
+    async def project_report(project_id: str, name: str) -> Response:
+        with answers():
+            path, kind = jarvis.project_report(project_id, name)
+            content = await asyncio.to_thread(path.read_bytes)
+        # Shown inside a sandboxed frame on the page. Opened on its own, the CSP
+        # sandbox keeps a report's scripts away from this origin (and the token).
+        return Response(content, media_type="text/html" if kind == "html" else "text/plain",
+                        headers={"Content-Security-Policy": "sandbox",
+                                 "X-Content-Type-Options": "nosniff",
+                                 "Cache-Control": "no-store"})
 
     @app.post(f"{ms}/projects/{{project_id}}/terminal", dependencies=guard)
     async def project_terminal(project_id: str) -> dict[str, Any]:
@@ -2728,24 +3087,38 @@ def create_app(jarvis: Jarvis) -> FastAPI:
         asyncio.get_running_loop().call_later(0.5, jarvis.restart)
         return {"detail": "Restarting — back in a few seconds."}
 
+    # -- your phone: how it reaches Jarvis ------------------------------------------
+    @app.get("/dash/api/phone", dependencies=guard)
+    async def phone() -> dict[str, Any]:
+        return await asyncio.to_thread(phone_access, settings)
+
+    @app.post("/dash/api/phone/tailscale", dependencies=guard)
+    async def phone_tailscale(body: ShareIn) -> dict[str, Any]:
+        # You pressed it, so nothing waits for approval — like a control.
+        try:
+            return (await jarvis.tailscale_terminal(body.share)).out()
+        except JarvisError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
     @app.get("/dash/api/stats", dependencies=guard)
     async def stats() -> dict[str, Any]:
         return machine_stats()
 
-    def heard(said: str, submit: bool) -> dict[str, Any]:
+    def heard(said: str, submit: bool, client: str | None = None) -> dict[str, Any]:
         text = re.sub(r"^\s*(hey\s+)?jarvis[\s,:.!-]*", "", said, flags=re.I).strip()
         text = text or said
-        task = jarvis.submit(text) if submit else None
+        task = jarvis.submit(text, client=(client or "")[:64] or None) if submit else None
         return {"text": said, "addressed": True, "command": text,
                 "submitted": task is not None, "task_id": task.id if task else None,
                 "confidence": None, "details": {}}
 
     @app.post("/dash/api/command", dependencies=guard)
     async def command(body: CommandIn) -> dict[str, Any]:
-        return heard(body.text, body.submit)
+        return heard(body.text, body.submit, body.client)
 
     @app.post("/dash/api/listen", dependencies=guard)
-    async def listen(audio: UploadFile, submit: Annotated[bool, Form()] = True) -> dict[str, Any]:
+    async def listen(audio: UploadFile, submit: Annotated[bool, Form()] = True,
+                     client: Annotated[str | None, Form()] = None) -> dict[str, Any]:
         if jarvis.listen_provider not in {"wispr", "whisper"}:
             raise HTTPException(
                 status_code=503,
@@ -2758,7 +3131,7 @@ def create_app(jarvis: Jarvis) -> FastAPI:
         if not said:
             return {"text": "", "addressed": False, "command": "", "submitted": False,
                     "task_id": None, "confidence": None, "details": {}}
-        return heard(said, submit)
+        return heard(said, submit, client)
 
     @app.post("/dash/api/speak", dependencies=guard)
     async def speak(body: SpeakIn) -> Response:
@@ -2833,6 +3206,20 @@ def create_app(jarvis: Jarvis) -> FastAPI:
         return Response(base + override, media_type="text/javascript",
                         headers={"Cache-Control": "no-cache"})
 
+    @app.get("/dash/manifest.webmanifest", include_in_schema=False)
+    async def app_manifest(token: str = "") -> Response:
+        # What a phone installs: the static file, plus — when the page sends
+        # the right token — that token in the start address. An iPhone keeps
+        # a home-screen app's storage apart from Safari's, so without it the
+        # app would open logged out; only iPhones and iPads ask for this.
+        own = settings.frontend / "manifest.webmanifest"
+        manifest = json.loads(own.read_text(encoding="utf-8")) if own.is_file() else {}
+        if token and hmac.compare_digest(token.encode(), settings.api_token.encode()):
+            start = str(manifest.get("start_url") or "./")
+            manifest["start_url"] = f"{start}?{urlencode({'token': token})}"
+        return Response(json.dumps(manifest), media_type="application/manifest+json",
+                        headers={"Cache-Control": "no-cache"})
+
     if has_frontend:
         # Windows can map .js to text/plain; browsers then refuse the modules.
         mimetypes.add_type("text/javascript", ".js")
@@ -2875,7 +3262,8 @@ async def serve(settings: Settings) -> bool:
         has_frontend = (settings.frontend / "index.html").is_file()
         print(f"\n  Dashboard  {url if has_frontend else '(no frontend folder — API only)'}")
         if has_frontend:
-            print(f"  Approvals  {phone_link(settings)}")
+            tailscale = await asyncio.to_thread(tailscale_status, settings.port)
+            print(f"  Phone      {phone_link(settings, tailscale)}")
         print(f"  API docs   http://{host}:{settings.port}/docs\n  Ctrl-C to stop.\n", flush=True)
         if settings.open_browser and has_frontend:
             asyncio.get_running_loop().call_later(1.5, lambda: webbrowser.open(url))
@@ -2908,15 +3296,126 @@ def lan_address() -> str | None:
     return None
 
 
-def phone_link(settings: Settings) -> str:
-    """Where to approve from a phone — or how to make that possible."""
-    page = f"/dash/approve.html?token={settings.api_token}"
+# -- your phone, from anywhere -------------------------------------------------
+# Jarvis listens on this PC only. To reach it from a phone anywhere, the PC and
+# the phone join the same Tailscale network (free, and private: nothing is
+# opened to the internet), and `tailscale serve` gives Jarvis an https address
+# on it. https is what lets a phone install the dashboard as an app and use
+# its microphone.
+
+PHONE_PAGE = "/dash/mothership.html"  # where the phone app opens
+TAILSCALE_DOWNLOAD = "https://tailscale.com/download"
+
+
+def tailscale_exe() -> str | None:
+    found = shutil.which("tailscale")
+    if found:
+        return found
+    for path in (Path(os.environ.get("PROGRAMFILES", r"C:\Program Files"), "Tailscale",
+                      "tailscale.exe"),
+                 Path("/Applications/Tailscale.app/Contents/MacOS/Tailscale")):
+        if path.is_file():
+            return str(path)
+    return None
+
+
+def run_tailscale(*args: str) -> Any:
+    """What `tailscale <args> --json` says, or None if it can't be asked."""
+    exe = tailscale_exe()
+    if exe is None:
+        return None
+    try:
+        done = subprocess.run([exe, *args, "--json"], capture_output=True, timeout=5,
+                              stdin=subprocess.DEVNULL,
+                              creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    with contextlib.suppress(ValueError):
+        return json.loads(done.stdout.decode("utf-8", "replace") or "null")
+    return None
+
+
+def served_url(config: Any, port: int) -> str:
+    """The https address `tailscale serve` passes through to Jarvis on `port`."""
+    webs = config.get("Web") if isinstance(config, dict) else None
+    for host_port, web in (webs if isinstance(webs, dict) else {}).items():
+        handler = ((web or {}).get("Handlers") or {}).get("/") or {}
+        proxy = str(handler.get("Proxy") or "")
+        target = urlparse(proxy if "://" in proxy else f"http://{proxy}")
+        with contextlib.suppress(ValueError):
+            if target.hostname in {"127.0.0.1", "localhost", "::1"} and target.port == port:
+                host, _, https_port = str(host_port).rpartition(":")
+                return f"https://{host}" + ("" if https_port == "443" else f":{https_port}")
+    return ""
+
+
+def tailscale_status(port: int) -> dict[str, Any]:
+    """Is this PC on Tailscale, and is its https address passed to Jarvis?"""
+    out: dict[str, Any] = {"installed": tailscale_exe() is not None, "state": "",
+                           "signed_in": False, "name": "", "address": "", "https": False,
+                           "url": "", "phones": [], "download": TAILSCALE_DOWNLOAD}
+    if not out["installed"]:
+        return out
+    status = run_tailscale("status")
+    if not isinstance(status, dict):
+        out["state"] = "NotRunning"  # installed, but its service isn't answering
+        return out
+    me = status.get("Self") or {}
+    out["state"] = str(status.get("BackendState") or "")
+    out["signed_in"] = out["state"] == "Running"
+    out["name"] = str(me.get("DNSName") or "").rstrip(".")
+    out["address"] = next((str(ip) for ip in me.get("TailscaleIPs") or [] if "." in str(ip)), "")
+    out["https"] = bool(status.get("CertDomains"))
+    peers = status.get("Peer")
+    if not isinstance(peers, dict):
+        peers = {}
+    out["phones"] = [{"name": str(peer.get("HostName") or ""), "os": str(peer.get("OS")),
+                      "online": bool(peer.get("Online"))}
+                     for peer in peers.values() if isinstance(peer, dict)
+                     and str(peer.get("OS")).lower() in {"ios", "android"}]
+    if out["signed_in"]:
+        out["url"] = served_url(run_tailscale("serve", "status"), port)
+    return out
+
+
+def phone_access(settings: Settings) -> dict[str, Any]:
+    """How a phone can reach Jarvis — best way first. No tokens in here: the
+    page asking already has one, and adds it to the link it shows."""
+    tailscale = tailscale_status(settings.port)
+    wifi = settings.host in {"0.0.0.0", "::"}
+    links = []
+    if tailscale["url"]:
+        links.append({"via": "tailscale", "url": tailscale["url"] + PHONE_PAGE,
+                      "anywhere": True, "secure": True})
+    if wifi and tailscale["signed_in"] and tailscale["address"]:
+        links.append({"via": "tailscale-ip", "anywhere": True, "secure": False,
+                      "url": f"http://{tailscale['address']}:{settings.port}{PHONE_PAGE}"})
+    address = lan_address() if wifi else None
+    if address:
+        links.append({"via": "wifi", "url": f"http://{address}:{settings.port}{PHONE_PAGE}",
+                      "anywhere": False, "secure": False})
+    return {"port": settings.port, "wifi": wifi, "tailscale": tailscale, "links": links}
+
+
+def tailscale_command(*args: str) -> str:
+    """A terminal line running tailscale with `args`."""
+    exe = "tailscale" if shutil.which("tailscale") else tailscale_exe() or "tailscale"
+    if exe != "tailscale":
+        exe = f"& {ps_quote(exe)}" if WINDOWS else shlex.quote(exe)
+    return " ".join([exe, *args])
+
+
+def phone_link(settings: Settings, tailscale: dict[str, Any] | None = None) -> str:
+    """Where to open Jarvis on a phone — or how to make that possible."""
+    page = f"{PHONE_PAGE}?token={settings.api_token}"
+    if tailscale and tailscale.get("url"):
+        return f"{tailscale['url']}{page}  (anywhere, through Tailscale)"
     if settings.host in {"0.0.0.0", "::"}:
         address = lan_address()
         if address:
             return f"http://{address}:{settings.port}{page}  (from your phone, same Wi-Fi)"
-    return (f"http://127.0.0.1:{settings.port}{page}  — for your phone too, set "
-            "JARVIS_HOST=0.0.0.0")
+    return (f"http://127.0.0.1:{settings.port}{page}  — for your phone, see "
+            "Mothership → Connections → Phone")
 
 
 def main() -> int:
