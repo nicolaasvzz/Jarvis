@@ -27,6 +27,14 @@ Rounds, each at most ``--round`` long:
 
 Everything is saved to ``lab.json`` after each round (and each kept change),
 so stopping loses nothing and the next session carries on from the champion.
+
+**Until done** (``--until-done``, the champ-set builder): challenge rounds
+also try every indicator the champion hasn't had yet - added, or swapped in
+for its weakest member of the same family once it's full - and the session
+ends by itself when all of them have been tried (``--for`` is then only the
+longest it may take). What has been tried is kept in ``lab.json``, so a
+stopped builder carries on where it left off; a finished one starts a new
+pass next time.
 """
 from __future__ import annotations
 
@@ -44,6 +52,8 @@ from typing import Any
 
 import numpy as np
 
+from ..reports import Report, tone_of
+from ..style import Style
 from .catalog import CATALOG, FAMILIES, family_of
 from .features import FeatureStore, ns
 from .package import EXIT_REASONS, Package, Trades, portfolio, score_of
@@ -129,6 +139,9 @@ class Lab:
         on_progress: Callable[[], None] = lambda: None,
         seed: int | None = None,
         state_file: str | Path = STATE_FILE,
+        until_done: bool = False,
+        style: Style | None = None,
+        money: float = 0.0,
     ):
         self.cfg, self.store, self.say, self.on_progress = cfg, store, say, on_progress
         self.universe = universe
@@ -149,6 +162,12 @@ class Lab:
         self.job_seconds: list[float] = []
         self.tried: set[str] = set()  # changes already tested against the current champion
         self.windows = self._windows()
+        self.until_done = until_done
+        # A strategy picked in Jarvis: its settings are pinned on every package tried.
+        self.style = style or Style()
+        self.pins = self.style.package_pins()
+        self.money = money
+        self.done = False  # until_done: every indicator has been tried
 
     # ------------------------------------------------------------ persistence
 
@@ -164,6 +183,8 @@ class Lab:
         data.setdefault("champion", None)
         data.setdefault("hall_of_fame", [])
         data.setdefault("indicator_history", {})
+        data.setdefault("tested", {})   # indicator -> times tried in the champion (until done)
+        data.setdefault("passes", 0)    # times the builder tried every indicator
         return data
 
     def save(self) -> None:
@@ -174,6 +195,7 @@ class Lab:
 
     def save_session(self, status: str) -> None:
         champ = self.state.get("champion")
+        tested, total = self.coverage()
         _write_json(self.state_file, {
             "status": status,
             "phase": self.phase,
@@ -186,6 +208,9 @@ class Lab:
             "champion": Package.from_dict(champ["package"]).describe() if champ else None,
             "score_by_round": [[r["number"], r.get("champion_score")] for r in
                                self.state["rounds"] if r.get("champion_score") is not None][-50:],
+            "until_done": self.until_done,
+            "tested": tested,
+            "to_test": total,
             "pid": os.getpid(),
         })
 
@@ -244,6 +269,63 @@ class Lab:
         self.job_seconds.append(time.monotonic() - started)
         return out
 
+    # ------------------------------------------------------------ until done
+
+    def testable(self) -> list[dict[str, Any]]:
+        """Scoreboard entries that can be tried: every column that had readings."""
+        return [e for e in self.state["scoreboard"] if e.get("signals") or e.get("t")]
+
+    def untested(self) -> list[dict[str, Any]]:
+        champ = self.state.get("champion") or {}
+        have = set((champ.get("package") or {}).get("weights") or {})
+        tested = self.state["tested"]
+        return [e for e in self.testable()
+                if e["feature"] not in tested and e["feature"] not in have]
+
+    def coverage(self) -> tuple[int, int]:
+        """(indicators tried in the champion set, all there are to try)."""
+        total = len(self.testable())
+        return total - len(self.untested()), total
+
+    def complete(self) -> bool:
+        """Until done: has every indicator been tried in the champion set?"""
+        if (self.until_done and not self.done and self.state.get("champion")
+                and self.testable() and not self.untested()):
+            self.done = True
+        return self.done
+
+    def coverage_changes(self, pkg: Package, count: int) -> list[tuple[Package, str]]:
+        """Indicators the champion hasn't tried yet, clearest first: added, or once
+        it's full, swapped in for the weakest member of the same family."""
+        scale = float(np.mean(np.abs(list(pkg.weights.values())))) if pkg.weights else 1.0
+        out: list[tuple[Package, str]] = []
+        for e in self.untested():
+            if len(out) >= count:
+                break
+            f = e["feature"]
+            w = dict(pkg.weights)
+            if len(w) < MAX_FEATURES:
+                w[f] = e["sign"] * scale
+                label = f"try {f}"
+            else:
+                same = [m for m in w if family_of(m) == e["family"]] or list(w)
+                weakest = min(same, key=lambda m: abs(w[m]))
+                w[f] = e["sign"] * abs(w.pop(weakest))
+                label = f"try {f} (for {weakest})"
+            cand = pkg.with_(weights=w)
+            key = json.dumps(cand.to_dict(), sort_keys=True)
+            if key in self.tried:
+                continue
+            self.tried.add(key)
+            out.append((cand, label))
+        return out
+
+    def _mark_tested(self, champion: Package, packages: list[Package]) -> None:
+        tested = self.state["tested"]
+        for p in packages:
+            for f in set(p.weights) - set(champion.weights):
+                tested[f] = tested.get(f, 0) + 1
+
     # ------------------------------------------------------------ the loop
 
     def run(self) -> str:
@@ -255,10 +337,26 @@ class Lab:
         self.say(f"Training {_day(w['train'][0])}..{_day(w['train'][1])}, held-out "
                  f"{_day(w['hold'][0])}..{_day(w['hold'][1])}, final check "
                  f"{_day(w['final'][0])}..{_day(w['final'][1])}.")
-        self.say(f"Running for {human(self.seconds)}, rounds of up to {human(self.round_seconds)}. "
-                 "Ctrl+C stops it; everything found so far is kept.")
+        if self.until_done:
+            tested, total = self.coverage()
+            if total and tested >= total:
+                self.state["tested"] = {}
+                self.say(f"Every indicator was tried last time; starting pass "
+                         f"{int(self.state['passes']) + 1}.")
+                tested, total = self.coverage()
+            self.say(f"Champ-set builder: tries every indicator in the champion set, then stops "
+                     f"(at most {human(self.seconds)}, rounds of up to "
+                     f"{human(self.round_seconds)})."
+                     + (f" {tested} of {total} tried so far." if total else ""))
+        else:
+            self.say(f"Running for {human(self.seconds)}, rounds of up to "
+                     f"{human(self.round_seconds)}.")
+        self.say(f"Strategy: {self.style.describe()}"
+                 + (f" (read from: {'; '.join(self.style.reading)})" if self.style.text else "")
+                 + ".")
+        self.say("Ctrl+C stops it; everything found so far is kept.")
         try:
-            while self.left() > MIN_LEFT:
+            while self.left() > MIN_LEFT and not self.complete():
                 self.round()
         except KeyboardInterrupt:
             status = "stopped"
@@ -266,12 +364,16 @@ class Lab:
         finally:
             self.close()
             self.phase = status
+            if self.done:
+                self.phase = "finished: every indicator tried"
+                self.state["passes"] = int(self.state.get("passes", 0)) + 1
             self.save()
             self.save_session(status)
             self.on_progress()
         champ = self.state.get("champion")
         word = "Stopped" if status == "stopped" else "Done"
-        self.say(f"{word} after {self.rounds_done} round(s).")
+        self.say(f"{word} after {self.rounds_done} round(s)."
+                 + (" Every indicator has been tried in the champion set." if self.done else ""))
         if champ:
             self.say("Champion: " + self.report(Result.from_dict(champ)))
         return status
@@ -417,6 +519,7 @@ class Lab:
         """Backtest packages on one part of history (all symbols, all cores)."""
         if not packages:
             return []
+        packages = [self.styled(p) for p in packages]
         dicts = [p.with_(size=REF_SIZE).to_dict() for p in packages]
         parts = self._map(trades_job, [(dicts, c, self.windows[part]) for c in self._chunks()])
         results = []
@@ -493,6 +596,12 @@ class Lab:
                        + f": {self.report(champ)}")
         return lessons
 
+    def styled(self, pkg: Package) -> Package:
+        """The package with the picked strategy's settings (its bet size is applied
+        when it's crowned: every package is judged at REF_SIZE)."""
+        pins = {k: v for k, v in self.pins.items() if k != "size"}
+        return pkg.with_(**pins) if pins else pkg
+
     def fit_size(self, pkg: Package) -> tuple[float, dict[str, float]]:
         """How much to bet: the largest trade size whose training drawdown stays inside
         the budget. A package that loses on training gets the smallest size."""
@@ -516,7 +625,10 @@ class Lab:
         base = (self.state.get("baseline") or {}).get("scores", {}).get("hold", 0.0)
         hold = result.metrics.get("hold") or {}
         proven = hold.get("total_return", 0.0) > 0 and result.scores.get("hold", 0.0) >= base
-        size, at_size = self.fit_size(result.package) if proven else (0.02, {})
+        if "size" in self.pins:  # the bet you picked, proven or not
+            size, at_size = self.pins["size"], {}
+        else:
+            size, at_size = self.fit_size(result.package) if proven else (0.02, {})
         result.package = result.package.with_(size=size)
         data = result.to_dict()
         data["at_size"] = _round(at_size)
@@ -544,14 +656,26 @@ class Lab:
         champ.metrics, champ.scores = {}, {}  # re-test: the data may have grown since
         self._fill([champ], "train")
         self._fill([champ], "hold")
+        styled = self.styled(champ.package).with_(size=self.pins.get("size", champ.package.size))
+        if styled.to_dict() != champ.package.to_dict():
+            # A newly picked strategy: the champion trades it from now on.
+            champ.package = styled
+            self._fill([champ], "final")
+            self._crown(champ)
+            self.save()
+            self.on_progress()
+            lessons.append(f"Strategy picked: {self.style.describe()}. Champion re-tested with "
+                           f"it: {self.brief(champ)}")
         self.say(f"Champion: {self.report(champ)}")
         tried = adopted = 0
         batch = max(8, self.cfg.workers * 2)
         explored = False
-        while self.round_left() > 0 and self.left() > MIN_LEFT:
+        while self.round_left() > 0 and self.left() > MIN_LEFT and not self.complete():
             # Mostly single changes; a quarter bigger jumps, and all jumps once the
             # single changes are used up, so a round never just idles.
-            options = self.mutations(champ.package, batch - batch // 4)
+            options = (self.coverage_changes(champ.package, batch // 2)
+                       if self.until_done else [])
+            options += self.mutations(champ.package, batch - batch // 4 - len(options))
             options += self.explorations(champ.package, batch - len(options))
             if len(options) < batch // 2 and not explored:
                 explored = True
@@ -565,6 +689,7 @@ class Lab:
                 break
             results = self.evaluate([p for p, _ in options], "train")
             tried += len(results)
+            self._mark_tested(champ.package, [p for p, _ in options])
             gains = [(r, label, r.scores["train"] - champ.scores["train"])
                      for r, (_, label) in zip(results, options, strict=True)]
             gains.sort(key=lambda g: -g[2])
@@ -597,6 +722,9 @@ class Lab:
             self.save_session("running")
             self.on_progress()
         lessons.append(f"Tried {tried} changes, kept {adopted}. Champion: {self.report(champ)}")
+        if self.until_done:
+            done, total = self.coverage()
+            lessons.append(f"Indicators tried in the champion set: {done} of {total}.")
         lessons += self.trade_lessons(champ)
         return lessons
 
@@ -636,7 +764,7 @@ class Lab:
                 w = dict(pkg.weights)
                 w[f] *= factor
                 out.append((pkg.with_(weights=w), f"{word} {f}"))
-        out += knob_changes(pkg)
+        out += knob_changes(pkg, skip=set(self.pins))
         self.rng.shuffle(out)
         unique = []
         for p, label in out:
@@ -715,6 +843,65 @@ class Lab:
         self.state["hall_of_fame"] = [r.to_dict() for r in hall[:10]]
 
     # ------------------------------------------------------------ reporting
+
+    def session_report(self, status: str) -> Report:
+        """This session, for reports/: the champion, what was kept, what was tried."""
+        kind = "champ" if self.until_done else "lab"
+        took = human((datetime.now(timezone.utc) - self.started).total_seconds())
+        rounds = self.state["rounds"][-self.rounds_done:] if self.rounds_done else []
+        champ = self.state.get("champion")
+        hold = ((champ or {}).get("metrics") or {}).get("hold") or {}
+        tested, total = self.coverage()
+        word = ("every indicator tried" if self.done else
+                "stopped" if status == "stopped" else "time up")
+        summary = (f"{self.rounds_done} round(s) in {took}, {len(self.kept)} change(s) kept"
+                   + (f", {tested}/{total} indicators tried" if self.until_done else "")
+                   + (f"; champion held-out {hold['total_return']:+.1%}" if hold else "")
+                   + f" ({word})")
+        out = Report(kind, summary, tone_of(hold.get("total_return", 0.0)) if hold else "neutral",
+                     title="Champ-set builder" if self.until_done else "Indicator lab",
+                     subtitle=f"{len(self.symbols)} symbols; strategy: {self.style.describe()}")
+        out.stat("Rounds", self.rounds_done).stat("Changes kept", len(self.kept),
+                                                   "good" if self.kept else "neutral")
+        if self.until_done:
+            out.stat("Indicators tried", f"{tested} / {total}", "good" if self.done else "neutral")
+        out.stat("Ran for", took)
+        if champ:
+            result = Result.from_dict(champ)
+            for part in ("train", "hold", "final"):
+                m = result.metrics.get(part)
+                if m:
+                    out.stat(f"Champion {_PART[part]}", f"{m['total_return']:+.1%}",
+                             tone_of(m["total_return"]))
+            final = result.metrics.get("final") or result.metrics.get("hold")
+            if final and self.money > 0:
+                # Results are at REF_SIZE a trade; scaled to the real bet, roughly.
+                scaled = final["total_return"] * result.package.size / REF_SIZE
+                gain = scaled * self.money
+                out.stat(f"On ${self.money:,.0f} (final check)",
+                         f"{'+' if gain >= 0 else '-'}${abs(gain):,.0f}", tone_of(gain))
+            out.text("Champion", self.report(result)
+                     + ("" if champ.get("proven", True) else
+                        " Not yet confirmed on held-out, so it trades at the smallest size."))
+            out.table("Champion indicators", [
+                {"Indicator": f, "Family": family_of(f), "Use": "follow" if v > 0 else "fade",
+                 "Weight": round(abs(v), 3)}
+                for f, v in sorted(result.package.weights.items(), key=lambda kv: -abs(kv[1]))])
+        out.bullets("Kept this session", self.kept, "No change beat the champion this time.")
+        out.table("Rounds", [
+            {"Round": r.get("number"), "Kind": r.get("kind"),
+             "Kept": sum(1 for line in r.get("lessons") or [] if line.startswith("KEPT")),
+             "Note": next((line for line in r.get("lessons") or []
+                           if line.startswith(("Tried", "Champion", "Pair"))), "")}
+            for r in rounds])
+        if rounds:
+            out.bullets("What the last round saw", rounds[-1].get("lessons") or [])
+        out.table("Clearest indicators", [
+            {"Indicator": e["feature"], "Family": e["family"],
+             "Use": "follow" if e["sign"] > 0 else "fade", "t": round(abs(e["t"]), 2),
+             "Right": f"{e['hit']:.0%}", "Signals": e["signals"]}
+            for e in self.state["scoreboard"][:15]])
+        return out
 
     def _remember(self, board: list[dict[str, Any]]) -> None:
         hist = self.state["indicator_history"]
@@ -854,10 +1041,14 @@ def greedy(x: np.ndarray, f: np.ndarray, cost: np.ndarray, pool: list[str], weig
     return out
 
 
-def knob_changes(pkg: Package) -> list[tuple[Package, str]]:
+def knob_changes(pkg: Package, skip: set[str] | frozenset[str] = frozenset()
+                 ) -> list[tuple[Package, str]]:
+    """Single changes to a package's rules; `skip` names settings left alone."""
     out: list[tuple[Package, str]] = []
 
     def add(label: str, **changes: Any) -> None:
+        if skip & set(changes):
+            return
         if any(getattr(pkg, k) != v for k, v in changes.items()):
             out.append((pkg.with_(**changes), label))
 

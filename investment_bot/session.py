@@ -58,6 +58,9 @@ from .memory import (
     short_candidates,
     split,
 )
+from .reports import Report, tone_of
+from .style import Style
+from .workers import exit_with_parent
 
 SESSION_FILE = "learning_session.json"
 WORST = 3          # stretches where the bot did worst, tuned on each round
@@ -165,6 +168,7 @@ _W: dict[str, Any] = {}
 def _init_worker(data: dict[str, pd.DataFrame], goal: Goal, holdout: float, warmup: int) -> None:
     # Ctrl+C is the main process's to handle; it ends the workers itself.
     signal.signal(signal.SIGINT, signal.SIG_IGN)
+    exit_with_parent()
     calendar = sorted(set().union(*(df.index for df in data.values())))
     _W.update(data=data, goal=goal, holdout=holdout, warmup=warmup, calendar=calendar, parts={})
 
@@ -212,6 +216,7 @@ class Session:
     state_file: Path = Path(SESSION_FILE)
     on_progress: Callable[[], None] = lambda: None
     seed: int | None = None
+    style: Style = field(default_factory=Style)   # a strategy picked in Jarvis
 
     def __post_init__(self) -> None:
         self.workers = self.workers or self.tune.workers or max((os.cpu_count() or 2) - 1, 1)
@@ -224,6 +229,12 @@ class Session:
         self.history: list[list[Any]] = []
         self.phase = "starting"
         self.pool: ProcessPoolExecutor | None = None
+        # A picked strategy becomes the current one: saved, then kept fixed while
+        # the session refines everything else around it.
+        self.pins = self.style.config_overrides()
+        if self.pins:
+            self.memory.overrides.update(self.pins)
+            self.memory.save()
 
     # -- settings ---------------------------------------------------------
 
@@ -231,11 +242,15 @@ class Session:
         """What this session backtests: the config plus everything learned, and
         for a shorts goal, shorts switched on (else there is nothing to learn)."""
         tuned = self.memory.apply(self.config)
-        if self.goal.side < 0 and current_values(tuned)["strategy.long_only"]:
+        if (self.goal.side < 0 and "strategy.long_only" not in self.pins
+                and current_values(tuned)["strategy.long_only"]):
             tuned = apply_overrides(tuned, {"strategy.long_only": False})
         return tuned
 
     def options(self, config: BotConfig) -> list[dict[str, Any]]:
+        return [c for c in self._options(config) if not set(self.pins) & set(c)]
+
+    def _options(self, config: BotConfig) -> list[dict[str, Any]]:
         if self.goal.side < 0:  # learning shorts: their knobs, not whether to short at all
             opts = [c for c in candidates(config) if "strategy.long_only" not in c]
             have = {repr(c) for c in opts}
@@ -250,6 +265,9 @@ class Session:
     def run(self) -> str:
         """Rounds until time is up. Returns 'finished' or 'stopped'."""
         status = "finished"
+        self.say(f"Strategy: {self.style.describe()}"
+                 + (f" (read from: {'; '.join(self.style.reading)})" if self.style.text else "")
+                 + ".")
         self.say(f"Goal: {self.goal.text or '(none)'} -> " + "; ".join(self.goal.reading) + ".")
         self.say(
             f"Learning for {human(self.seconds)}, analysing every {human(self.round_seconds)}, "
@@ -356,6 +374,35 @@ class Session:
         self.on_progress()
         self.say(f"[round {number}] saved; {human(self.left())} left.")
         return True
+
+    def report(self, status: str) -> Report:
+        """This session, for reports/: what it tried, what it kept, how the goal score moved."""
+        took = human((datetime.now(timezone.utc) - self.started).total_seconds())
+        word = "stopped" if status == "stopped" else "finished"
+        kept = len(self.kept)
+        scores = [s for _, s in self.history]
+        moved = scores[-1] - scores[0] if len(scores) > 1 else 0.0
+        summary = (f"{self.rounds_done} round(s) in {took}, {kept} change(s) kept"
+                   + (f", goal score {moved:+.2%}" if len(scores) > 1 else "") + f" ({word})")
+        out = Report("learn", summary, tone_of(moved) if kept else "neutral",
+                     subtitle=f"strategy: {self.style.describe()}; "
+                              f"goal: {self.goal.text or 'cut losses'}")
+        out.stat("Rounds", self.rounds_done).stat("Changes kept", kept, "good" if kept else "neutral")
+        out.stat("Ran for", took).stat("Analysed every", human(self.round_seconds))
+        if len(scores) > 1:
+            out.stat("Goal score", f"{scores[0]:+.2%} -> {scores[-1]:+.2%}", tone_of(moved))
+        out.bullets("How it read the goal", self.goal.reading, "No goal: cut losses.")
+        out.bullets("Kept", self.kept, "No setting change held up on both parts this time.")
+        rounds = self.memory.rounds[-self.rounds_done:] if self.rounds_done else []
+        out.table("Round by round", [
+            {"Round": n + 1,
+             "Goal score": f"{self.history[n][1]:+.2%}" if n < len(self.history) else "",
+             "Tried": r.get("tested", 0),
+             "Kept": (r.get("adopted") or {}).get("description", "-")}
+            for n, r in enumerate(rounds)])
+        if rounds:
+            out.bullets("What the last round saw", rounds[-1].get("lessons") or [])
+        return out
 
     def _test(self, config: BotConfig, calendar: list, shortest: int,
               until: float) -> dict[Stretch, dict[str, dict[str, Any]]]:

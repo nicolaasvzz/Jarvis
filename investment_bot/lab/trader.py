@@ -37,6 +37,8 @@ import pandas as pd
 
 from .. import indicators as ind
 from ..config import BotConfig
+from ..reports import Report, tone_of
+from ..style import Style, money_text
 from .features import ALPACA_TF, columns_by_tf, duration, multi_timeframe
 from .package import Package
 from .prepare import LabConfig
@@ -99,11 +101,15 @@ class PackageTrader:
         say: Callable[[str], None] = print,
         dry_run: bool = False,
         state_file: str | Path = STATE_FILE,
+        style: Style | None = None,
+        money: float = 0.0,
         now: Callable[[], pd.Timestamp] = lambda: pd.Timestamp.now(tz="UTC"),
     ):
         self.config, self.broker, self.data, self.say = config, broker, data, say
         self.cfg = LabConfig.from_config(config)
         self.dry_run = dry_run
+        self.style = style or Style()      # a strategy picked in Jarvis, laid over the champion
+        self.money = max(float(money), 0.0)  # trade with at most this much (0: the whole account)
         self.state_path = Path(state_file)
         self.state = TraderState.load(self.state_path)
         self.now = now
@@ -119,6 +125,11 @@ class PackageTrader:
                 "doesn't say live.allow_real_money: true. Refusing to trade.")
         self.package: Package | None = None
         self._pkg_stamp = 0.0
+        # This session, for its report: where the log and equity curve stood at the start.
+        self.started = self.now()
+        self.cycles = 0
+        self._log_start = len(self.state.log)
+        self._equity_start = len(self.state.equity)
 
     # ------------------------------------------------------------ inputs
 
@@ -132,6 +143,8 @@ class PackageTrader:
             champ = (json.loads(path.read_text(encoding="utf-8")).get("champion") or {})
             if champ:
                 new = Package.from_dict(champ["package"])
+                if self.style.pinned:
+                    new = new.with_(**self.style.package_pins())
                 if self.package is None or new.to_dict() != self.package.to_dict():
                     self.say(f"Trading the champion package: {new.describe()}.")
                 self.package = new
@@ -178,7 +191,11 @@ class PackageTrader:
         positions = {names.get(p["symbol"], p["symbol"]): p for p in self.broker.positions()}
         self._forget_closed(positions)
         market_open = bool(self.broker.clock().get("is_open"))
-        exposure = sum(abs(float(p.get("market_value") or 0)) for p in positions.values())
+        # The money it trades with: the account, or less if you said so. With a
+        # budget, only its own positions count against it (not ones you hold).
+        budget = min(equity, self.money) if self.money else equity
+        exposure = sum(abs(float(p.get("market_value") or 0)) for s, p in positions.items()
+                       if not self.money or s in self.state.holdings)
         stop_new = self.state.halted or self._daily_loss(equity) >= self.max_daily_loss
         actions = 0
         for item in universe:
@@ -230,14 +247,15 @@ class PackageTrader:
             theta = pkg.threshold
             conviction = min(max((abs(score[-1]) - theta) / max(1 - theta, 1e-6), 0.0), 1.0)
             fraction = pkg.size * (0.5 + 0.5 * conviction)
-            if (exposure + fraction * equity) > self.max_gross * equity:
+            if (exposure + fraction * budget) > self.max_gross * budget:
                 continue
-            if self._open(symbol, item, direction, fraction, equity, price, atr, pkg, last,
+            if self._open(symbol, item, direction, fraction, budget, price, atr, pkg, last,
                           score[-1]):
-                exposure += fraction * equity
+                exposure += fraction * budget
                 actions += 1
         self.state.equity.append([self.now().isoformat(timespec="seconds"), round(equity, 2)])
         self.state.save(self.state_path)
+        self.cycles += 1
         self.say(f"{self.now():%Y-%m-%d %H:%M} UTC  equity ${equity:,.0f}, "
                  f"{len(self.state.holdings)} open, {actions} order(s)"
                  + (" [no new trades: daily loss limit/halt]" if stop_new else "")
@@ -343,6 +361,41 @@ class PackageTrader:
     def _daily_loss(self, equity: float) -> float:
         start = self.state.day_start_equity
         return (start - equity) / start if start else 0.0
+
+    # ------------------------------------------------------------ the report
+
+    def session_report(self) -> Report:
+        """This trading session, for reports/: orders, equity, what's still open."""
+        took = (self.now() - self.started).total_seconds()
+        hours = f"{took / 3600:.1f} h" if took >= 3600 else f"{took / 60:.0f} min"
+        log = self.state.log[self._log_start:]
+        orders = [e for e in log if str(e.get("what", "")).startswith(("buy", "sell"))]
+        curve = self.state.equity[self._equity_start:]
+        change = (curve[-1][1] / curve[0][1] - 1) if len(curve) > 1 and curve[0][1] else 0.0
+        summary = (f"{self.cycles} cycle(s) over {hours}, {len(orders)} order(s)"
+                   + (f", equity ${curve[0][1]:,.0f} -> ${curve[-1][1]:,.0f} ({change:+.2%})"
+                      if len(curve) > 1 else "")
+                   + (" [dry run]" if self.dry_run else ""))
+        out = Report("trading", summary, tone_of(change),
+                     subtitle=(self.package.describe() if self.package else "no champion package")
+                     + f"; strategy: {self.style.describe()}; money: {money_text(self.money)}")
+        out.stat("Cycles", self.cycles).stat("Orders", len(orders))
+        if curve:
+            out.stat("Equity", f"${curve[-1][1]:,.2f}")
+        if len(curve) > 1:
+            out.stat("Change", f"{change:+.2%}", tone_of(change))
+        out.stat("Open", len(self.state.holdings))
+        if self.state.halted:
+            out.stat("Halted", "yes", "bad")
+        out.table("Open positions", [
+            {"Symbol": sym, "Side": "LONG" if h.direction > 0 else "SHORT",
+             "Entry": round(h.entry_price, 2), "Stop": round(h.stop, 2),
+             "Candles held": h.bars, "Since": h.opened[:16]}
+            for sym, h in self.state.holdings.items()], "Nothing open.")
+        out.table("What it did", [
+            {"At": str(e.get("at", ""))[:16], "Symbol": e.get("symbol"), "What": e.get("what")}
+            for e in log[::-1]], "No orders this session.")
+        return out
 
     # ------------------------------------------------------------ the loop
 

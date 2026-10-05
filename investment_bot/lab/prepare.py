@@ -27,6 +27,7 @@ import numpy as np
 import pandas as pd
 
 from ..config import BotConfig
+from ..workers import exit_with_parent
 from .catalog import CATALOG
 from .features import ALPACA_TF, FeatureStore, base_bars, duration, multi_timeframe
 
@@ -246,7 +247,7 @@ def prepare(
     if jobs:
         say(f"Computing {len(expected)} indicator columns for {len(jobs)} symbols "
             f"on {cfg.workers} cores...")
-        with ProcessPoolExecutor(min(cfg.workers, len(jobs))) as pool:
+        with ProcessPoolExecutor(min(cfg.workers, len(jobs)), initializer=exit_with_parent) as pool:
             futures = [pool.submit(_compute_job, job) for job in jobs]
             for done, fut in enumerate(as_completed(futures), 1):
                 try:

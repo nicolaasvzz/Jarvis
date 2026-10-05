@@ -80,6 +80,10 @@ def test_a_short_session_learns_and_saves_each_round(tmp_path, monkeypatch):
     state = json.loads((tmp_path / "learning_session.json").read_text())
     assert state["status"] == "finished" and state["goal"] == "learn shorts"
     assert any(line.startswith("Goal: learn shorts") for line in lines)
+    page = session.report("finished").save(tmp_path / "reports")
+    assert page is not None and page.name.endswith("_learn.html")
+    text = page.read_text(encoding="utf-8")
+    assert "1 round(s)" in text and "goal: learn shorts" in text
 
     status = build_status(BotConfig(raw={**RAW, "learning": {"memory_file": "learned.json"}}))
     assert status["Learning"] == "finished"

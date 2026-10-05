@@ -24,6 +24,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from ..workers import exit_with_parent
 from .catalog import family_of
 from .features import FeatureStore, duration, ns
 from .package import Package, Trades, simulate_symbol
@@ -37,6 +38,7 @@ _W: dict[str, Any] = {}
 
 def init_worker(feature_dir: str, meta: dict[str, dict[str, Any]], costs: dict[str, float]) -> None:
     signal.signal(signal.SIGINT, signal.SIG_IGN)  # Ctrl+C is the main process's to handle
+    exit_with_parent()
     _W.update(store=FeatureStore(feature_dir), meta=meta, costs=costs, bars={})
 
 
