@@ -196,28 +196,41 @@ The Mothership page's controls and projects. All of them answer `404` for an
 unknown id and `409` (with a `detail`) for something that can't be done right
 now, e.g. running a control that isn't built.
 
-**Control** — `{id, name, group, project, kind, action, description, trusted, inputs, last_inputs, last_run, created_at, updated_at}`.
+**Control** — `{id, name, group, project, kind, action, description, trusted, inputs, pinned, last_inputs, last_run, created_at, updated_at}`.
 `kind` is `idea` (not built yet), `command` (`action` is a command line, run
 in a terminal in the project's folder), `ask` (`action` is a request for the
 assistant) or `link` (`action` is an http(s) address). `trusted` lets the
 assistant run a command control without asking. `project` is a project id or `""`.
+`pinned` shows it as a button at the top of its project's page instead of in
+its grid (TradeBot's "Update the bot").
 
-**Project** — `{id, name, description, folder, status_file, hue, links: [{label, url}], ideas: [{id, text, done, by, created_at}], created_at, updated_at}`.
+**Project** — `{id, name, description, folder, status_file, reports_dir, controls_title, hue, links: [{label, url}], ideas: [{id, text, done, by, created_at}], created_at, updated_at}`.
+`reports_dir` is a folder inside `folder` whose pages are listed on the
+project's page; `controls_title` is what the page calls its controls ("Modes";
+blank → "Controls").
+
+**Report** — `{name, title, summary, tone, kind, type, size, created_at}`. `title`,
+`summary` and `tone` (`good`/`bad`/`""`) come from the page's own `<title>`,
+`<meta name="description">` and `<meta name="tone">`. A name that starts with
+when it was made and what made it — `2026-10-05_213015_backtest.html` — gives
+`created_at` and `kind`; otherwise the file's time. `type` is `html` or `text`.
 
 | Route | Default | |
 |---|---|---|
 | `mothership` | `GET /dash/api/mothership` | `{"controls": [Control], "projects": [Project], "claude": true}` — `claude`: Claude Code is installed |
-| `msControls` | `POST /dash/api/mothership/controls` | `{name, group, project, kind, action, description, trusted, inputs}` → the new Control. `inputs` (optional): `[{name, label, kind: "choice"\|"text", options: [{label, value}], default, placeholder}]`, asked for when it's pressed; the command line says `{name}` where each goes |
+| `msControls` | `POST /dash/api/mothership/controls` | `{name, group, project, kind, action, description, trusted, inputs, pinned}` → the new Control. `inputs` (optional): `[{name, label, kind: "choice"\|"text", options: [{label, value}], default, placeholder}]`, asked for when it's pressed; the command line says `{name}` where each goes |
 | `msControl` | `POST /dash/api/mothership/controls/{id}` | the same body → the updated Control |
 | `msControlDelete` | `POST …/controls/{id}/delete` | |
 | `msControlRun` | `POST …/controls/{id}/run` | You pressed it: runs now, no approval. Body (optional) `{"inputs": {name: value}}` — each is filled into the command quoted (a choice must be one of its options, else 409; missing → its default) and kept as the Control's `last_inputs`, which Restart reuses. → `{"terminal": "term-3"}`, `{"task_id": "t-…"}` (ask) or `{"url": "…"}` (link — the page opens it) |
 | `msControlStop` | `POST …/controls/{id}/stop` | Ctrl+C in the control's terminal; still running ~3 s later → ends the processes the shell started (the shell stays) → `{"terminal": …}` |
 | `msControlRestart` | `POST …/controls/{id}/restart` | Stop as above, wait (≤ 30 s) for the prompt, run it again → same as `msControlRun`; 409 if it won't stop |
 | `msControlBuild` | `POST …/controls/{id}/build` | Opens Claude Code in a terminal with a brief → the Terminal |
-| `msProjects` | `POST /dash/api/mothership/projects` | `{name, description, folder, status_file, hue, links}` → the new Project |
+| `msProjects` | `POST /dash/api/mothership/projects` | `{name, description, folder, status_file, reports_dir, controls_title, hue, links}` → the new Project |
 | `msProject` | `POST …/projects/{id}` | the same body → the updated Project |
 | `msProjectDelete` | `POST …/projects/{id}/delete` | its controls stay, unfiled |
 | `msProjectStatus` | `GET …/projects/{id}/status` | `{"available": true, "file", "modified", "data": <its JSON>}` (or `"text"`), or `{"available": false, "note"}` |
+| `msProjectReports` | `GET …/projects/{id}/reports` | `{"available": true, "total": 41, "reports": [Report]}`, newest first (at most 300), or `{"available": false, "note"}`. `.html .htm .md .txt .log .json .csv` files only |
+| `msProjectReport` | `GET …/projects/{id}/reports/{name}` | The file itself (`text/html` or `text/plain`), by its plain name — nothing outside the folder. Sent with `Content-Security-Policy: sandbox`; the page shows it in a sandboxed frame |
 | `msProjectTerminal` | `POST …/projects/{id}/terminal` | a terminal in the folder → the Terminal |
 | `msProjectClaude` | `POST …/projects/{id}/claude` | Claude Code in the folder → the Terminal |
 | `msIdeas` | `POST …/projects/{id}/ideas` | `{"text": "…"}` → the new idea |

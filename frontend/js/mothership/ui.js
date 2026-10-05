@@ -37,6 +37,8 @@ const PATHS = {
   redo: '<path d="M20 12a8 8 0 1 1-2.3-5.7M20 4v5h-5"/>',
   phone: '<rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/>',
   external: '<path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/>',
+  report: '<path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4M9 12h6M9 16h6"/>',
+  update: '<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>',
 };
 
 export function icon(name, cls = "") {
@@ -221,6 +223,26 @@ function niceMax(value) {
   return 10 * power;
 }
 
+// Axis text is 10.5px monospace (mothership.css): about this wide per character.
+const CHAR = 6.6;
+
+/** Round values across [low, high] for the y axis — 99,850 / 99,900 / 99,950,
+ * not 99,806.99 — and how many decimals they need. */
+function ticks(low, high) {
+  let out;
+  for (const parts of [4, 6, 8]) {  // a finer step until there are at least 4 lines
+    const step = Number(niceMax((high - low) / parts).toPrecision(6));
+    const decimals = Math.min(4, (String(step).split(".")[1] || "").length);
+    const values = [];
+    for (let v = Math.ceil(low / step) * step; v <= high + step / 1e6; v += step) {
+      values.push(Number(v.toFixed(decimals)) + 0);  // + 0: no "-0.00"
+    }
+    out = { values, decimals };
+    if (values.length >= 4) break;
+  }
+  return out;
+}
+
 export function drawCharts() {
   for (const [id, spec] of charts) {
     const host = document.getElementById(id);
@@ -230,36 +252,53 @@ export function drawCharts() {
     }
     const width = Math.max(200, host.clientWidth);
     const { series, labels, height, format, counts } = spec;
-    const pad = { left: 44, right: 10, top: 10, bottom: 26 };
     const all = series.flatMap((s) => s.values).filter((v) => Number.isFinite(v));
     // Values like an equity curve sit far from zero: frame their range.
     // Counts start at zero and step in whole numbers (0, 1, 2, 3, 4 at least).
     let low = counts ? 0 : Math.min(...all);
     let high = Math.max(...all, low);
-    if (counts) high = Math.max(4, Math.ceil(niceMax(high) / 4) * 4);
-    else {
+    let yTicks;
+    if (counts) {
+      high = Math.max(4, Math.ceil(niceMax(high) / 4) * 4);
+      yTicks = [0, 0.25, 0.5, 0.75, 1].map((f) => [high * f, format(high * f)]);
+    } else {
       const room = (high - low) * 0.1 || Math.abs(high) * 0.01 || 1;
       low -= room;
       high += room;
+      const { values, decimals } = ticks(low, high);
+      const fixed = (v) =>
+        v.toLocaleString(undefined, { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+      yTicks = values.map((v) => [v, format === number ? fixed(v) : format(v)]);
     }
+    // Room on the left for the widest y label, so none is cut off.
+    const yWidth = Math.max(...yTicks.map(([, text]) => String(text).length)) * CHAR;
+    const pad = { left: Math.ceil(Math.max(28, yWidth + 12)), right: 10, top: 10, bottom: 26 };
     const count = Math.max(...series.map((s) => s.values.length), 2);
     const x = (i) => pad.left + (i / (count - 1)) * (width - pad.left - pad.right);
     const y = (v) => pad.top + (1 - (v - low) / (high - low || 1)) * (height - pad.top - pad.bottom);
-    const grid = [0, 0.25, 0.5, 0.75, 1]
-      .map((f) => {
-        const value = low + (high - low) * f;
+    const grid = yTicks
+      .map(([value, text]) => {
         const gy = y(value);
         return `<line x1="${pad.left}" x2="${width - pad.right}" y1="${gy}" y2="${gy}"/>
-          <text x="${pad.left - 8}" y="${gy + 4}" text-anchor="end">${esc(format(value))}</text>`;
+          <text x="${pad.left - 8}" y="${gy + 4}" text-anchor="end">${esc(text)}</text>`;
       })
       .join("");
-    const step = Math.max(1, Math.ceil(labels.length / Math.max(2, Math.floor(width / 70))));
+    // x labels: as many as fit without touching, never the same one twice in a row,
+    // and the ones at the edges kept inside the chart.
+    const xWidth = Math.max(1, ...labels.map((l) => String(l).length)) * CHAR;
+    const step = Math.max(1, Math.ceil(labels.length / Math.max(2, Math.floor((width - pad.left) / (xWidth + 16)))));
+    let shown = null;
+    let shownAt = -Infinity;
     const xLabels = labels
-      .map((label, i) =>
-        i % step === 0 || i === labels.length - 1
-          ? `<text x="${x(i)}" y="${height - 6}" text-anchor="middle">${esc(label)}</text>`
-          : ""
-      )
+      .map((label, i) => {
+        const at = x(i);
+        const last = i === labels.length - 1;
+        if ((i % step !== 0 && !last) || String(label) === shown || at - shownAt < xWidth + 8) return "";
+        shown = String(label);
+        shownAt = at;
+        const anchor = at + xWidth / 2 > width ? "end" : at - xWidth / 2 < 0 ? "start" : "middle";
+        return `<text x="${at}" y="${height - 6}" text-anchor="${anchor}">${esc(label)}</text>`;
+      })
       .join("");
     const lines = series
       .map((s) => {
@@ -299,6 +338,39 @@ window.addEventListener("resize", () => {
   clearTimeout(resizeTimer);
   resizeTimer = setTimeout(drawCharts, 120);
 });
+
+/* -- report viewer ------------------------------------------------------------ */
+
+/**
+ * A page — a report — over the dashboard. HTML is shown in a sandboxed frame:
+ * its scripts run (for charts) but in an origin of their own, away from this
+ * page's token. Anything else is shown as plain text.
+ */
+export function openViewer({ kicker = "", title = "", html = null, text = "" }) {
+  $("#ms-viewer-kicker").innerHTML = kicker;
+  $("#ms-viewer-title").textContent = title;
+  const body = $("#ms-viewer-body");
+  body.innerHTML = "";
+  if (html !== null) {
+    const frame = document.createElement("iframe");
+    frame.setAttribute("sandbox", "allow-scripts allow-popups");
+    frame.setAttribute("referrerpolicy", "no-referrer");
+    frame.title = title;
+    frame.srcdoc = html;
+    body.appendChild(frame);
+  } else {
+    const pre = document.createElement("pre");
+    pre.className = "viewer-text";
+    pre.textContent = text;
+    body.appendChild(pre);
+  }
+  $("#ms-viewer").hidden = false;
+}
+
+export function closeViewer() {
+  $("#ms-viewer").hidden = true;
+  $("#ms-viewer-body").innerHTML = "";
+}
 
 /* -- drawer ------------------------------------------------------------------ */
 
@@ -421,10 +493,15 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   $("#ms-modal-close").addEventListener("click", closeForm);
   $("#ms-drawer-close").addEventListener("click", closeDrawer);
+  $("#ms-viewer-close").addEventListener("click", closeViewer);
+  $("#ms-viewer").addEventListener("click", (event) => {
+    if (event.target.id === "ms-viewer") closeViewer();
+  });
   $("#ms-shade").addEventListener("click", closeDrawer);
   document.addEventListener("keydown", (event) => {
     if (event.key !== "Escape") return;
     if (!$("#ms-modal").hidden) closeForm();
+    else if (!$("#ms-viewer").hidden) closeViewer();
     else closeDrawer();
   });
 });

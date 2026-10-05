@@ -38,6 +38,17 @@ const isSeries = (v) =>
 
 const isRows = (v) => Array.isArray(v) && v.length && v.every(isObject);
 
+const STAMP = /^\d{4}-(\d\d)-(\d\d)(?:[T ](\d\d:\d\d))?/;
+
+/** x labels for a series: dates as "08-10", or times ("14:30") when it all
+ * happened on one day; anything else ("round 3") as it is, or 1, 2, 3. */
+function timeLabels(keys) {
+  const stamps = keys.map((k) => (k == null ? null : STAMP.exec(String(k))));
+  if (!stamps.every(Boolean)) return keys.map((k, i) => (k == null ? String(i + 1) : String(k)));
+  const oneDay = new Set(stamps.map((m) => m[1] + m[2])).size === 1 && stamps.every((m) => m[3]);
+  return stamps.map((m) => (oneDay ? m[3] : `${m[1]}-${m[2]}`));
+}
+
 /** Flatten one level of nesting: {votes: {a: 1}} → {"votes · a": 1}. */
 function flat(obj, prefix = "", depth = 0) {
   const out = {};
@@ -71,7 +82,7 @@ export function renderStatus(data) {
     } else if (isSeries(v)) {
       const points = v.map((p) => (Array.isArray(p) ? p : [null, p]));
       const values = points.map((p) => p[1]);
-      const labels = points.map((p, i) => (p[0] ? String(p[0]).slice(5, 10) : String(i + 1)));
+      const labels = timeLabels(points.map((p) => p[0]));
       const first = values[0];
       const last = values[values.length - 1];
       const change = first ? ((last - first) / Math.abs(first)) * 100 : 0;

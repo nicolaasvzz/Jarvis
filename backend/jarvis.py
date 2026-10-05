@@ -972,6 +972,57 @@ def shell_quote(value: str) -> str:
     return ps_quote(value) if WINDOWS else shlex.quote(value)
 
 
+REPORT_TYPES = {".html": "html", ".htm": "html", ".md": "text", ".txt": "text",
+                ".log": "text", ".json": "text", ".csv": "text"}
+REPORT_NAME = re.compile(r"[\w][\w .()+,=-]{0,199}")  # a plain file name: no folders
+REPORTS_LISTED = 300
+_REPORT_STAMP = re.compile(r"(\d{4}-\d\d-\d\d)[_ T](\d\d)(\d\d)(\d\d)?[_-]?([A-Za-z][\w-]*)?")
+_report_labels: dict[tuple[str, float], dict[str, Any]] = {}
+
+
+def report_label(path: Path, mtime: float, size: int) -> dict[str, Any]:
+    """How a report is listed: its title and summary from the page's own head
+    (<title>, <meta name="description">, <meta name="tone">), else from its file
+    name, which may start with when it was made: 2026-10-05_213015_backtest.html."""
+    key = (str(path), mtime)
+    if key in _report_labels:
+        return _report_labels[key]
+    title = summary = tone = ""
+    kind = ""
+    made = datetime.fromtimestamp(mtime, UTC).isoformat()
+    stamp = _REPORT_STAMP.match(path.stem)
+    if stamp:
+        day, hour, minute, second, kind = stamp.groups()
+        with contextlib.suppress(ValueError):
+            made = datetime.fromisoformat(
+                f"{day}T{hour}:{minute}:{second or '00'}").astimezone(UTC).isoformat()
+        kind = (kind or "").split("-")[0]
+    if REPORT_TYPES.get(path.suffix.lower()) == "html":
+        with contextlib.suppress(OSError):
+            with path.open("r", encoding="utf-8", errors="replace") as handle:
+                head = handle.read(12_000)
+
+            def meta(name: str) -> str:
+                found = re.search(rf'<meta\s+name=["\']{name}["\']\s+content=(["\'])(.*?)\1',
+                                  head, re.I | re.S)
+                return html.unescape(found.group(2)).strip() if found else ""
+
+            found = re.search(r"<title[^>]*>(.*?)</title>", head, re.I | re.S)
+            title = " ".join(html.unescape(found.group(1)).split()) if found else ""
+            summary, tone = meta("description"), meta("tone").lower()
+    if not title:
+        words = (kind or path.stem).replace("_", " ").replace("-", " ").strip()
+        title = words[:1].upper() + words[1:]
+    label = {"name": path.name, "title": title[:120], "summary": summary[:300],
+             "tone": tone if tone in {"good", "bad"} else "", "kind": kind.lower(),
+             "created_at": made, "size": size,
+             "type": REPORT_TYPES.get(path.suffix.lower(), "text")}
+    if len(_report_labels) > 2000:
+        _report_labels.clear()
+    _report_labels[key] = label
+    return label
+
+
 def fill_inputs(control: dict[str, Any],
                 given: dict[str, Any] | None) -> tuple[str, dict[str, str]]:
     """A command control's command line with its inputs filled in.
@@ -2281,6 +2332,52 @@ class Jarvis:
             return {"available": True, "file": str(path), "modified": modified,
                     "text": text[-6000:]}
 
+    def _reports_folder(self, project_id: str) -> Path | None:
+        """The project's reports folder: inside its folder, and only if it exists."""
+        project = self._by_id(self.mothership.projects, project_id, "project")
+        folder = self.mothership.folder(project_id)
+        name = str(project.get("reports_dir") or "").strip()
+        if not folder or not name:
+            return None
+        path = (folder / name).resolve()
+        if path != folder.resolve() and folder.resolve() not in path.parents:
+            return None
+        return path if path.is_dir() else None
+
+    def project_reports(self, project_id: str) -> dict[str, Any]:
+        """Every report in the project's reports folder, newest first, each with
+        its label — the page's <title>, and its description and tone meta tags."""
+        project = self._by_id(self.mothership.projects, project_id, "project")
+        if not str(project.get("reports_dir") or "").strip():
+            return {"available": False, "note": "No reports folder set for this project."}
+        folder = self._reports_folder(project_id)
+        if folder is None:
+            return {"available": False,
+                    "note": f"There's no {project.get('reports_dir')} folder yet — "
+                            "the first run that writes a report makes it."}
+        found = []
+        for path in folder.iterdir():
+            if path.suffix.lower() in REPORT_TYPES and path.is_file():
+                stat = path.stat()
+                found.append((stat.st_mtime, stat.st_size, path))
+        found.sort(key=lambda item: item[0], reverse=True)
+        # Newest first by when each was made: the date in its name, else its file time.
+        labels = [report_label(path, mtime, size) for mtime, size, path in found[:2000]]
+        labels.sort(key=lambda label: str(label["created_at"]), reverse=True)
+        return {"available": True, "total": len(found), "reports": labels[:REPORTS_LISTED]}
+
+    def project_report(self, project_id: str, name: str) -> tuple[Path, str]:
+        """One report's file, by its plain name; nothing outside the folder."""
+        folder = self._reports_folder(project_id)
+        if folder is None or not REPORT_NAME.fullmatch(name):
+            raise KeyError(f"No report {name!r}.")
+        path = folder / name
+        if path.suffix.lower() not in REPORT_TYPES or not path.is_file():
+            raise KeyError(f"No report {name!r}.")
+        if path.stat().st_size > 30_000_000:
+            raise JarvisError(f"{name} is too big to show here.")
+        return path, REPORT_TYPES[path.suffix.lower()]
+
     def _control_terminal(self, control: dict[str, Any]) -> Terminal | None:
         return next((t for t in self.terminals.values()
                      if t.control == control.get("id") and t.status == "running"), None)
@@ -2650,6 +2747,7 @@ class ControlIn(BaseModel):
     description: str = Field(default="", max_length=2000)
     trusted: bool = False
     inputs: list[InputIn] = Field(default_factory=list, max_length=10)
+    pinned: bool = False  # a button at the top of its project's page, not in the grid
 
 
 class LinkIn(BaseModel):
@@ -2662,6 +2760,8 @@ class ProjectIn(BaseModel):
     description: str = Field(default="", max_length=2000)
     folder: str = Field(default="", max_length=400)
     status_file: str = Field(default="", max_length=200)
+    reports_dir: str = Field(default="", max_length=200)
+    controls_title: str = Field(default="", max_length=40)
     hue: int = Field(default=190, ge=0, le=360)
     links: list[LinkIn] = Field(default_factory=list, max_length=20)
 
@@ -2897,6 +2997,23 @@ def create_app(jarvis: Jarvis) -> FastAPI:
     async def project_status(project_id: str) -> dict[str, Any]:
         with answers():
             return await asyncio.to_thread(jarvis.project_status, project_id)
+
+    @app.get(f"{ms}/projects/{{project_id}}/reports", dependencies=guard)
+    async def project_reports(project_id: str) -> dict[str, Any]:
+        with answers():
+            return await asyncio.to_thread(jarvis.project_reports, project_id)
+
+    @app.get(f"{ms}/projects/{{project_id}}/reports/{{name}}", dependencies=guard)
+    async def project_report(project_id: str, name: str) -> Response:
+        with answers():
+            path, kind = jarvis.project_report(project_id, name)
+            content = await asyncio.to_thread(path.read_bytes)
+        # Shown inside a sandboxed frame on the page. Opened on its own, the CSP
+        # sandbox keeps a report's scripts away from this origin (and the token).
+        return Response(content, media_type="text/html" if kind == "html" else "text/plain",
+                        headers={"Content-Security-Policy": "sandbox",
+                                 "X-Content-Type-Options": "nosniff",
+                                 "Cache-Control": "no-store"})
 
     @app.post(f"{ms}/projects/{{project_id}}/terminal", dependencies=guard)
     async def project_terminal(project_id: str) -> dict[str, Any]:

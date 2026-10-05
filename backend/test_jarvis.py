@@ -975,6 +975,64 @@ async def test_controls_projects_and_ideas_over_the_api(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_a_projects_reports_are_listed_newest_first_with_their_labels(
+        tmp_path: Path) -> None:
+    empty_mothership(tmp_path)
+    folder = tmp_path / "bot"
+    reports = folder / "reports"
+    reports.mkdir(parents=True)
+    (reports / "2026-10-04_201500_backtest.html").write_text(
+        '<html><head><meta name="description" content="+3.2% return, 41 trades &amp; more">'
+        '<meta name="tone" content="good"><title>Backtest</title></head>'
+        "<body><script>steal()</script></body></html>", encoding="utf-8")
+    (reports / "2026-10-05_063000_learn.html").write_text(
+        "<html><head><title>Learning session</title></head></html>", encoding="utf-8")
+    (reports / "notes.md").write_text("# by hand", encoding="utf-8")
+    os.utime(reports / "notes.md", (1759300000, 1759300000))  # Oct 1: dated by its file time
+    (reports / "picture.png").write_bytes(b"\x89PNG")  # not a report
+    (folder / "secret.txt").write_text("outside", encoding="utf-8")
+    jarvis = make(tmp_path, FakeWeb())
+    auth = {"Authorization": "Bearer secret-token"}
+    ms = "/dash/api/mothership"
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=J.create_app(jarvis)),
+                                 base_url="http://jarvis") as client:
+        project = (await client.post(f"{ms}/projects", headers=auth, json={
+            "name": "TradeBot", "folder": str(folder), "reports_dir": "reports",
+            "controls_title": "Modes"})).json()
+        assert project["controls_title"] == "Modes"
+        pinned = (await client.post(f"{ms}/controls", headers=auth, json={
+            "name": "Update the bot", "kind": "command", "action": "git pull",
+            "project": project["id"], "pinned": True})).json()
+        assert pinned["pinned"] is True
+        listed = (await client.get(f"{ms}/projects/{project['id']}/reports", headers=auth)).json()
+        assert listed["available"] and listed["total"] == 3
+        by_name = {r["name"]: r for r in listed["reports"]}
+        assert [r["name"] for r in listed["reports"]][:2] == [
+            "2026-10-05_063000_learn.html", "2026-10-04_201500_backtest.html"]
+        backtest = by_name["2026-10-04_201500_backtest.html"]
+        assert (backtest["title"], backtest["summary"], backtest["tone"], backtest["kind"]) == (
+            "Backtest", "+3.2% return, 41 trades & more", "good", "backtest")
+        assert backtest["created_at"].startswith("2026-10-0")  # from the name, in UTC
+        assert by_name["notes.md"]["type"] == "text" and by_name["notes.md"]["title"] == "Notes"
+
+        page = await client.get(
+            f"{ms}/projects/{project['id']}/reports/2026-10-04_201500_backtest.html", headers=auth)
+        assert page.status_code == 200 and "steal()" in page.text
+        assert page.headers["content-type"].startswith("text/html")
+        assert page.headers["content-security-policy"] == "sandbox"  # its scripts can't reach us
+        for sneaky in ("..%2Fsecret.txt", "..%5Csecret.txt", ".hidden.html", "picture.png"):
+            outside = await client.get(f"{ms}/projects/{project['id']}/reports/{sneaky}",
+                                       headers=auth)
+            assert outside.status_code == 404, sneaky
+        assert (await client.get(f"{ms}/projects/{project['id']}/reports")).status_code == 401
+
+        await client.post(f"{ms}/projects/{project['id']}", headers=auth, json={
+            "name": "TradeBot", "folder": str(folder)})
+        assert not (await client.get(f"{ms}/projects/{project['id']}/reports",
+                                     headers=auth)).json()["available"]
+
+
+@pytest.mark.asyncio
 async def test_jarvis_runs_a_control_by_voice_asking_first_unless_trusted(
         tmp_path: Path) -> None:
     empty_mothership(tmp_path)

@@ -60,6 +60,8 @@
       msProject: "/dash/api/mothership/projects/{id}",
       msProjectDelete: "/dash/api/mothership/projects/{id}/delete",
       msProjectStatus: "/dash/api/mothership/projects/{id}/status",
+      msProjectReports: "/dash/api/mothership/projects/{id}/reports",
+      msProjectReport: "/dash/api/mothership/projects/{id}/reports/{name}",
       msProjectTerminal: "/dash/api/mothership/projects/{id}/terminal",
       msProjectClaude: "/dash/api/mothership/projects/{id}/claude",
       msIdeas: "/dash/api/mothership/projects/{id}/ideas",

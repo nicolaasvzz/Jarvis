@@ -6,6 +6,8 @@
  * with a brief, and when it works Claude switches the control on. A command
  * control can ask for inputs first (a dropdown, some text): pressing it opens
  * a small form, and the backend fills them into the command line, quoted.
+ * A control can be pinned: a button at the top of its project's page (like
+ * "Update the bot") instead of a card in its grid.
  */
 
 import { Hud } from "../lib/hud.js";
@@ -53,7 +55,7 @@ export function render(root) {
         ? [...byGroup].map(([g, list]) => `
           <section class="group">
             <h2 class="group-title">${esc(g)} <span class="muted">${list.length}</span></h2>
-            <div class="control-grid">${list.map(card).join("")}</div>
+            <div class="control-grid">${list.map((c) => card(c)).join("")}</div>
           </section>`).join("")
         : `<div class="empty-card big">
             <h3>No controls yet</h3>
@@ -74,8 +76,9 @@ export function render(root) {
   wire(root);
 }
 
-/** One control as a card; used here and on project pages. */
-export function card(c) {
+/** One control as a card; used here and on project pages. Project pages leave
+ * out the command line (`{ command: false }`): the card says it's a command. */
+export function card(c, { command = true } = {}) {
   const kind = KINDS[c.kind] || KINDS.idea;
   const running = controlTerminal(c.id);
   const busy = running && running.running;
@@ -99,7 +102,7 @@ export function card(c) {
       </header>
       <h3>${esc(c.name)}</h3>
       ${c.description ? `<p class="control-desc">${esc(c.description)}</p>` : ""}
-      ${c.action && c.kind !== "idea" ? `<code class="control-action" title="${esc(c.action)}">${esc(c.action)}</code>` : ""}
+      ${command && c.action && c.kind !== "idea" ? `<code class="control-action" title="${esc(c.action)}">${esc(c.action)}</code>` : ""}
       <div class="control-meta">
         ${owner ? `<a class="tag" href="#/projects/${esc(owner.id)}">${icon("folder")} ${esc(owner.name)}</a>` : ""}
         ${busy ? `<span class="tag warn">running</span>` : ""}
@@ -111,6 +114,19 @@ export function card(c) {
         ${c.kind !== "idea" && c.action ? `<button class="icon-btn" data-build="${esc(c.id)}" title="Improve it with Claude">${icon("claude")}</button>` : ""}
       </footer>
     </article>`;
+}
+
+/** A pinned control: a button for the top of its project's page. */
+export function topButton(c) {
+  const running = controlTerminal(c.id);
+  if (running && running.running) {
+    return `<button class="btn bad" data-stop="${esc(c.id)}" title="${esc(c.name)} is running">
+        ${icon("stop")} Stop: ${esc(c.name)}</button>
+      <button class="btn ghost" data-terminal="${esc(running.id)}" title="See it run">${icon("terminal")}</button>`;
+  }
+  if (c.kind === "idea" || !c.action) return "";
+  return `<button class="btn" data-run="${esc(c.id)}" title="${esc(c.description || c.name)}">
+      ${icon(/update|pull|upgrade/i.test(c.name) ? "update" : "play")} ${esc(c.name)}${asks(c) ? "…" : ""}</button>`;
 }
 
 /** Wire every control button inside `root`. */
@@ -227,6 +243,9 @@ export function editControl(existing, preset = {}) {
       { name: "trusted", label: "Jarvis may run this without asking me", type: "checkbox",
         value: c.trusted, show: (v) => v.kind === "command",
         hint: "For harmless buttons you'll say out loud often, like weather changes." },
+      { name: "pinned", label: "A button at the top of its project's page", type: "checkbox",
+        value: c.pinned, show: (v) => Boolean(v.project) && v.kind !== "idea",
+        hint: "For something you press now and then, like updating — not one of its modes." },
     ],
     extra: existing ? `<button type="button" class="btn bad ghost" data-delete>${icon("trash")} Delete</button>` : "",
     onSubmit: async (v) => {
@@ -241,7 +260,8 @@ export function editControl(existing, preset = {}) {
         }
         if (!Array.isArray(inputs)) throw new Error("Inputs must be a list: [ … ].");
       }
-      const body = { ...v, inputs, action: v.kind === "idea" ? v.action || "" : v.action };
+      const body = { ...v, inputs, action: v.kind === "idea" ? v.action || "" : v.action,
+        pinned: v.pinned && Boolean(v.project) };
       if (existing) await Hud.postJSON(Hud.route("msControl", { id: existing.id }), body);
       else await Hud.postJSON(Hud.route("msControls"), body);
       Hud.toast(existing ? "Saved." : `Created “${v.name}”.`, "ok");
