@@ -35,3 +35,14 @@ data_cache/
 .vscode/
 .DS_Store
 Thumbs.db
+
+# backtest memory (what backtests taught the bot)
+learned.json
+learned.json.tmp
+jarvis_status.json
+jarvis_status.json.tmp
+live_state.json.tmp
+
+# learning sessions (investment-bot learn)
+learning_session.json
+learning_session.json.tmp

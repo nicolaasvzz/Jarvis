@@ -45,6 +45,18 @@ first; once approved, changes come in through a reviewed pull request.
   wild day can't dominate, and a shrink term bounds how long a lesson is
   remembered (~43 days by default). Learned weights persist across restarts.
   Turn it off with `learning.enabled: false`.
+- **Learns from every backtest.** With `learning.auto_tune: true`, each
+  backtest ends with a review of its trades (where the money was lost: shorts
+  vs longs, stop-outs, which symbols, flip-flopping) and a learning round: it
+  tries small changes to the threshold, stops, sizing, volatility veto,
+  long-only and the online-learned weights, each on the first 70% of history,
+  and keeps at most one, only if it also lowers losses on the last 30%, which
+  the choice never looked at (score = return + 1.5 x max drawdown, and no
+  "learning" to just stop trading). What it keeps goes in `learned.json`, which
+  the next backtest and paper trading start from, so the bot improves run
+  after run. `investment-bot learned` shows what it learned and the run-by-run
+  history; `investment-bot learned --reset` forgets it; `backtest --no-tune`
+  skips one round.
 
 - **Bias-controlled backtester.** Signals are computed on bar *t*'s close and
   filled at bar *t+1*'s open with slippage + commission — the bot never sees

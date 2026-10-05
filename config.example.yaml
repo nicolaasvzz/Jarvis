@@ -60,3 +60,14 @@ learning:
   return_cap: 0.10       # clip |return| per lesson
   weight_floor: 0.05     # minimum share any strategy keeps
   shrink: 0.002          # pull toward equal weights per lesson (~43-day memory)
+
+  # Backtest memory: each backtest reviews its trades and keeps at most one
+  # setting change (threshold, stops, sizing, vol veto, long-only, weights)
+  # that lowers losses on both training and held-out data. See README.
+  auto_tune: false
+  memory_file: learned.json
+  holdout: 0.30          # last 30% of history validates every change
+  loss_aversion: 1.5     # score = return + 1.5 x max drawdown
+  min_gain: 0.002        # improvement needed on both windows to keep a change
+  min_trade_ratio: 0.5   # a change may not halve the number of trades
+  workers: 0             # parallel backtests; 0 = CPU cores - 1

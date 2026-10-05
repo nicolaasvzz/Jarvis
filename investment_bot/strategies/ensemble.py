@@ -27,6 +27,7 @@ class Ensemble(Strategy):
     threshold: float = 0.25  # |net score| needed to emit a direction
     max_volatility: float | None = None  # e.g. 0.60 = veto entries above 60% ann. vol
     long_only: bool = False
+    short_threshold: float | None = None  # stricter bar for shorts; None = threshold
 
     def __post_init__(self):
         super().__post_init__()
@@ -86,6 +87,8 @@ class Ensemble(Strategy):
         direction = 1 if net > 0 else -1
         if self.long_only and direction < 0:
             return Signal(0, 0.0, f"short vetoed (long-only), net {net:+.2f}"), votes
+        if direction < 0 and self.short_threshold is not None and -net < self.short_threshold:
+            return Signal(0, 0.0, f"net {net:+.2f} below short threshold"), votes
         voters = ", ".join(
             f"{name}:{s.score:+.2f}" for name, s in signals.items() if s.direction != 0
         )

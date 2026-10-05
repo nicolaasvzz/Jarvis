@@ -5,7 +5,9 @@ library, no external assets, opens anywhere.
 """
 from __future__ import annotations
 
+from html import escape
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pandas as pd
 from rich.console import Console
@@ -13,6 +15,9 @@ from rich.table import Table
 
 from .backtest.engine import BacktestResult
 from .backtest.metrics import drawdown_series
+
+if TYPE_CHECKING:
+    from .memory import BacktestMemory
 
 PCT_METRICS = {"total_return", "cagr", "volatility", "max_drawdown", "win_rate"}
 
@@ -103,7 +108,46 @@ def _svg_line(series: pd.Series, width: int, height: int, color: str, fill: str 
     )
 
 
-def write_html_report(result: BacktestResult, path: str | Path) -> Path:
+def _learning_html(memory: "BacktestMemory") -> str:
+    """The 'what it learned' section: this run's lessons and the run-by-run history."""
+    rnd = memory.rounds[-1]
+    lessons = "".join(f"<li>{escape(x)}</li>" for x in rnd["lessons"])
+    adopted = rnd.get("adopted")
+    if adopted:
+        verdict = (
+            f"<p class='learned'>Learned: <b>{escape(adopted['description'])}</b> &mdash; lowers "
+            f"losses on the training data ({adopted['train_gain']:+.2%}) and on held-out data it "
+            f"never chose from ({adopted['holdout_gain']:+.2%}). The next backtest and paper "
+            f"trading use it.</p>"
+        )
+    else:
+        verdict = (
+            f"<p class='sub'>No change kept: none of {rnd.get('tested', 0)} adjustments cut "
+            f"losses on both the training and the held-out data.</p>"
+        )
+    rows = "".join(
+        f"<tr><td class='num'>{r['number']}</td><td>{escape(r.get('data_end', ''))}</td>"
+        f"<td class='num {'pos' if r['full_run']['total_return'] >= 0 else 'neg'}'>"
+        f"{r['full_run']['total_return']:.2%}</td>"
+        f"<td class='num neg'>{r['full_run']['max_drawdown']:.2%}</td>"
+        f"<td class='num'>${-r['full_run']['gross_loss']:,.0f}</td>"
+        f"<td class='num'>{r['full_run']['num_trades']}</td>"
+        f"<td>{escape(r['adopted']['description']) if r.get('adopted') else '&mdash;'}</td></tr>"
+        for r in reversed(memory.rounds[-20:])
+    )
+    return f"""
+<h2>What This Backtest Taught The Bot</h2>
+<div class="card"><ul class="lessons">{lessons}</ul>{verdict}</div>
+<h2>Backtest By Backtest</h2>
+<div class="card scroll"><table>
+<thead><tr><th class="num">#</th><th>Data to</th><th class="num">Return</th><th class="num">Max DD</th>
+<th class="num">Losses</th><th class="num">Trades</th><th>Learned</th></tr></thead>
+<tbody>{rows}</tbody></table></div>"""
+
+
+def write_html_report(
+    result: BacktestResult, path: str | Path, memory: "BacktestMemory | None" = None
+) -> Path:
     path = Path(path)
     equity = result.equity
     dd = drawdown_series(equity)
@@ -163,6 +207,8 @@ def write_html_report(result: BacktestResult, path: str | Path) -> Path:
  .halted {{ background:rgba(69,10,10,.4); border:1px solid rgba(239,68,68,.4); border-radius:1rem;
    padding:.8rem 1rem; color:#fca5a5; font-weight:600; margin:1rem 0; }}
  .scroll {{ overflow-x:auto; }}
+ .lessons {{ margin:0 0 .8rem 1.1rem; line-height:1.7; }}
+ .learned {{ color:var(--green); }}
  .tall {{ max-height:520px; overflow-y:auto; }}
  ::-webkit-scrollbar {{ width:6px; height:6px; }}
  ::-webkit-scrollbar-track {{ background:#080808; }}
@@ -189,6 +235,7 @@ Backtest Report</h1>
 <div class="card">{_svg_line(equity, 900, 220, "#4ade80" if total_return >= 0 else "#f87171", "#4ade8022" if total_return >= 0 else "#f8717122") if len(equity) else "no data"}</div>
 <h2>Drawdown</h2>
 <div class="card">{_svg_line(dd, 900, 120, "#f87171", "#f8717122") if len(dd) else "no data"}</div>
+{_learning_html(memory) if memory is not None and memory.rounds else ""}
 
 <h2>All Metrics</h2>
 <div class="card scroll"><table>{metric_rows}</table></div>
@@ -199,5 +246,5 @@ Backtest Report</h1>
 <th class="num">Entry</th><th class="num">Exit</th><th class="num">P&amp;L</th><th>Reason</th></tr></thead>
 <tbody>{trade_rows}</tbody></table></div>
 </div></body></html>"""
-    path.write_text(html)
+    path.write_text(html, encoding="utf-8")
     return path
