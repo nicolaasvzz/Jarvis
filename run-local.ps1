@@ -11,6 +11,7 @@
 #
 # Backtest, learn, lab, champ and package also take the strategy to try and the
 # money to use: -Style refine|fewer|more|custom [-Custom "your words"] -Money 10000
+# [-Confidence 70] [-Bet 10] (percent; 0 keeps what the strategy says)
 #
 # Every run of backtest, learn, lab, champ, package and check keeps a report
 # in reports\ (Jarvis's TradeBot page lists them all).
@@ -27,7 +28,9 @@ param(
     [ValidateSet('refine', 'fewer', 'more', 'custom')]
     [string]$Style = 'refine', # the strategy to try (see investment_bot/style.py)
     [string]$Custom = '',     # -Style custom: the strategy in your own words
-    [string]$Money = '0'      # money to trade with; 0 = the whole account
+    [string]$Money = '0',     # money to trade with; 0 = the whole account
+    [string]$Confidence = '0', # confidence needed, %; 0 = the strategy's own
+    [string]$Bet = '0'        # share of the money a trade, %; 0 = the strategy's own
 )
 
 $ErrorActionPreference = 'Stop'
@@ -60,6 +63,10 @@ $config = 'config.local.yaml'
 # empty arguments and mangles double quotes, so custom words go in only if given.
 $styleArgs = @('--style', $Style, '--money', ($Money -replace '[^0-9.]', ''))
 if ($Money -notmatch '[0-9]') { $styleArgs[3] = '0' }
+foreach ($pair in @(@('--confidence', $Confidence), @('--bet', $Bet))) {
+    $number = $pair[1] -replace '[^0-9.]', ''
+    if ($number -and [double]$number -gt 0) { $styleArgs += @($pair[0], $number) }
+}
 if ($Custom.Trim()) { $styleArgs += @('--custom', ($Custom -replace '"', "'")) }
 
 switch ($Mode) {

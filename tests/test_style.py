@@ -110,3 +110,13 @@ def test_the_trader_uses_the_picked_bet_and_only_the_money_you_gave_it(tmp_path)
     assert (symbol, side) == ("TST", "buy")
     assert 1000 * 0.10 <= qty * 130 <= 1000 * 0.20 + 1  # sized on $1,000, not $50,000
     assert "money: $1,000" in trader.session_report().html()
+
+
+def test_confidence_and_bet_override_any_strategy():
+    s = pick("fewer", confidence=80, bet=10)
+    assert (s.threshold, s.size) == (0.80, 0.10)
+    s = pick("custom", "bet 30%, no shorts", confidence=60)
+    assert (s.threshold, s.size, s.shorts) == (0.60, 0.30, False)
+    s = pick("refine", bet=5)
+    assert s.pinned and (s.threshold, s.size) == (None, 0.05)
+    assert pick("more", confidence=0, bet=0).size == 0.05  # 0 keeps the strategy's own

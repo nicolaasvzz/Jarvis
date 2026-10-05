@@ -97,14 +97,24 @@ class Style:
         return out
 
 
-def pick(name: str | None, custom: str = "") -> Style:
-    """The style for a menu choice. Unknown names count as refine."""
+def pick(name: str | None, custom: str = "", confidence: float | None = None,
+         bet: float | None = None) -> Style:
+    """The style for a menu choice. Unknown names count as refine. `confidence`
+    and `bet` (0..1, or percent) override whatever the choice says; None or 0
+    keeps it."""
     name = (name or "refine").lower()
     if name == "custom":
-        return read_style(custom)
-    label, values = PRESETS.get(name, PRESETS["refine"])
-    style = Style(name=name if name in PRESETS else "refine", **values)
-    style.reading.append(label)
+        style = read_style(custom)
+    else:
+        label, values = PRESETS.get(name, PRESETS["refine"])
+        style = Style(name=name if name in PRESETS else "refine", **values)
+        style.reading.append(label)
+    if confidence:
+        style.threshold = round(min(max(_share(str(confidence)), 0.05), 0.95), 3)
+        style.reading.append(f"confidence set to {style.threshold:.0%}")
+    if bet:
+        style.size = round(min(max(_share(str(bet)), 0.01), 0.5), 3)
+        style.reading.append(f"bet set to {style.size:.0%} a trade")
     return style
 
 

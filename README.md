@@ -172,7 +172,8 @@ take. A stopped builder carries on where it left off.
 
 **Strategy and money.** `backtest`, `learn`, `lab` and `trade-package` take
 `--style refine|fewer|more|custom [--custom "your words"] --money 10000`
-(`run-local.ps1 -Style ... -Custom ... -Money ...`). `fewer` = 70% confidence
+(`run-local.ps1 -Style ... -Custom ... -Money ...`), plus `--confidence 70 --bet 10`
+(percent; `-Confidence`/`-Bet`) to override any strategy's two numbers. `fewer` = 70% confidence
 and 25% of the money a trade; `more` = 35% confidence, 5% a trade; `custom`
 is read for numbers and words ("80% sure, bet 10%, no shorts, hold longer")
 and the bot prints how it read them. The picked settings are pinned: learning

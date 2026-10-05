@@ -82,9 +82,8 @@ def _load_with_memory(path: str | None) -> tuple[BotConfig, BacktestMemory | Non
 
 
 def _style(args: argparse.Namespace) -> Style:
-    style = pick(args.style, args.custom)
-    console.print(f"Strategy: {style.describe()}"
-                  + (f" (read from your words: {'; '.join(style.reading)})" if style.text else "")
+    style = pick(args.style, args.custom, args.confidence, args.bet)
+    console.print(f"Strategy: {style.describe()} ({'; '.join(style.reading)})"
                   + f". Money: {money_text(args.money)}.", markup=False, highlight=False)
     return style
 
@@ -577,6 +576,10 @@ def build_parser() -> argparse.ArgumentParser:
                              "risk, less risk + more trades, or custom (--custom)")
     common.add_argument("--custom", default="", help='Your own strategy in words, e.g. '
                         '"80%% confidence, bet 10%% a trade, no shorts"')
+    common.add_argument("--confidence", type=float, default=0.0,
+                        help="Confidence needed, in %% (0 = the strategy's own)")
+    common.add_argument("--bet", type=float, default=0.0,
+                        help="Share of the money a trade, in %% (0 = the strategy's own)")
     common.add_argument("--money", type=float, default=0.0,
                         help="Money to trade with (0 = the whole account / the config's cash)")
 
