@@ -210,3 +210,42 @@ def test_jarvis_page_shows_research(tmp_path, keys):
     assert status["X spend this month"] == "off"
     assert status["News mood by symbol"]["NVDA"] > 0.5
     assert status["News by symbol"][0]["Signal"] == "buy"
+
+
+# ------------------------------------------------------------------ alongside other modes
+
+
+@pytest.mark.parametrize("command", [["trade", "--once"], ["trade-package", "--dry-run"],
+                                     ["lab", "--for", "1h"], ["backtest"], ["status"]])
+def test_research_can_run_alongside_any_mode(monkeypatch, command):
+    from investment_bot import cli
+
+    started, ran = [], []
+    monkeypatch.setattr(cli, "start_research_alongside", lambda c, m: started.append(m))
+    monkeypatch.setattr(cli, "load_env", lambda: None, raising=False)
+    parser = cli.build_parser()
+    args = parser.parse_args([*command, "--research", "trade"])
+    args.func = lambda a: ran.append(a.command)
+    monkeypatch.setattr(cli, "build_parser", lambda: _Fixed(parser, args))
+    cli.main([])
+    assert started == ["trade"] and ran == [command[0]]
+
+
+def test_research_mode_itself_starts_no_second_copy(monkeypatch):
+    from investment_bot import cli
+
+    started = []
+    monkeypatch.setattr(cli, "start_research_alongside", lambda c, m: started.append(m))
+    args = cli.build_parser().parse_args(["research", "--research", "watch"])
+    args.func = lambda a: None
+    monkeypatch.setattr(cli, "build_parser", lambda: _Fixed(None, args))
+    cli.main([])
+    assert started == []
+
+
+class _Fixed:
+    def __init__(self, parser, args):
+        self.args = args
+
+    def parse_args(self, _argv):
+        return self.args

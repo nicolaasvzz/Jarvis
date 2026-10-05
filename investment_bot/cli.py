@@ -8,7 +8,11 @@
     investment-bot lab       --for 8h [--round 1h] [--prepare-only] [--fresh]
     investment-bot package   [-c config.yaml]
     investment-bot trade-package [--once] [--dry-run]
+    investment-bot research  [--once] [--trade [--dry-run]]
     investment-bot strategies
+
+Any command also takes ``--research watch|trade``: news research runs
+alongside it in the background (see ``investment_bot.research``).
 """
 from __future__ import annotations
 
@@ -16,6 +20,8 @@ import argparse
 import json
 import os
 import sys
+import threading
+import time
 from pathlib import Path
 
 from rich.console import Console
@@ -541,6 +547,10 @@ def build_parser() -> argparse.ArgumentParser:
     common.add_argument("-c", "--config", default=None, help="Path to YAML config")
     common.add_argument("--days", type=int, default=None, help="History length in trading days")
     common.add_argument("--symbols", default=None, help="Comma-separated symbol override")
+    common.add_argument(
+        "--research", choices=["off", "watch", "trade"], default="off",
+        help="Also run news research alongside this command: watch = collect and score, "
+             "trade = also trade the news on Alpaca paper")
 
     bt = sub.add_parser("backtest", parents=[common], help="Run a backtest")
     bt.add_argument("--html", default=None, help="Write an HTML report to this path")
@@ -623,7 +633,44 @@ def main(argv: list[str] | None = None) -> None:
 
     load_env()  # Alpaca keys from .env
     args = build_parser().parse_args(argv)
+    if getattr(args, "research", "off") != "off" and args.command != "research":
+        start_research_alongside(args.config, args.research)
     args.func(args)
+
+
+def start_research_alongside(config_path: str | None, mode: str) -> threading.Thread:
+    """Run the research loop (and with mode "trade", the news trader) in a
+    background thread next to another command. It ends with that command."""
+
+    def say(line: str) -> None:
+        # ASCII only: Jarvis's terminal is cp1252.
+        console.print(f"[news] {line}".encode("ascii", "replace").decode(), markup=False,
+                      highlight=False, soft_wrap=True)
+
+    def run() -> None:
+        from .research.runner import Researcher
+
+        config = BotConfig.load(config_path)
+        while True:
+            try:
+                researcher = Researcher(config, say=say)
+                if mode == "trade":
+                    from .broker.alpaca import AlpacaBroker
+
+                    researcher.trade_with(AlpacaBroker(execution=config.build_execution()))
+                say(f"research running alongside ({mode}), every "
+                    f"{researcher.cfg.poll_minutes:g} min")
+                researcher.run_forever()
+            except (SystemExit, RuntimeError) as exc:  # no keys, or real money refused
+                say(f"research stopped: {' '.join(str(exc).split())[:200]}")
+                return
+            except Exception as exc:  # noqa: BLE001 - research must never take the command down
+                say(f"research failed ({' '.join(str(exc).split())[:160]}); restarting in 60 s")
+                time.sleep(60)
+
+    thread = threading.Thread(target=run, name="research", daemon=True)
+    thread.start()
+    return thread
 
 
 if __name__ == "__main__":
