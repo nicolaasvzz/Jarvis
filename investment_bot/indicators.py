@@ -27,20 +27,31 @@ def rsi(series: pd.Series, window: int = 14) -> pd.Series:
     loss = -delta.clip(upper=0.0)
     avg_gain = gain.ewm(alpha=1 / window, adjust=False, min_periods=window).mean()
     avg_loss = loss.ewm(alpha=1 / window, adjust=False, min_periods=window).mean()
-    rs = avg_gain / avg_loss.replace(0.0, np.nan)
-    out = 100.0 - 100.0 / (1.0 + rs)
+    # The smoothing stays in pandas (bit-for-bit Wilder); the final arithmetic
+    # runs on raw arrays, which avoids several pandas allocations per call.
+    gain_arr = avg_gain.to_numpy()
+    loss_arr = avg_loss.to_numpy()
+    with np.errstate(divide="ignore", invalid="ignore"):
+        out = 100.0 - 100.0 / (1.0 + gain_arr / loss_arr)
     # When avg_loss is 0 (all gains), RSI is 100 by definition.
-    out = out.where(avg_loss != 0.0, 100.0)
-    out[avg_gain.isna() | avg_loss.isna()] = np.nan
-    return out
+    out = np.where(loss_arr != 0.0, out, 100.0)
+    out[np.isnan(gain_arr) | np.isnan(loss_arr)] = np.nan
+    return pd.Series(out, index=series.index, name=series.name)
+
+
+def _macd_lines(
+    series: pd.Series, fast: int, slow: int, signal: int
+) -> tuple[pd.Series, pd.Series]:
+    macd_line = ema(series, fast) - ema(series, slow)
+    signal_line = macd_line.ewm(span=signal, adjust=False, min_periods=signal).mean()
+    return macd_line, signal_line
 
 
 def macd(
     series: pd.Series, fast: int = 12, slow: int = 26, signal: int = 9
 ) -> pd.DataFrame:
     """MACD line, signal line, and histogram as columns of a DataFrame."""
-    macd_line = ema(series, fast) - ema(series, slow)
-    signal_line = macd_line.ewm(span=signal, adjust=False, min_periods=signal).mean()
+    macd_line, signal_line = _macd_lines(series, fast, slow, signal)
     return pd.DataFrame(
         {
             "macd": macd_line,
@@ -48,6 +59,14 @@ def macd(
             "hist": macd_line - signal_line,
         }
     )
+
+
+def macd_hist(
+    series: pd.Series, fast: int = 12, slow: int = 26, signal: int = 9
+) -> pd.Series:
+    """Just the MACD histogram (same values as `macd(...)["hist"]`, cheaper)."""
+    macd_line, signal_line = _macd_lines(series, fast, slow, signal)
+    return macd_line - signal_line
 
 
 def bollinger(series: pd.Series, window: int = 20, num_std: float = 2.0) -> pd.DataFrame:
@@ -84,6 +103,17 @@ def donchian(high: pd.Series, low: pd.Series, window: int = 20) -> pd.DataFrame:
             "upper": high.rolling(window, min_periods=window).max(),
             "lower": low.rolling(window, min_periods=window).min(),
         }
+    )
+
+
+def donchian_last(high: pd.Series, low: pd.Series, window: int) -> tuple[float, float]:
+    """Latest (upper, lower) of `donchian(high, low, window)` without building
+    the full series. NaN until `window` bars exist, exactly like `donchian`."""
+    if len(high) < window:
+        return float("nan"), float("nan")
+    return (
+        float(np.max(high.to_numpy()[-window:])),
+        float(np.min(low.to_numpy()[-window:])),
     )
 
 

@@ -56,8 +56,7 @@ class MacdMomentum(Strategy):
 
     def signal(self, history: pd.DataFrame) -> Signal:
         close = history["close"]
-        m = ind.macd(close, self.fast, self.slow, self.smooth)
-        hist = m["hist"].iloc[-1]
+        hist = ind.macd_hist(close, self.fast, self.slow, self.smooth).iloc[-1]
         if np.isnan(hist):
             return FLAT
         # Normalize histogram by price so conviction is scale-free.
@@ -85,16 +84,17 @@ class DonchianBreakout(Strategy):
     def signal(self, history: pd.DataFrame) -> Signal:
         high, low, close = history["high"], history["low"], history["close"]
         # Exclude the current bar from the channel so today's print can break it.
-        entry = ind.donchian(high.shift(1), low.shift(1), self.entry_window).iloc[-1]
-        exit_ch = ind.donchian(high.shift(1), low.shift(1), self.exit_window).iloc[-1]
+        prior_high, prior_low = high.iloc[:-1], low.iloc[:-1]
+        entry_upper, entry_lower = ind.donchian_last(prior_high, prior_low, self.entry_window)
+        exit_upper, exit_lower = ind.donchian_last(prior_high, prior_low, self.exit_window)
         c = close.iloc[-1]
-        if entry.isna().any() or exit_ch.isna().any():
+        if np.isnan([entry_upper, entry_lower, exit_upper, exit_lower]).any():
             return FLAT
-        if c > entry["upper"]:
+        if c > entry_upper:
             return Signal(1, 1.0, f"breakout above {self.entry_window}d high")
-        if c < entry["lower"]:
+        if c < entry_lower:
             return Signal(-1, 1.0, f"breakdown below {self.entry_window}d low")
-        mid = (exit_ch["upper"] + exit_ch["lower"]) / 2
+        mid = (exit_upper + exit_lower) / 2
         # Weak continuation bias from position within the exit channel.
         if c > mid:
             return Signal(1, 0.3, "above exit-channel mid")

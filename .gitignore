@@ -1,3 +1,4 @@
+# --- Python ---
 __pycache__/
 *.py[cod]
 *.egg-info/
@@ -6,16 +7,34 @@ __pycache__/
 venv/
 build/
 dist/
-reports/
-data_cache/
-*.log
+
+# --- .NET (TradeBot/) ---
+bin/
+obj/
+.vs/
+*.user
+
+# --- secrets & local state: NEVER commit these ---
 .env
+.env.*
+!.env.example
+secrets.json
+appsettings.*.local.json
 config.yaml
 live_state.json
+.claude/settings.local.json
 
-# local run artifacts
-.venv/
+# --- run artifacts ---
+reports/
 report.html
+data_cache/
+*.log
+
+# --- editors / OS ---
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
 
 # backtest memory (what backtests taught the bot)
 learned.json

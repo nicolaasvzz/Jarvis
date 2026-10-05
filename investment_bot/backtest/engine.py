@@ -12,8 +12,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+import numpy as np
 import pandas as pd
 
+from .. import indicators as ind
 from ..broker.base import ExecutionModel, Order
 from ..learning import AdaptiveWeights
 from ..portfolio import Portfolio, Trade
@@ -48,6 +50,12 @@ class BacktestEngine:
         risk_engine = RiskEngine(self.risk)
         portfolio = Portfolio(starting_cash=self.starting_cash)
         calendar = sorted(set().union(*(df.index for df in data.values())))
+        # ATR is a causal recursion, so its value at `ts` is identical whether it
+        # is computed on the full series once or on df.loc[:ts] every bar.
+        atr_series = {
+            s: ind.atr(df["high"], df["low"], df["close"], self.risk.atr_window)
+            for s, df in data.items()
+        }
         warmup = self.strategy.warmup
         pending: list[Order] = []
         pending_votes: dict[str, dict] = {}  # votes attached to queued entry orders
@@ -66,7 +74,7 @@ class BacktestEngine:
                     continue
                 fill = self.execution.simulate(order, float(bar["open"]), ts)
                 self._apply_fill(
-                    portfolio, risk_engine, fill, data[order.symbol], ts,
+                    portfolio, risk_engine, fill, atr_series[order.symbol], ts,
                     entry_votes=pending_votes.get(order.symbol),
                 )
             pending = []
@@ -78,7 +86,7 @@ class BacktestEngine:
             # 3) Mark to market at close; trail stops; check the kill switch.
             closes = {s: float(bar["close"]) for s, bar in todays.items()}
             portfolio.mark(closes, ts)
-            self._trail_stops(portfolio, risk_engine, data, ts)
+            self._trail_stops(portfolio, risk_engine, atr_series, closes, ts)
 
             if risk_engine.check_circuit_breaker(portfolio.equity):
                 if portfolio.positions:
@@ -102,7 +110,8 @@ class BacktestEngine:
             for symbol, df in data.items():
                 if ts not in df.index:
                     continue
-                history = df.loc[:ts].tail(self.lookback)
+                end = df.index.get_loc(ts) + 1
+                history = df.iloc[max(0, end - self.lookback):end]
                 if not self.strategy.ready(history):
                     continue
                 close = float(history["close"].iloc[-1])
@@ -183,7 +192,7 @@ class BacktestEngine:
         portfolio: Portfolio,
         risk_engine: RiskEngine,
         fill,
-        df: pd.DataFrame,
+        atr_series: pd.Series,
         ts: pd.Timestamp,
         entry_votes: dict[str, float] | None = None,
     ) -> None:
@@ -196,8 +205,7 @@ class BacktestEngine:
         if pos is not None and entry_votes and pos.entry_votes is None:
             pos.entry_votes = dict(entry_votes)
         if pos is not None and pos.stop_price is None:
-            history = df.loc[:ts]
-            atr_value = risk_engine.atr(history)
+            atr_value = self._atr_at(atr_series, ts)
             if atr_value > 0:
                 stop, take = risk_engine.initial_stops(pos.direction, pos.avg_price, atr_value)
                 pos.stop_price = stop
@@ -246,15 +254,20 @@ class BacktestEngine:
         self,
         portfolio: Portfolio,
         risk_engine: RiskEngine,
-        data: dict[str, pd.DataFrame],
+        atr_series: dict[str, pd.Series],
+        closes: dict[str, float],
         ts: pd.Timestamp,
     ) -> None:
         for symbol, pos in portfolio.positions.items():
-            if pos.stop_price is None or symbol not in data or ts not in data[symbol].index:
+            if pos.stop_price is None or symbol not in closes or symbol not in atr_series:
                 continue
-            history = data[symbol].loc[:ts]
-            atr_value = risk_engine.atr(history)
+            atr_value = self._atr_at(atr_series[symbol], ts)
             if atr_value > 0:
                 pos.stop_price = risk_engine.trail_stop(
-                    pos.direction, pos.stop_price, float(history["close"].iloc[-1]), atr_value
+                    pos.direction, pos.stop_price, closes[symbol], atr_value
                 )
+
+    @staticmethod
+    def _atr_at(atr_series: pd.Series, ts: pd.Timestamp) -> float:
+        value = atr_series.at[ts]
+        return 0.0 if np.isnan(value) else float(value)

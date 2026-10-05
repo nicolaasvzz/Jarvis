@@ -1,0 +1,54 @@
+# Keep secrets, local state and unrelated code out of the Docker image.
+# The image only needs requirements.txt, investment_bot/ and config.deploy.yaml.
+
+# secrets: keys go in as environment variables at run time, never in the image
+.env
+.env.*
+!.env.example
+
+# local configs (config.deploy.yaml is the one the image uses)
+config.yaml
+config.local.yaml
+
+# bot state and learning files (the container keeps its own in /data)
+live_state.json
+live_state.json.tmp
+learned.json
+learned.json.tmp
+jarvis_status.json
+jarvis_status.json.tmp
+learning_session.json
+learning_session.json.tmp
+data_cache/
+report.html
+reports/
+*.log
+
+# Python and tool caches
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# git, CI, Claude worktrees and editor folders
+.git/
+.github/
+.gitignore
+.claude/
+.vscode/
+
+# code and scripts that aren't part of the Python bot's image
+TradeBot/
+backend/
+dashboard/
+tests/
+tools/
+smoke_test_btc.py
+run-local.ps1
+run-local.sh
