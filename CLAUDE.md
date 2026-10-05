@@ -4,7 +4,8 @@ Guidance for Claude Code when working in this repository.
 
 ## What this is
 
-Two halves that only talk over HTTP:
+Jarvis is two halves that only talk over HTTP, and the repo also carries the
+TradeBot, which Jarvis drives as a Mothership project:
 
 - **`backend/jarvis.py`** — the whole backend in one file: a Gemini tool loop
   (`GEMINI_MODEL`, `gemini-3.5-flash-lite` by default), a handful of tools
@@ -14,6 +15,20 @@ Two halves that only talk over HTTP:
 - **`frontend/`** — static HTML/JS/CSS dashboard, no build step, reusable by
   other projects. [`frontend/API.md`](frontend/API.md) is the contract between
   them.
+- **`tradebot/`** — the trading bot (`investment_bot` package, `run-local.ps1`
+  modes, its own tests and `.gitignore`). It was the repo
+  `nicolaasvzz/Investment_Bot`, now archived. It was brought in with
+  `git subtree`, history kept, so **never squash-merge a PR that moves it
+  wholesale**. Jarvis knows it only as the project in
+  `backend/mothership.example.json` (folder `"tradebot"`, relative to the repo:
+  `Mothership.folder` resolves relative folders against `REPO`). Jarvis never
+  imports it; the bot never imports Jarvis. They talk through files: the bot
+  writes `jarvis_status.json` and `reports/`, and Jarvis reads them.
+  Everything the bot learns or holds (`.env`, `learned.json`, `lab*.json`,
+  `universe.json`, `news.db`, `data_cache/`, `reports/`, trader state) is
+  gitignored in `tradebot/.gitignore`. The repo is public: keep it that way.
+  When the user wants to publish a finished champion indicator set, that is
+  a deliberate, separate commit.
 
 The old multi-module system (planner, agent pool, Telegram, local models) was
 deliberately removed; it lives under the git tag `full-agent-v1`. Don't
@@ -30,6 +45,11 @@ python jarvis.py                                          # run it
 python -m pytest test_jarvis.py                           # fake Gemini — no key, no quota
 ruff check --line-length 100 --select E,F,I,UP,B,SIM .    # lint
 python -m mypy --strict --ignore-missing-imports jarvis.py
+
+cd tradebot                                               # the bot, on its own
+pip install -e ".[dev]"
+python -m pytest tests -q                                 # never trades, no keys needed
+.\run-local.ps1 -Mode check                               # its own "test mode"
 ```
 
 ## Invariants

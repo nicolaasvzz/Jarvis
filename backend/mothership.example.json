@@ -1,37 +1,844 @@
 {
   "controls": [
     {
-      "id": "c-example-rain",
-      "name": "Make it rain",
-      "group": "BeamNG.drive",
-      "project": "",
-      "kind": "idea",
-      "action": "",
-      "description": "Switch BeamNG.drive's weather to rain on the map I'm driving, without leaving the car.",
-      "trusted": false
+      "id": "c-bot-champ",
+      "name": "Champ-set builder",
+      "group": "TradeBot",
+      "project": "p-tradebot",
+      "kind": "command",
+      "action": ".\\run-local.ps1 -Mode champ -For {limit} -Round {round} -Style {style} -Confidence {confidence} -Bet {bet} -Custom {custom} -Money {money} -Research {research}",
+      "description": "Keeps improving the champion set of indicators - adding, swapping and re-weighting them, kept only when it beats the champion on training and held-out data - until every indicator has been tried in the set. Then it stops by itself and writes a report. Stop any time: it carries on where it left off.",
+      "trusted": false,
+      "inputs": [
+        {
+          "name": "limit",
+          "label": "Give up after at most",
+          "kind": "choice",
+          "default": "3d",
+          "options": [
+            {
+              "label": "8 hours (a night)",
+              "value": "8h"
+            },
+            {
+              "label": "12 hours",
+              "value": "12h"
+            },
+            {
+              "label": "1 day",
+              "value": "1d"
+            },
+            {
+              "label": "2 days",
+              "value": "2d"
+            },
+            {
+              "label": "3 days",
+              "value": "3d"
+            },
+            {
+              "label": "5 days",
+              "value": "5d"
+            },
+            {
+              "label": "7 days",
+              "value": "7d"
+            }
+          ]
+        },
+        {
+          "name": "round",
+          "label": "Each round lasts up to",
+          "kind": "choice",
+          "default": "1h",
+          "options": [
+            {
+              "label": "15 minutes",
+              "value": "15m"
+            },
+            {
+              "label": "30 minutes",
+              "value": "30m"
+            },
+            {
+              "label": "1 hour",
+              "value": "1h"
+            },
+            {
+              "label": "2 hours",
+              "value": "2h"
+            }
+          ]
+        },
+        {
+          "name": "style",
+          "label": "Strategy to try",
+          "kind": "choice",
+          "default": "refine",
+          "options": [
+            {
+              "label": "Continue refining the current strategy",
+              "value": "refine"
+            },
+            {
+              "label": "Fewer trades (70% confidence), more risk (25% a trade)",
+              "value": "fewer"
+            },
+            {
+              "label": "Less risk (5% a trade), more trades (35% confidence)",
+              "value": "more"
+            },
+            {
+              "label": "Write custom (below)",
+              "value": "custom"
+            }
+          ]
+        },
+        {
+          "name": "confidence",
+          "label": "Confidence needed",
+          "kind": "choice",
+          "default": "0",
+          "options": [
+            {
+              "label": "Strategy's default",
+              "value": "0"
+            },
+            {
+              "label": "30%",
+              "value": "30"
+            },
+            {
+              "label": "40%",
+              "value": "40"
+            },
+            {
+              "label": "50%",
+              "value": "50"
+            },
+            {
+              "label": "55%",
+              "value": "55"
+            },
+            {
+              "label": "60%",
+              "value": "60"
+            },
+            {
+              "label": "65%",
+              "value": "65"
+            },
+            {
+              "label": "70%",
+              "value": "70"
+            },
+            {
+              "label": "75%",
+              "value": "75"
+            },
+            {
+              "label": "80%",
+              "value": "80"
+            },
+            {
+              "label": "85%",
+              "value": "85"
+            },
+            {
+              "label": "90%",
+              "value": "90"
+            }
+          ]
+        },
+        {
+          "name": "bet",
+          "label": "Bet per trade (share of the money)",
+          "kind": "choice",
+          "default": "0",
+          "options": [
+            {
+              "label": "Strategy's default",
+              "value": "0"
+            },
+            {
+              "label": "1%",
+              "value": "1"
+            },
+            {
+              "label": "2%",
+              "value": "2"
+            },
+            {
+              "label": "5%",
+              "value": "5"
+            },
+            {
+              "label": "10%",
+              "value": "10"
+            },
+            {
+              "label": "15%",
+              "value": "15"
+            },
+            {
+              "label": "20%",
+              "value": "20"
+            },
+            {
+              "label": "25%",
+              "value": "25"
+            },
+            {
+              "label": "30%",
+              "value": "30"
+            },
+            {
+              "label": "40%",
+              "value": "40"
+            },
+            {
+              "label": "50%",
+              "value": "50"
+            }
+          ]
+        },
+        {
+          "name": "custom",
+          "label": "Custom strategy (when you pick Write custom)",
+          "kind": "text",
+          "default": "",
+          "placeholder": "e.g. only trade when 80% sure, bet 10% a trade, no shorts, hold longer"
+        },
+        {
+          "name": "money",
+          "label": "Money (for the report's $ figures)",
+          "kind": "choice",
+          "default": "0",
+          "options": [
+            {
+              "label": "Whole account",
+              "value": "0"
+            },
+            {
+              "label": "$1,000",
+              "value": "1000"
+            },
+            {
+              "label": "$2,500",
+              "value": "2500"
+            },
+            {
+              "label": "$5,000",
+              "value": "5000"
+            },
+            {
+              "label": "$10,000",
+              "value": "10000"
+            },
+            {
+              "label": "$25,000",
+              "value": "25000"
+            },
+            {
+              "label": "$50,000",
+              "value": "50000"
+            }
+          ]
+        },
+        {
+          "name": "research",
+          "label": "News research alongside",
+          "kind": "choice",
+          "default": "off",
+          "options": [
+            {
+              "label": "Off",
+              "value": "off"
+            },
+            {
+              "label": "Watch the news (score it, show it here)",
+              "value": "watch"
+            },
+            {
+              "label": "Watch and trade the news (paper, 2-50% by probability)",
+              "value": "trade"
+            }
+          ]
+        }
+      ],
+      "pinned": false
     },
     {
-      "id": "c-example-night",
-      "name": "Night time",
-      "group": "BeamNG.drive",
-      "project": "",
-      "kind": "idea",
-      "action": "",
-      "description": "Set BeamNG.drive's time of day to night.",
-      "trusted": false
+      "id": "c-bot-learn",
+      "name": "Learning mode",
+      "group": "TradeBot",
+      "project": "p-tradebot",
+      "kind": "command",
+      "action": ".\\run-local.ps1 -Mode {how} -For {duration} -Round {round} -Style {style} -Confidence {confidence} -Bet {bet} -Custom {custom} -Money {money} -Research {research}",
+      "description": "Teaches the strategy settings from backtests. A learning session backtests over and over for the time you pick, keeping a setting change only if it holds up on held-out data; one backtest takes about 3 minutes. Pick a strategy to try - it becomes the current one and the rest is refined around it; custom words also steer the session (shorts, a symbol, win rate). Either way it writes a report.",
+      "trusted": false,
+      "inputs": [
+        {
+          "name": "how",
+          "label": "What to run",
+          "kind": "choice",
+          "default": "learn",
+          "options": [
+            {
+              "label": "Learning session (backtest over and over)",
+              "value": "learn"
+            },
+            {
+              "label": "One backtest with a report (~3 min)",
+              "value": "backtest"
+            }
+          ]
+        },
+        {
+          "name": "duration",
+          "label": "How long (learning session)",
+          "kind": "choice",
+          "options": [
+            {
+              "label": "10 minutes",
+              "value": "10m"
+            },
+            {
+              "label": "30 minutes",
+              "value": "30m"
+            },
+            {
+              "label": "1 hour",
+              "value": "1h"
+            },
+            {
+              "label": "2 hours",
+              "value": "2h"
+            },
+            {
+              "label": "4 hours",
+              "value": "4h"
+            },
+            {
+              "label": "6 hours",
+              "value": "6h"
+            },
+            {
+              "label": "8 hours (a night)",
+              "value": "8h"
+            },
+            {
+              "label": "10 hours",
+              "value": "10h"
+            },
+            {
+              "label": "12 hours",
+              "value": "12h"
+            },
+            {
+              "label": "1 day",
+              "value": "1d"
+            },
+            {
+              "label": "2 days",
+              "value": "2d"
+            },
+            {
+              "label": "3 days",
+              "value": "3d"
+            },
+            {
+              "label": "5 days",
+              "value": "5d"
+            },
+            {
+              "label": "7 days",
+              "value": "7d"
+            },
+            {
+              "label": "10 days",
+              "value": "10d"
+            }
+          ],
+          "default": "8h",
+          "placeholder": ""
+        },
+        {
+          "name": "round",
+          "label": "Backtest this long before each analysis",
+          "kind": "choice",
+          "options": [
+            {
+              "label": "2 minutes",
+              "value": "2m"
+            },
+            {
+              "label": "5 minutes",
+              "value": "5m"
+            },
+            {
+              "label": "10 minutes",
+              "value": "10m"
+            },
+            {
+              "label": "15 minutes",
+              "value": "15m"
+            },
+            {
+              "label": "30 minutes",
+              "value": "30m"
+            },
+            {
+              "label": "45 minutes",
+              "value": "45m"
+            },
+            {
+              "label": "1 hour",
+              "value": "1h"
+            },
+            {
+              "label": "1.5 hours",
+              "value": "1.5h"
+            },
+            {
+              "label": "2 hours",
+              "value": "2h"
+            }
+          ],
+          "default": "30m",
+          "placeholder": ""
+        },
+        {
+          "name": "style",
+          "label": "Strategy to try",
+          "kind": "choice",
+          "default": "refine",
+          "options": [
+            {
+              "label": "Continue refining the current strategy",
+              "value": "refine"
+            },
+            {
+              "label": "Fewer trades (70% confidence), more risk (25% a trade)",
+              "value": "fewer"
+            },
+            {
+              "label": "Less risk (5% a trade), more trades (35% confidence)",
+              "value": "more"
+            },
+            {
+              "label": "Write custom (below)",
+              "value": "custom"
+            }
+          ]
+        },
+        {
+          "name": "confidence",
+          "label": "Confidence needed",
+          "kind": "choice",
+          "default": "0",
+          "options": [
+            {
+              "label": "Strategy's default",
+              "value": "0"
+            },
+            {
+              "label": "30%",
+              "value": "30"
+            },
+            {
+              "label": "40%",
+              "value": "40"
+            },
+            {
+              "label": "50%",
+              "value": "50"
+            },
+            {
+              "label": "55%",
+              "value": "55"
+            },
+            {
+              "label": "60%",
+              "value": "60"
+            },
+            {
+              "label": "65%",
+              "value": "65"
+            },
+            {
+              "label": "70%",
+              "value": "70"
+            },
+            {
+              "label": "75%",
+              "value": "75"
+            },
+            {
+              "label": "80%",
+              "value": "80"
+            },
+            {
+              "label": "85%",
+              "value": "85"
+            },
+            {
+              "label": "90%",
+              "value": "90"
+            }
+          ]
+        },
+        {
+          "name": "bet",
+          "label": "Bet per trade (share of the money)",
+          "kind": "choice",
+          "default": "0",
+          "options": [
+            {
+              "label": "Strategy's default",
+              "value": "0"
+            },
+            {
+              "label": "1%",
+              "value": "1"
+            },
+            {
+              "label": "2%",
+              "value": "2"
+            },
+            {
+              "label": "5%",
+              "value": "5"
+            },
+            {
+              "label": "10%",
+              "value": "10"
+            },
+            {
+              "label": "15%",
+              "value": "15"
+            },
+            {
+              "label": "20%",
+              "value": "20"
+            },
+            {
+              "label": "25%",
+              "value": "25"
+            },
+            {
+              "label": "30%",
+              "value": "30"
+            },
+            {
+              "label": "40%",
+              "value": "40"
+            },
+            {
+              "label": "50%",
+              "value": "50"
+            }
+          ]
+        },
+        {
+          "name": "custom",
+          "label": "Custom strategy (when you pick Write custom)",
+          "kind": "text",
+          "default": "",
+          "placeholder": "e.g. only trade when 80% sure, bet 10% a trade, no shorts, hold longer"
+        },
+        {
+          "name": "money",
+          "label": "Money to backtest with",
+          "kind": "choice",
+          "default": "0",
+          "options": [
+            {
+              "label": "Default ($100,000)",
+              "value": "0"
+            },
+            {
+              "label": "$1,000",
+              "value": "1000"
+            },
+            {
+              "label": "$2,500",
+              "value": "2500"
+            },
+            {
+              "label": "$5,000",
+              "value": "5000"
+            },
+            {
+              "label": "$10,000",
+              "value": "10000"
+            },
+            {
+              "label": "$25,000",
+              "value": "25000"
+            },
+            {
+              "label": "$50,000",
+              "value": "50000"
+            }
+          ]
+        },
+        {
+          "name": "research",
+          "label": "News research alongside",
+          "kind": "choice",
+          "default": "off",
+          "options": [
+            {
+              "label": "Off",
+              "value": "off"
+            },
+            {
+              "label": "Watch the news (score it, show it here)",
+              "value": "watch"
+            },
+            {
+              "label": "Watch and trade the news (paper, 2-50% by probability)",
+              "value": "trade"
+            }
+          ]
+        }
+      ],
+      "pinned": false
     },
     {
-      "id": "c-example-weather",
-      "name": "Change the weather",
-      "group": "Assetto Corsa",
-      "project": "",
-      "kind": "idea",
-      "action": "",
-      "description": "Change Assetto Corsa's weather (Content Manager / Custom Shaders Patch) for the next session.",
-      "trusted": false
+      "id": "c-bot-check",
+      "name": "Test mode",
+      "group": "TradeBot",
+      "project": "p-tradebot",
+      "kind": "command",
+      "action": ".\\run-local.ps1 -Mode check",
+      "description": "Checks every part of the bot without trading: the config and what it has learned, the test suite, the backtest engine, your Alpaca account, market clock and positions, live candles, the lab and its champion, a dry-run trading cycle, and the files Jarvis reads. A few minutes; ends with a report.",
+      "trusted": false,
+      "inputs": [],
+      "pinned": false
     },
     {
-      "id": "c-example-news",
+      "id": "c-bot-paper",
+      "name": "Paper trading",
+      "group": "TradeBot",
+      "project": "p-tradebot",
+      "kind": "command",
+      "action": ".\\run-local.ps1 -Mode package -Style {style} -Confidence {confidence} -Bet {bet} -Custom {custom} -Money {money} -Research {research}",
+      "description": "The main mode: trades the champion set on your Alpaca paper account with your API key, every 10 minutes (stocks while the market is open, crypto around the clock), and picks up a better champion as soon as the builder finds one. Stop leaves positions open on the account; a report is kept when it stops.",
+      "trusted": false,
+      "inputs": [
+        {
+          "name": "style",
+          "label": "Strategy to try",
+          "kind": "choice",
+          "default": "refine",
+          "options": [
+            {
+              "label": "Continue refining the current strategy",
+              "value": "refine"
+            },
+            {
+              "label": "Fewer trades (70% confidence), more risk (25% a trade)",
+              "value": "fewer"
+            },
+            {
+              "label": "Less risk (5% a trade), more trades (35% confidence)",
+              "value": "more"
+            },
+            {
+              "label": "Write custom (below)",
+              "value": "custom"
+            }
+          ]
+        },
+        {
+          "name": "confidence",
+          "label": "Confidence needed",
+          "kind": "choice",
+          "default": "0",
+          "options": [
+            {
+              "label": "Strategy's default",
+              "value": "0"
+            },
+            {
+              "label": "30%",
+              "value": "30"
+            },
+            {
+              "label": "40%",
+              "value": "40"
+            },
+            {
+              "label": "50%",
+              "value": "50"
+            },
+            {
+              "label": "55%",
+              "value": "55"
+            },
+            {
+              "label": "60%",
+              "value": "60"
+            },
+            {
+              "label": "65%",
+              "value": "65"
+            },
+            {
+              "label": "70%",
+              "value": "70"
+            },
+            {
+              "label": "75%",
+              "value": "75"
+            },
+            {
+              "label": "80%",
+              "value": "80"
+            },
+            {
+              "label": "85%",
+              "value": "85"
+            },
+            {
+              "label": "90%",
+              "value": "90"
+            }
+          ]
+        },
+        {
+          "name": "bet",
+          "label": "Bet per trade (share of the money)",
+          "kind": "choice",
+          "default": "0",
+          "options": [
+            {
+              "label": "Strategy's default",
+              "value": "0"
+            },
+            {
+              "label": "1%",
+              "value": "1"
+            },
+            {
+              "label": "2%",
+              "value": "2"
+            },
+            {
+              "label": "5%",
+              "value": "5"
+            },
+            {
+              "label": "10%",
+              "value": "10"
+            },
+            {
+              "label": "15%",
+              "value": "15"
+            },
+            {
+              "label": "20%",
+              "value": "20"
+            },
+            {
+              "label": "25%",
+              "value": "25"
+            },
+            {
+              "label": "30%",
+              "value": "30"
+            },
+            {
+              "label": "40%",
+              "value": "40"
+            },
+            {
+              "label": "50%",
+              "value": "50"
+            }
+          ]
+        },
+        {
+          "name": "custom",
+          "label": "Custom strategy (when you pick Write custom)",
+          "kind": "text",
+          "default": "",
+          "placeholder": "e.g. only trade when 80% sure, bet 10% a trade, no shorts, hold longer"
+        },
+        {
+          "name": "money",
+          "label": "Money to trade with",
+          "kind": "choice",
+          "default": "0",
+          "options": [
+            {
+              "label": "Whole paper account",
+              "value": "0"
+            },
+            {
+              "label": "$1,000",
+              "value": "1000"
+            },
+            {
+              "label": "$2,500",
+              "value": "2500"
+            },
+            {
+              "label": "$5,000",
+              "value": "5000"
+            },
+            {
+              "label": "$10,000",
+              "value": "10000"
+            },
+            {
+              "label": "$25,000",
+              "value": "25000"
+            },
+            {
+              "label": "$50,000",
+              "value": "50000"
+            }
+          ]
+        },
+        {
+          "name": "research",
+          "label": "News research alongside",
+          "kind": "choice",
+          "default": "off",
+          "options": [
+            {
+              "label": "Off",
+              "value": "off"
+            },
+            {
+              "label": "Watch the news (score it, show it here)",
+              "value": "watch"
+            },
+            {
+              "label": "Watch and trade the news (paper, 2-50% by probability)",
+              "value": "trade"
+            }
+          ]
+        }
+      ],
+      "pinned": false
+    },
+    {
+      "id": "c-bot-update",
+      "name": "Update Jarvis and the bot",
+      "group": "TradeBot",
+      "project": "p-tradebot",
+      "kind": "command",
+      "action": "git pull --ff-only; if ($? -and (Test-Path .venv)) { .\\.venv\\Scripts\\python -m pip install -q -r requirements.txt; .\\.venv\\Scripts\\python -m investment_bot status -c config.local.yaml }",
+      "description": "Pull the latest Jarvis and TradeBot from GitHub and reinstall the bot's dependencies. Then restart Jarvis (and press Restart on a running mode) so they use the new code.",
+      "trusted": false,
+      "pinned": true
+    },
+    {
+      "id": "c-jarvis-brief",
       "name": "Morning briefing",
       "group": "Jarvis",
       "project": "",
@@ -43,16 +850,21 @@
   ],
   "projects": [
     {
-      "id": "p-example",
-      "name": "Example project",
-      "description": "Point this at a real folder (Edit), give it a status file if it writes one, and add controls for what you run there.",
-      "folder": "",
-      "status_file": "",
-      "hue": 190,
-      "links": [],
-      "ideas": [
-        {"id": "i-example", "text": "Replace me with a real idea — then press the Claude button next to it.", "done": false, "by": "you", "created_at": "2026-10-01T00:00:00+00:00"}
-      ]
+      "id": "p-tradebot",
+      "name": "TradeBot",
+      "description": "The trading bot that comes with Jarvis (the tradebot folder): Alpaca paper money by default. It builds and tests its own indicator sets, learns from every backtest, and can watch the news. Its live status comes from jarvis_status.json. Put your Alpaca keys in tradebot/.env first (see tradebot/.env.example).",
+      "folder": "tradebot",
+      "status_file": "jarvis_status.json",
+      "hue": 150,
+      "links": [
+        {
+          "label": "Bot API (when running with -Mode api)",
+          "url": "http://127.0.0.1:8000/docs"
+        }
+      ],
+      "ideas": [],
+      "controls_title": "Modes",
+      "reports_dir": "reports"
     }
   ]
 }

@@ -1,0 +1,28 @@
+# Hosted defaults for the dashboard API (used by the Dockerfile).
+# Real market data, simulated (paper) money, state on the mounted disk.
+
+data:
+  source: yahoo
+  cache_dir: /data/data_cache
+
+universe: [AAPL, MSFT, NVDA, AMZN, GOOG, META, TSLA, SPY]
+
+strategy:
+  threshold: 0.25
+  long_only: false
+  max_volatility: 0.80
+
+risk:
+  risk_per_trade: 0.01
+  atr_stop_multiple: 3.0
+  max_position_weight: 0.20
+  max_gross_exposure: 1.0
+  max_drawdown: 0.25
+  allow_short: true
+
+live:
+  broker: paper
+  poll_minutes: 15
+  state_file: /data/live_state.json
+  starting_cash: 100000
+  lookback: 300
