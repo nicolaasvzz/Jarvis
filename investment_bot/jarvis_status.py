@@ -116,6 +116,8 @@ def _lab(config: BotConfig, now: datetime) -> dict[str, Any]:
                 pass
         if session.get("symbols"):
             out["Lab symbols"] = session["symbols"]
+        if session.get("until_done") and session.get("to_test"):
+            out["Champ-set indicators tried"] = f"{session.get('tested', 0)} / {session['to_test']}"
     results = _read(Path(cfg.results_file))
     champ = results.get("champion") or {}
     if champ:

@@ -58,6 +58,8 @@ from .memory import (
     short_candidates,
     split,
 )
+from .reports import Report, tone_of
+from .workers import exit_with_parent
 
 SESSION_FILE = "learning_session.json"
 WORST = 3          # stretches where the bot did worst, tuned on each round
@@ -165,6 +167,7 @@ _W: dict[str, Any] = {}
 def _init_worker(data: dict[str, pd.DataFrame], goal: Goal, holdout: float, warmup: int) -> None:
     # Ctrl+C is the main process's to handle; it ends the workers itself.
     signal.signal(signal.SIGINT, signal.SIG_IGN)
+    exit_with_parent()
     calendar = sorted(set().union(*(df.index for df in data.values())))
     _W.update(data=data, goal=goal, holdout=holdout, warmup=warmup, calendar=calendar, parts={})
 
@@ -356,6 +359,34 @@ class Session:
         self.on_progress()
         self.say(f"[round {number}] saved; {human(self.left())} left.")
         return True
+
+    def report(self, status: str) -> Report:
+        """This session, for reports/: what it tried, what it kept, how the goal score moved."""
+        took = human((datetime.now(timezone.utc) - self.started).total_seconds())
+        word = "stopped" if status == "stopped" else "finished"
+        kept = len(self.kept)
+        scores = [s for _, s in self.history]
+        moved = scores[-1] - scores[0] if len(scores) > 1 else 0.0
+        summary = (f"{self.rounds_done} round(s) in {took}, {kept} change(s) kept"
+                   + (f", goal score {moved:+.2%}" if len(scores) > 1 else "") + f" ({word})")
+        out = Report("learn", summary, tone_of(moved) if kept else "neutral",
+                     subtitle=f"goal: {self.goal.text or 'cut losses'}")
+        out.stat("Rounds", self.rounds_done).stat("Changes kept", kept, "good" if kept else "neutral")
+        out.stat("Ran for", took).stat("Analysed every", human(self.round_seconds))
+        if len(scores) > 1:
+            out.stat("Goal score", f"{scores[0]:+.2%} -> {scores[-1]:+.2%}", tone_of(moved))
+        out.bullets("How it read the goal", self.goal.reading, "No goal: cut losses.")
+        out.bullets("Kept", self.kept, "No setting change held up on both parts this time.")
+        rounds = self.memory.rounds[-self.rounds_done:] if self.rounds_done else []
+        out.table("Round by round", [
+            {"Round": n + 1,
+             "Goal score": f"{self.history[n][1]:+.2%}" if n < len(self.history) else "",
+             "Tried": r.get("tested", 0),
+             "Kept": (r.get("adopted") or {}).get("description", "-")}
+            for n, r in enumerate(rounds)])
+        if rounds:
+            out.bullets("What the last round saw", rounds[-1].get("lessons") or [])
+        return out
 
     def _test(self, config: BotConfig, calendar: list, shortest: int,
               until: float) -> dict[Stretch, dict[str, dict[str, Any]]]:

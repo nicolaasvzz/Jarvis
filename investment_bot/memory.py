@@ -278,6 +278,13 @@ def _init_worker(windows: dict[str, dict[str, pd.DataFrame]]) -> None:
     _WINDOWS.update(windows)
 
 
+def _pool_worker(windows: dict[str, dict[str, pd.DataFrame]]) -> None:
+    from .workers import exit_with_parent
+
+    exit_with_parent()
+    _init_worker(windows)
+
+
 def _evaluate(job: tuple[dict, str]) -> dict[str, float]:
     raw, window = job
     return run_backtest(BotConfig(raw=raw), _WINDOWS[window]).metrics
@@ -293,7 +300,7 @@ def parallel_evaluator(windows: dict[str, dict[str, pd.DataFrame]], workers: int
         if n <= 1:
             _init_worker(windows)
             return [_evaluate(j) for j in jobs]
-        with ProcessPoolExecutor(n, initializer=_init_worker, initargs=(windows,)) as pool:
+        with ProcessPoolExecutor(n, initializer=_pool_worker, initargs=(windows,)) as pool:
             return list(pool.map(_evaluate, jobs))
 
     return evaluate

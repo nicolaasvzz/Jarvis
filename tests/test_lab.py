@@ -7,7 +7,7 @@ import pytest
 from investment_bot.config import BotConfig
 from investment_bot.data.alpaca_data import AlpacaData
 from investment_bot.lab import lab as lab_module
-from investment_bot.lab.catalog import CATALOG, FAMILIES, compute
+from investment_bot.lab.catalog import CATALOG, FAMILIES, compute, family_of
 from investment_bot.lab.features import FeatureStore, multi_timeframe, resample
 from investment_bot.lab.lab import Lab, knob_changes
 from investment_bot.lab.package import Package, Trades, portfolio, simulate_symbol
@@ -167,6 +167,43 @@ def test_lab_rounds_scout_then_patterns_then_build_then_challenge(tmp_path, monk
     assert json.loads((tmp_path / "session.json").read_text())["status"] == "finished"
 
 
+def test_until_done_tries_every_indicator_then_stops(tmp_path, monkeypatch):
+    config = _config(tmp_path, synthetic_symbols=2)
+    store, universe = prepare(config, say=lambda _: None)
+    lab = Lab(LabConfig.from_config(config), store, universe, seconds=60, round_seconds=10,
+              say=lambda _: None, seed=1, state_file=tmp_path / "session.json",
+              until_done=True)
+    names = ["rsi_14@1h", "macd_hist_12_26@1h", "obv_slope_20@1h", "atr_pct_z@10m",
+             "bb_pctb_20@10m"]
+    names = [n for n in names if n in store.columns][:4] + [
+        c for c in store.columns if c not in names][:2]
+    board = [{"feature": f, "family": family_of(f), "sign": 1, "t": 3.0 - i * 0.1,
+              "signals": 100, "hit": 0.55, "edge_bps": 1.0, "horizon": 6, "ic": 0.01}
+             for i, f in enumerate(names)]
+    board.append({**board[0], "feature": "dead@1d", "t": 0.0, "signals": 0})  # no readings
+    lab.state["scoreboard"] = board
+    pkg = Package({names[0]: 1.0, names[1]: 1.0})
+    lab.state["champion"] = {"package": pkg.to_dict(), "metrics": {}, "scores": {}}
+    assert lab.coverage() == (2, 6)  # the champion's own count as tried; dead@1d can't be
+    assert not lab.complete()
+
+    changes = lab.coverage_changes(pkg, 3)
+    assert [label for _, label in changes] == [f"try {f}" for f in names[2:5]]
+    lab._mark_tested(pkg, [p for p, _ in changes])
+    assert lab.coverage() == (5, 6) and not lab.complete()
+
+    monkeypatch.setattr(lab_module, "MAX_FEATURES", 2)  # full: swap out the weakest instead
+    (cand, label), = lab.coverage_changes(pkg, 3)
+    assert len(cand.weights) == 2 and names[5] in cand.weights and "(for " in label
+    lab._mark_tested(pkg, [cand])
+    assert lab.coverage() == (6, 6) and lab.complete()
+
+    lab.rounds_done = 1
+    lab.state["rounds"] = [{"number": 1, "kind": "challenge", "lessons": ["Tried 4 changes"]}]
+    page = lab.session_report("finished").html()
+    assert "Champ-set builder" in page and "6/6 indicators tried" in page
+
+
 # ------------------------------------------------------------------ Alpaca plumbing
 
 
@@ -284,6 +321,8 @@ def test_trader_enters_on_the_package_and_exits_on_its_stop(tmp_path):
     trader.cycle()
     assert broker.orders[-1][:2] == ("TST", "sell")
     assert "TST" not in trader.state.holdings
+    page = trader.session_report().html()
+    assert "2 cycle(s)" in page and "2 order(s)" in page and "TST" in page
     assert cfg.results_file.endswith("lab.json")
 
 

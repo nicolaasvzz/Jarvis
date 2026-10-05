@@ -5,9 +5,10 @@
     investment-bot trade     [-c config.yaml] [--once]
     investment-bot learn     --for 8h [--round 30m] [--goal "learn shorts"]
     investment-bot learned   [-c config.yaml] [--reset]
-    investment-bot lab       --for 8h [--round 1h] [--prepare-only] [--fresh]
+    investment-bot lab       --for 8h [--round 1h] [--until-done] [--prepare-only] [--fresh]
     investment-bot package   [-c config.yaml]
     investment-bot trade-package [--once] [--dry-run]
+    investment-bot check     [--quick]
     investment-bot strategies
 """
 from __future__ import annotations
@@ -21,6 +22,7 @@ from pathlib import Path
 from rich.console import Console
 from rich.table import Table
 
+from . import reports
 from .backtest.engine import BacktestEngine
 from .backtest.optimizer import Optimizer
 from .config import BotConfig
@@ -125,6 +127,16 @@ def cmd_backtest(args: argparse.Namespace) -> None:
     if args.html:
         path = write_html_report(result, args.html, memory=memory if learned else None)
         console.print(f"HTML report written to [bold]{path}[/bold]")
+        m = result.metrics
+        kept = memory.rounds[-1].get("adopted") if learned and memory and memory.rounds else None
+        summary = (f"{m.get('total_return', 0.0):+.2%} return, max drawdown "
+                   f"{m.get('max_drawdown', 0.0):.1%}, {len(result.trades)} trades, "
+                   f"{m.get('win_rate', 0.0):.0%} won"
+                   + (f"; learned: {kept['description']}" if kept else ""))
+        saved = reports.archive(path, "backtest", summary,
+                                reports.tone_of(m.get("total_return", 0.0)))
+        if saved:
+            console.print(f"Kept in [bold]{saved}[/bold]")
     write_status(config)
     console.print(DISCLAIMER)
 
@@ -357,7 +369,10 @@ def cmd_learn(args: argparse.Namespace) -> None:
         say=lambda line: console.print(line, markup=False, highlight=False, soft_wrap=True),
         on_progress=lambda: write_status(config),
     )
-    session.run()
+    status = session.run()
+    saved = session.report(status).save()
+    if saved:
+        console.print(f"Report kept in [bold]{saved}[/bold]")
     if memory.rounds:
         print_progress(memory, console)
     console.print(DISCLAIMER)
@@ -395,8 +410,11 @@ def cmd_lab(args: argparse.Namespace) -> None:
     if args.prepare_only or not universe:
         return
     lab = Lab(cfg, store, universe, seconds, round_seconds, say=say,
-              on_progress=lambda: write_status(config))
-    lab.run()
+              on_progress=lambda: write_status(config), until_done=args.until_done)
+    status = lab.run()
+    saved = lab.session_report(status).save()
+    if saved:
+        console.print(f"Report kept in [bold]{saved}[/bold]")
     console.print(DISCLAIMER)
 
 
@@ -465,8 +483,28 @@ def cmd_trade_package(args: argparse.Namespace) -> None:
     console.print(DISCLAIMER)
     if args.once:
         trader.cycle()
-    else:
+        return
+    try:
         trader.run_forever()
+    finally:
+        saved = trader.session_report().save()
+        if saved:
+            console.print(f"Report kept in [bold]{saved}[/bold]")
+
+
+def cmd_check(args: argparse.Namespace) -> None:
+    from .check import run_checks
+
+    config_path = args.config
+    results, report = run_checks(config_path, quick=args.quick,
+                                 say=lambda line: console.print(line, markup=False,
+                                                                highlight=False))
+    saved = report.save()
+    failed = [r for r in results if r.status == "FAIL"]
+    if saved:
+        console.print(f"Report kept in [bold]{saved}[/bold]")
+    if failed:
+        raise SystemExit(f"{len(failed)} check(s) failed.")
 
 
 def cmd_status(args: argparse.Namespace) -> None:
@@ -549,6 +587,9 @@ def build_parser() -> argparse.ArgumentParser:
     lab.add_argument("--prepare-only", action="store_true",
                      help="Download candles and compute indicators, then stop")
     lab.add_argument("--fresh", action="store_true", help="Forget earlier lab results first")
+    lab.add_argument("--until-done", action="store_true",
+                     help="Champ-set builder: stop once every indicator has been tried "
+                          "in the champion set (--for is then the longest it may take)")
     lab.set_defaults(func=cmd_lab)
 
     pk = sub.add_parser("package", parents=[common], help="Show the lab's champion package")
@@ -559,6 +600,11 @@ def build_parser() -> argparse.ArgumentParser:
     tp.add_argument("--once", action="store_true", help="Run a single cycle and exit")
     tp.add_argument("--dry-run", action="store_true", help="Decide and log, place no orders")
     tp.set_defaults(func=cmd_trade_package)
+
+    ck = sub.add_parser("check", parents=[common],
+                        help="Test mode: check every part of the bot, without trading")
+    ck.add_argument("--quick", action="store_true", help="Skip the test suite")
+    ck.set_defaults(func=cmd_check)
 
     st = sub.add_parser("status", parents=[common], help="Rewrite jarvis_status.json for Jarvis")
     st.set_defaults(func=cmd_status)

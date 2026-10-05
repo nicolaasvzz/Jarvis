@@ -116,7 +116,10 @@ class AlpacaData:
         feed = "crypto" if is_crypto(symbol) else self.feed
         path = self.cache_dir / feed / timeframe / (symbol.replace("/", "-") + ".pkl")
         start = pd.Timestamp.now(tz="UTC") - pd.Timedelta(days=days)
-        cached = pd.read_pickle(path) if path.exists() else None
+        try:
+            cached = pd.read_pickle(path) if path.exists() else None
+        except Exception:  # half-written by another run of the bot: fetch it again
+            cached = None
         if cached is not None and len(cached) and cached.index[0] > start + pd.Timedelta(days=7):
             cached = None  # the cache is shorter than asked for: fetch it all again
         if cached is None or not len(cached):
@@ -129,10 +132,14 @@ class AlpacaData:
             frame = cached
         if cached is None or len(frame) != len(cached):
             path.parent.mkdir(parents=True, exist_ok=True)
+            # Write aside, then swap in: two modes at once (the lab and the trader)
+            # share this cache, and neither must read a half-written file.
+            tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
             try:
-                frame.to_pickle(path)
+                frame.to_pickle(tmp)
+                os.replace(tmp, path)
             except OSError:
-                pass  # caching is best-effort
+                tmp.unlink(missing_ok=True)  # caching is best-effort
         return frame[frame.index >= start]
 
     def _download(self, symbol: str, timeframe: str, start: pd.Timestamp) -> pd.DataFrame:

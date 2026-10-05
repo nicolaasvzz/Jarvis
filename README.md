@@ -155,11 +155,25 @@ account) gives you a permanent one.
 
 ```powershell
 .\run-local.ps1 -Mode lab -For 8h -Round 1h   # find the clearest package of indicators
+.\run-local.ps1 -Mode champ -For 3d            # champ-set builder: until every indicator is tried
 .\run-local.ps1 -Mode package                  # trade it on Alpaca paper, every 10 minutes
+.\run-local.ps1 -Mode check                    # test mode: check every part, no trading
 ```
 
-(or `investment-bot lab --for 8h --round 1h`, `investment-bot package` to see
-the result, and `investment-bot trade-package [--once] [--dry-run]`).
+(or `investment-bot lab --for 8h --round 1h [--until-done]`, `investment-bot
+package` to see the result, `investment-bot trade-package [--once] [--dry-run]`
+and `investment-bot check [--quick]`).
+
+**The champ-set builder** (`--until-done`) is the lab with a finish line:
+its challenge rounds also try every indicator the champion hasn't had yet,
+added or swapped in for the weakest of its family, and it stops by itself
+once all of them have been tried. `--for` is then only the longest it may
+take. A stopped builder carries on where it left off.
+
+**Reports.** Every backtest, learning session, lab, builder, test-mode run
+and trading session keeps a dated page in `reports/`
+(`2026-10-05_213015_backtest.html`), labelled in its head with a title, a
+one-line summary and a good/bad tone. Jarvis's TradeBot page lists them all.
 
 **Data.** Once a day it scans everything Alpaca trades (about 13,500 US
 stocks and ETFs, plus crypto pairs) and keeps the most-traded:

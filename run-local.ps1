@@ -5,15 +5,20 @@
 #   .\run-local.ps1 -Mode once   # single cycle, then exit (for Task Scheduler)
 #   .\run-local.ps1 -Mode backtest
 #   .\run-local.ps1 -Mode lab -For 8h -Round 1h   # find the clearest indicator package
+#   .\run-local.ps1 -Mode champ -For 3d            # champ-set builder: until every indicator is tried
 #   .\run-local.ps1 -Mode package                  # trade it on Alpaca paper, every 10 min
+#   .\run-local.ps1 -Mode check                    # test mode: check every part, no trading
+#
+# Every run of backtest, learn, lab, champ, package and check keeps a report
+# in reports\ (Jarvis's TradeBot page lists them all).
 #
 # First run creates a .venv and installs dependencies; later runs reuse it.
 
 param(
-    [ValidateSet('terminal', 'api', 'once', 'backtest', 'learn', 'lab', 'package')]
+    [ValidateSet('terminal', 'api', 'once', 'backtest', 'learn', 'lab', 'champ', 'package', 'check')]
     [string]$Mode = 'terminal',
     [int]$Port = 8000,
-    [string]$For = '1h',      # learn: how long, e.g. 10m, 8h, 2d
+    [string]$For = '1h',      # learn/lab: how long, e.g. 10m, 8h, 2d (champ: the most, default 3d)
     [string]$Round = '30m',   # learn/lab: longest a round may take (lab default 1h)
     [string]$Goal = ''        # learn: what to get better at
 )
@@ -69,6 +74,16 @@ switch ($Mode) {
         $labRound = if ($PSBoundParameters.ContainsKey('Round')) { $Round } else { '1h' }
         Write-Host "=== Indicator lab for $For, rounds up to $labRound (Ctrl-C stops; results kept) ===" -ForegroundColor Cyan
         & $venvPython -m investment_bot lab -c $config --for $For --round $labRound
+    }
+    'champ' {
+        $champFor = if ($PSBoundParameters.ContainsKey('For')) { $For } else { '3d' }
+        $labRound = if ($PSBoundParameters.ContainsKey('Round')) { $Round } else { '1h' }
+        Write-Host "=== Champ-set builder: until every indicator is tried (at most $champFor; Ctrl-C stops; results kept) ===" -ForegroundColor Cyan
+        & $venvPython -m investment_bot lab -c $config --for $champFor --round $labRound --until-done
+    }
+    'check' {
+        Write-Host '=== Test mode: checking every part of the bot (no trading) ===' -ForegroundColor Cyan
+        & $venvPython -m investment_bot check -c $config
     }
     'package' {
         Write-Host '=== Trading the champion package on Alpaca (Ctrl-C stops) ===' -ForegroundColor Cyan
