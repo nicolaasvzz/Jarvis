@@ -23,7 +23,7 @@ body.ms {
 /* hud.css styles every button as a small uppercase HUD control; here buttons
    are ordinary text unless a class says otherwise. Zero specificity, so any
    class below wins. The connect screen keeps the HUD look. */
-:where(.ms-side, .ms-main, .ms-drawer, .ms-modal) button {
+:where(.ms-side, .ms-main, .ms-drawer, .ms-modal, .ms-viewer) button {
   font-family: inherit;
   font-size: inherit;
   letter-spacing: normal;
@@ -576,6 +576,34 @@ table.rows tbody tr:hover { background: rgba(34, 211, 238, 0.04); }
 .field.check input { accent-color: var(--amber); width: 16px; height: 16px; }
 .field.check .hint { grid-column: 2; }
 .ms-modal-err { color: var(--red); font-size: 12.5px; padding: 0 20px; min-height: 18px; }
+
+/* -- report viewer: a report over the page, in a sandboxed frame ------------------------------------------------ */
+
+.ms-viewer { position: fixed; inset: 0; z-index: 48; display: grid; place-items: center; padding: 16px; background: rgba(0, 0, 0, 0.6); }
+.ms-viewer-card {
+  width: min(1100px, 100%); height: calc(100vh - 32px); height: calc(100dvh - 32px);
+  display: flex; flex-direction: column; overflow: hidden;
+  background: var(--side); border: 1px solid var(--edge-hi); border-radius: 14px;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6);
+}
+.ms-viewer-card > header { display: flex; gap: 12px; align-items: flex-start; padding: 16px 20px 12px; border-bottom: 1px solid var(--edge); }
+.ms-viewer-card > header > div { flex: 1; min-width: 0; }
+.ms-viewer-card h2 { margin: 8px 0 0; font-size: 15px; line-height: 1.4; overflow-wrap: anywhere; }
+.ms-viewer-body { flex: 1; min-height: 0; background: #070b10; }
+.ms-viewer-body iframe { display: block; width: 100%; height: 100%; border: 0; }
+.viewer-text { margin: 0; height: 100%; overflow: auto; padding: 16px 20px; white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--mono); font-size: 12.5px; color: var(--text); }
+
+/* -- reports, listed on a project page ------------------------------------------------------------------------------------- */
+
+.chips.small { margin-bottom: 8px; }
+.chips.small .chip { padding: 4px 10px; font-size: 11.5px; }
+.activity.reports li { cursor: pointer; align-items: center; }
+.activity.reports li:hover .act-msg { color: var(--accent); }
+.activity.reports .act-msg { overflow-wrap: anywhere; }
+.activity.reports .act-msg b { font-weight: 650; }
+.report-open { color: var(--text-faint); flex: none; }
+.activity.reports li:hover .report-open { color: var(--accent); }
+.btn.more { margin-top: 8px; }
 .ms-modal-card > footer { display: flex; gap: 8px; align-items: center; padding: 10px 20px 18px; }
 
 /* -- connections -------------------------------------------------------------------------------------------------------- */
@@ -672,6 +700,8 @@ section.card + .cols, .card + .cols { margin-top: 18px; }
   .kpi { padding: 12px; gap: 10px; min-height: 0; flex-direction: column; }
   .ms-drawer-body { padding-bottom: calc(24px + env(safe-area-inset-bottom)); }
   .ms-modal-card { max-height: calc(100dvh - 32px); }
+  .ms-viewer { padding: 0; }
+  .ms-viewer-card { width: 100%; height: 100vh; height: 100dvh; border-radius: 0; border: 0; padding-top: env(safe-area-inset-top); }
 }
 
 /* -- your phone (Connections) ---------------------------------------------------------------------- */

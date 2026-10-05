@@ -115,6 +115,12 @@ python -m mypy --strict --ignore-missing-imports jarvis.py
   finishing a control edits that file directly, so keep that working. Tests
   must pass `data_dir` inside `tmp_path` (`make()` in the tests does) and
   never touch the real folder.
+- A project's `reports_dir` pages are listed on its page (label from each
+  page's `<title>` and `description`/`tone` meta tags) and shown in a
+  sandboxed iframe (`allow-scripts`, never `allow-same-origin`); the file
+  route also sends `Content-Security-Policy: sandbox`. A report's scripts
+  must never run on Jarvis's origin, where the token lives. Names only, no
+  folders (`REPORT_NAME`).
 - A control the user presses runs without approval (they chose it); the
   same control pressed by Jarvis (`run_control`) asks unless `trusted`.
 - A command control can have `inputs` (choices or text, asked for in a form
