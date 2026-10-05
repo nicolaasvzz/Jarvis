@@ -27,6 +27,21 @@ live:
   state_file: live_state.json   # gitignored; survives restarts on your machine
   starting_cash: 100000
   lookback: 300
+  max_daily_loss: 0.03          # package trader: no new trades after losing 3% in a day
+  allow_real_money: false       # package trader refuses Alpaca's live endpoint unless true
+
+# The indicator lab (investment-bot lab / run-local.ps1 -Mode lab): every indicator on
+# 10m, 30m, 1h, 4h and 1d candles, for the most-traded stocks and crypto on Alpaca.
+# Stocks need ALPACA_API_KEY and ALPACA_SECRET_KEY in .env; crypto works without.
+lab:
+  source: alpaca
+  timeframes: [10m, 30m, 1h, 4h, 1d]
+  intraday_days: 730       # two years of 10-minute candles
+  stocks: 200              # the most-traded US stocks/ETFs (of ~11,000 on Alpaca)
+  crypto: 20               # the most-traded crypto pairs against USD
+  min_price: 5
+  max_feature_gb: 8        # disk cap for the indicator store
+  drawdown_budget: 0.15    # trade size is set so training drawdown stays within 15%
 
 learning:
   enabled: true          # adapt ensemble weights from realized outcomes

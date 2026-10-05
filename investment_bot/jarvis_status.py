@@ -88,6 +88,92 @@ def _session(path: Path, now: datetime) -> dict[str, Any]:
     return out
 
 
+def _lab(config: BotConfig, now: datetime) -> dict[str, Any]:
+    """The indicator lab: session progress, the champion package, the scoreboard,
+    and the package trader on Alpaca."""
+    from .lab.lab import STATE_FILE as LAB_SESSION
+    from .lab.prepare import LabConfig
+    from .lab.trader import STATE_FILE as TRADER_FILE
+
+    try:
+        cfg = LabConfig.from_config(config)
+    except (ValueError, TypeError):
+        return {}
+    out: dict[str, Any] = {}
+    session = _read(Path(LAB_SESSION))
+    if session:
+        status = str(session.get("status", ""))
+        if status == "running" and not _alive(session.get("pid")):
+            status = "stopped"
+        out["Lab"] = session.get("phase") if status == "running" else status
+        if status == "running" and session.get("ends"):
+            try:
+                ends = datetime.fromisoformat(str(session["ends"]))
+                left = (ends - now.astimezone(timezone.utc)).total_seconds()
+                out["Lab time left"] = (f"{int(left // 3600)}h {int(left % 3600 // 60):02d}m"
+                                        if left > 0 else "finishing")
+            except (KeyError, ValueError):
+                pass
+        if session.get("symbols"):
+            out["Lab symbols"] = session["symbols"]
+    results = _read(Path(cfg.results_file))
+    champ = results.get("champion") or {}
+    if champ:
+        pkg = champ.get("package") or {}
+        weights = pkg.get("weights") or {}
+        out["Champion package"] = (f"{len(weights)} indicators, enter at "
+                                   f"{pkg.get('threshold')}, "
+                                   f"{float(pkg.get('size', 0)):.0%} a trade")
+        for part, label in (("hold", "held-out"), ("final", "final check")):
+            m = (champ.get("metrics") or {}).get(part)
+            if m:
+                out[f"Champion {label} %"] = round(float(m["total_return"]) * 100, 2)
+        from .lab.catalog import family_of
+
+        out["Champion indicators"] = [
+            {"Indicator": name, "Family": family_of(name), "Use": "follow" if w > 0 else "fade",
+             "Weight": round(abs(float(w)), 3)}
+            for name, w in sorted(weights.items(), key=lambda kv: -abs(kv[1]))
+        ]
+    board = results.get("scoreboard") or []
+    if board:
+        out["Clearest indicators (t)"] = {e["feature"]: round(abs(float(e["t"])), 2)
+                                          for e in board[:15]}
+    rounds = results.get("rounds") or []
+    if rounds:
+        out["Lab rounds done"] = len(rounds)
+        scores = [[f"round {r['number']}", r["champion_score"]] for r in rounds
+                  if r.get("champion_score") is not None]
+        if len(scores) > 1:
+            out["Champion held-out score by round"] = scores[-100:]
+        out["Lab rounds"] = [
+            {"#": r.get("number"), "Kind": r.get("kind"),
+             "Kept": sum(1 for line in r.get("lessons") or [] if line.startswith("KEPT")),
+             "Note": next((line for line in r.get("lessons") or []
+                           if line.startswith(("Tried", "Champion", "Pair"))), "")}
+            for r in rounds[-50:]
+        ]
+    trader = _read(Path(TRADER_FILE))
+    if trader:
+        curve = trader.get("equity") or []
+        if curve:
+            out["Alpaca equity"] = _money(curve[-1][1])
+        if len(curve) > 1:
+            out["Alpaca equity curve"] = [[str(t)[:16], _money(e)] for t, e in curve[-300:]]
+        holdings = trader.get("holdings") or {}
+        out["Alpaca positions (package)"] = [
+            {"Symbol": s, "Side": "LONG" if h.get("direction", 1) > 0 else "SHORT",
+             "Entry": _money(h.get("entry_price", 0)), "Stop": _money(h.get("stop", 0)),
+             "Candles held": h.get("bars", 0), "Since": str(h.get("opened", ""))[:16]}
+            for s, h in holdings.items()
+        ]
+        out["Alpaca orders"] = [
+            {"At": str(e.get("at", ""))[:16], "Symbol": e.get("symbol"), "What": e.get("what")}
+            for e in (trader.get("log") or [])[-50:]
+        ]
+    return out
+
+
 def _money(value: float) -> float:
     return round(float(value), 2) + 0.0  # + 0.0 turns -0.0 into 0.0
 
@@ -120,6 +206,10 @@ def build_status(config: BotConfig, now: datetime | None = None) -> dict[str, An
     if rounds:
         out["Backtests learned from"] = len(rounds)
     out.update(_session(Path("learning_session.json"), now))
+    try:
+        out.update(_lab(config, now))
+    except (OSError, ValueError, KeyError, TypeError):
+        pass  # the lab's files are optional; never let them break the page
 
     # ---- blocks ----
     curve = state.get("equity_curve") or []

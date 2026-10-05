@@ -38,6 +38,14 @@ config and a single CLI.
   history; `investment-bot learned --reset` forgets it; `backtest --no-tune`
   skips one round.
 
+- **An indicator lab.** 126 indicators (trend, momentum, volatility, volume,
+  candle patterns) on 10-minute, 30-minute, 1-hour, 4-hour and daily candles,
+  for the most-traded stocks and crypto on Alpaca. Round after round it scores
+  every one, finds the pairs and trios that signal clearly together, builds
+  packages of 5 to 50 of them, and keeps challenging the best one. The
+  package trader then trades the winner on Alpaca. See
+  [The indicator lab](#the-indicator-lab).
+
 - **Bias-controlled backtester.** Signals are computed on bar *t*'s close and
   filled at bar *t+1*'s open with slippage + commission — the bot never sees
   a price before it trades on it. Stops are checked intrabar against
@@ -122,6 +130,74 @@ cloudflared tunnel --url http://localhost:8000
 Point your dashboard's `INVESTMENT_BOT_URL` at the URL it prints. Quick
 tunnels get a new random URL each restart; a named tunnel (free Cloudflare
 account) gives you a permanent one.
+
+## The indicator lab
+
+```powershell
+.\run-local.ps1 -Mode lab -For 8h -Round 1h   # find the clearest package of indicators
+.\run-local.ps1 -Mode package                  # trade it on Alpaca paper, every 10 minutes
+```
+
+(or `investment-bot lab --for 8h --round 1h`, `investment-bot package` to see
+the result, and `investment-bot trade-package [--once] [--dry-run]`).
+
+**Data.** Once a day it scans everything Alpaca trades (about 13,500 US
+stocks and ETFs, plus crypto pairs) and keeps the most-traded:
+`lab.stocks` (200) priced at $5 or more, and `lab.crypto` (20). It
+downloads two years of 10-minute candles and longer daily ones, cached in
+`data_cache/alpaca`, and later runs only fetch what's new. Every indicator
+is computed on every timeframe into `data_cache/features`, capped at
+`lab.max_feature_gb`. A bigger candle's value only counts once that candle
+has closed, so nothing peeks ahead. Stocks need `ALPACA_API_KEY` and
+`ALPACA_SECRET_KEY` in `.env`. Crypto candles don't.
+
+**History is split three ways by time.** The first 60% (training) is where
+it looks and chooses. The next 20% (held-out) only confirms or vetoes a
+choice. The last 20% (final check) is never used to decide anything, so it
+shows how a package does on candles it was never tuned on.
+
+**Rounds**, each at most `--round` long:
+
+1. **Scout.** Every indicator column is scored on how the price moved after
+   it voted (1h, 4h, about a day ahead). Nothing is traded. The result is
+   the scoreboard, with "follow" or "fade" for each indicator.
+2. **Patterns.** Each half of training is re-scouted, and only readings that
+   held up in both go forward. Every pair of the best 60 is then checked,
+   plus the best trios: which agree in a way that's followed by a clear move.
+3. **Build.** Packages are assembled from those indicators, at least one
+   from each family and up to 50, net of trading costs, and backtested. The
+   best on training that holds up held-out becomes the **champion**. The
+   bot's original five-strategy setup is the bar to beat.
+4. **Challenge, and every round after.** It looks at the indicators again
+   on a fresh stretch, then tries changes to the champion. It can add,
+   drop, swap or reweight an indicator, or move the entry bar, exit bar or
+   stop. It can also slow down: hold longer, wait between trades, or need a
+   signal to last a few candles. Bigger jumps are tried too: random
+   packages, mixes with the top 10, and two changes at once. A change is
+   kept only if it beats the champion on training *and* held-out.
+
+Every package is judged at the same 10% trade size, so betting less on a
+loser can't pass for an improvement. **How much** to bet is set
+afterwards. Within a package, stronger agreement means a bigger trade
+(half size at the entry bar, full size at full agreement). The champion's
+full size is the largest that keeps its training drawdown inside
+`lab.drawdown_budget`. A champion not yet confirmed on held-out trades at
+the smallest size (2%). Costs: 3 bps a side for stocks, 25 for crypto
+(Alpaca's taker fee).
+
+Results go to `lab.json` after every round, so a later session carries on
+from the champion. Jarvis's TradeBot page shows the session, the champion's
+indicators, the scoreboard and the package trader's orders.
+
+**The package trader** reloads the champion each cycle, so a lab running at
+the same time can improve it. It trades stocks only while the market is
+open, and crypto around the clock. Its rules are the same as the backtest:
+trailing ATR stops checked each candle, exits when the score fades,
+`cooldown`, `confirm`. Shorts are stocks-only and only easy-to-borrow ones,
+in whole shares. It refuses Alpaca's live endpoint unless
+`live.allow_real_money: true`. It stops opening trades after
+`live.max_daily_loss` (3%) in a day, and halts at `risk.max_drawdown` from
+the peak. Positions it didn't open are left alone.
 
 ## Manual usage
 

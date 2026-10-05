@@ -5,12 +5,18 @@
     investment-bot trade     [-c config.yaml] [--once]
     investment-bot learn     --for 8h [--round 30m] [--goal "learn shorts"]
     investment-bot learned   [-c config.yaml] [--reset]
+    investment-bot lab       --for 8h [--round 1h] [--prepare-only] [--fresh]
+    investment-bot package   [-c config.yaml]
+    investment-bot trade-package [--once] [--dry-run]
     investment-bot strategies
 """
 from __future__ import annotations
 
 import argparse
+import json
+import os
 import sys
+from pathlib import Path
 
 from rich.console import Console
 from rich.table import Table
@@ -357,6 +363,111 @@ def cmd_learn(args: argparse.Namespace) -> None:
     console.print(DISCLAIMER)
 
 
+def cmd_lab(args: argparse.Namespace) -> None:
+    from .lab.lab import STATE_FILE, Lab, running_lab
+    from .lab.prepare import LabConfig, prepare
+    from .session import keep_awake, parse_duration
+
+    try:
+        seconds, round_seconds = parse_duration(args.duration), parse_duration(args.round)
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
+    config = BotConfig.load(args.config)
+    cfg = LabConfig.from_config(config)
+    other = running_lab()
+    if other:
+        raise SystemExit(f"A lab is already running (process {other}). Stop it first, or let "
+                         "it finish: two at once would overwrite each other's work.")
+    session = Path(STATE_FILE)
+    session.write_text(json.dumps({"status": "running", "phase": "getting data ready",
+                                   "pid": os.getpid()}), encoding="utf-8")
+    if args.fresh:
+        Path(cfg.results_file).unlink(missing_ok=True)
+        console.print(f"Starting over: forgot {cfg.results_file}.")
+    say = lambda line: console.print(line, markup=False, highlight=False, soft_wrap=True)  # noqa: E731
+    keep_awake()
+    symbols = args.symbols.split(",") if args.symbols else None
+    try:
+        store, universe = prepare(config, say, symbols)
+    finally:
+        session.write_text(json.dumps({"status": "finished", "phase": "data ready"}),
+                           encoding="utf-8")
+    if args.prepare_only or not universe:
+        return
+    lab = Lab(cfg, store, universe, seconds, round_seconds, say=say,
+              on_progress=lambda: write_status(config))
+    lab.run()
+    console.print(DISCLAIMER)
+
+
+def cmd_package(args: argparse.Namespace) -> None:
+    from .lab.prepare import LabConfig
+
+    cfg = LabConfig.from_config(BotConfig.load(args.config))
+    path = Path(cfg.results_file)
+    if not path.exists():
+        console.print("Nothing found yet. Run [bold]investment-bot lab --for 1h[/bold].")
+        return
+    data = json.loads(path.read_text(encoding="utf-8"))
+    champ = data.get("champion")
+    if champ:
+        pkg = champ["package"]
+        console.print(f"[bold]Champion package[/bold] ({len(pkg['weights'])} indicators"
+                      + ("" if champ.get("proven", True) else ", not yet better than the original")
+                      + ")")
+        table = Table()
+        for col in ("Indicator", "Weight"):
+            table.add_column(col)
+        for name, weight in sorted(pkg["weights"].items(), key=lambda kv: -abs(kv[1])):
+            table.add_row(name, f"{weight:+.2f}")
+        console.print(table)
+        knobs = {k: v for k, v in pkg.items() if k not in ("weights", "name")}
+        console.print("Rules: " + ", ".join(f"{k}={v}" for k, v in knobs.items()))
+        table = Table(title="How it did")
+        for col in ("Part", "Return", "Max DD", "Trades", "Won"):
+            table.add_column(col, justify="right")
+        for part, label in (("train", "training"), ("hold", "held-out"), ("final", "final check")):
+            m = champ["metrics"].get(part)
+            if m:
+                table.add_row(label, f"{m['total_return']:+.2%}", f"{m['max_drawdown']:.2%}",
+                              str(m["num_trades"]), f"{m['win_rate']:.0%}")
+        console.print(table)
+    board = data.get("scoreboard") or []
+    if board:
+        table = Table(title="Indicator scoreboard (top 15)")
+        for col in ("Indicator", "Family", "Use", "t", "Right", "Signals"):
+            table.add_column(col)
+        for e in board[:15]:
+            table.add_row(e["feature"], e["family"], "follow" if e["sign"] > 0 else "fade",
+                          f"{e['t']:+.1f}", f"{e['hit']:.0%}", str(e["signals"]))
+        console.print(table)
+    console.print(f"{len(data.get('rounds', []))} lab round(s) so far.")
+
+
+def cmd_trade_package(args: argparse.Namespace) -> None:
+    from .broker.alpaca import AlpacaBroker, AlpacaCredentialsError
+    from .data.alpaca_data import AlpacaData
+    from .lab.prepare import LabConfig
+    from .lab.trader import PackageTrader
+
+    config = BotConfig.load(args.config)
+    try:
+        broker = AlpacaBroker(execution=config.build_execution())
+    except AlpacaCredentialsError as exc:
+        raise SystemExit(str(exc)) from exc
+    say = lambda line: console.print(line, markup=False, highlight=False, soft_wrap=True)  # noqa: E731
+    data = AlpacaData(LabConfig.from_config(config).cache_dir, say=say)
+    trader = PackageTrader(config, broker, data, say=say, dry_run=args.dry_run)
+    where = "PAPER" if "paper" in broker.base_url else "LIVE (real money)"
+    console.print(f"[bold]Package trader[/bold] on Alpaca {where}"
+                  + (" - dry run, no orders" if args.dry_run else "") + ".")
+    console.print(DISCLAIMER)
+    if args.once:
+        trader.cycle()
+    else:
+        trader.run_forever()
+
+
 def cmd_status(args: argparse.Namespace) -> None:
     config, _ = _load_with_memory(args.config)
     path = write_status(config)
@@ -429,6 +540,25 @@ def build_parser() -> argparse.ArgumentParser:
     ln.add_argument("--goal", default="", help='What to get better at, e.g. "learn shorts"')
     ln.set_defaults(func=cmd_learn)
 
+    lab = sub.add_parser(
+        "lab", parents=[common],
+        help="Find the clearest package of indicators, round after round")
+    lab.add_argument("--for", dest="duration", required=True, help="How long: 30m, 8h, 2d...")
+    lab.add_argument("--round", default="1h", help="Longest a round may take (default 1h)")
+    lab.add_argument("--prepare-only", action="store_true",
+                     help="Download candles and compute indicators, then stop")
+    lab.add_argument("--fresh", action="store_true", help="Forget earlier lab results first")
+    lab.set_defaults(func=cmd_lab)
+
+    pk = sub.add_parser("package", parents=[common], help="Show the lab's champion package")
+    pk.set_defaults(func=cmd_package)
+
+    tp = sub.add_parser("trade-package", parents=[common],
+                        help="Trade the lab's champion package on Alpaca")
+    tp.add_argument("--once", action="store_true", help="Run a single cycle and exit")
+    tp.add_argument("--dry-run", action="store_true", help="Decide and log, place no orders")
+    tp.set_defaults(func=cmd_trade_package)
+
     st = sub.add_parser("status", parents=[common], help="Rewrite jarvis_status.json for Jarvis")
     st.set_defaults(func=cmd_status)
 
@@ -439,6 +569,9 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> None:
+    from .data.alpaca_data import load_env
+
+    load_env()  # Alpaca keys from .env
     args = build_parser().parse_args(argv)
     args.func(args)
 

@@ -4,15 +4,17 @@
 #   .\run-local.ps1 -Mode api    # HTTP API on :8000, for the web dashboard
 #   .\run-local.ps1 -Mode once   # single cycle, then exit (for Task Scheduler)
 #   .\run-local.ps1 -Mode backtest
+#   .\run-local.ps1 -Mode lab -For 8h -Round 1h   # find the clearest indicator package
+#   .\run-local.ps1 -Mode package                  # trade it on Alpaca paper, every 10 min
 #
 # First run creates a .venv and installs dependencies; later runs reuse it.
 
 param(
-    [ValidateSet('terminal', 'api', 'once', 'backtest', 'learn')]
+    [ValidateSet('terminal', 'api', 'once', 'backtest', 'learn', 'lab', 'package')]
     [string]$Mode = 'terminal',
     [int]$Port = 8000,
     [string]$For = '1h',      # learn: how long, e.g. 10m, 8h, 2d
-    [string]$Round = '30m',   # learn: test this long before each adjustment
+    [string]$Round = '30m',   # learn/lab: longest a round may take (lab default 1h)
     [string]$Goal = ''        # learn: what to get better at
 )
 
@@ -62,6 +64,15 @@ switch ($Mode) {
         # Windows PowerShell also mangles double quotes inside native arguments.
         if ($Goal.Trim()) { $learnArgs += @('--goal', ($Goal -replace '"', "'")) }
         & $venvPython @learnArgs
+    }
+    'lab' {
+        $labRound = if ($PSBoundParameters.ContainsKey('Round')) { $Round } else { '1h' }
+        Write-Host "=== Indicator lab for $For, rounds up to $labRound (Ctrl-C stops; results kept) ===" -ForegroundColor Cyan
+        & $venvPython -m investment_bot lab -c $config --for $For --round $labRound
+    }
+    'package' {
+        Write-Host '=== Trading the champion package on Alpaca (Ctrl-C stops) ===' -ForegroundColor Cyan
+        & $venvPython -m investment_bot trade-package -c $config
     }
     'api' {
         Write-Host "=== API on http://localhost:$Port ===" -ForegroundColor Cyan

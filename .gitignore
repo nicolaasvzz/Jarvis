@@ -27,3 +27,12 @@ live_state.json.tmp
 # learning sessions (investment-bot learn)
 learning_session.json
 learning_session.json.tmp
+
+# the indicator lab (investment-bot lab / trade-package)
+lab.json
+lab.json.tmp
+lab_session.json
+lab_session.json.tmp
+universe.json
+package_trader.json
+package_trader.json.tmp

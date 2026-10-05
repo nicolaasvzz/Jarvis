@@ -55,6 +55,39 @@ class AlpacaBroker(Broker):
         resp.raise_for_status()
         return resp.json()
 
+    def positions(self) -> list[dict]:
+        import requests
+
+        resp = requests.get(f"{self.base_url}/v2/positions", headers=self._headers(), timeout=30)
+        resp.raise_for_status()
+        return resp.json()
+
+    def clock(self) -> dict:
+        import requests
+
+        resp = requests.get(f"{self.base_url}/v2/clock", headers=self._headers(), timeout=30)
+        resp.raise_for_status()
+        return resp.json()
+
+    def place(self, symbol: str, side: str, qty: float, crypto: bool) -> dict:
+        """A market order for `qty` (fractional allowed where Alpaca allows it)."""
+        import requests
+
+        payload = {
+            "symbol": symbol,
+            "qty": f"{qty:.6f}".rstrip("0").rstrip("."),
+            "side": side,
+            "type": "market",
+            "time_in_force": "gtc" if crypto else "day",
+        }
+        resp = requests.post(
+            f"{self.base_url}/v2/orders", json=payload, headers=self._headers(), timeout=30
+        )
+        if resp.status_code >= 400:
+            raise RuntimeError(f"Alpaca rejected {side} {payload['qty']} {symbol}: "
+                               f"{resp.status_code} {resp.text[:200]}")
+        return resp.json()
+
     def submit(self, order: Order, ref_price: float, timestamp: pd.Timestamp) -> Fill | None:
         import requests
 
