@@ -19,6 +19,13 @@ jarvis_status.json
 jarvis_status.json.tmp
 learning_session.json
 learning_session.json.tmp
+lab.json
+lab.json.tmp
+lab_session.json
+lab_session.json.tmp
+universe.json
+package_trader.json
+package_trader.json.tmp
 data_cache/
 report.html
 reports/
