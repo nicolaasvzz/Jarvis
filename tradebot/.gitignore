@@ -1,0 +1,65 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
+build/
+dist/
+
+# --- .NET (TradeBot/) ---
+bin/
+obj/
+.vs/
+*.user
+
+# --- secrets & local state: NEVER commit these ---
+.env
+.env.*
+!.env.example
+secrets.json
+appsettings.*.local.json
+config.yaml
+live_state.json
+.claude/settings.local.json
+
+# --- run artifacts ---
+reports/
+report.html
+data_cache/
+*.log
+
+# --- editors / OS ---
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# backtest memory (what backtests taught the bot)
+learned.json
+learned.json.tmp
+jarvis_status.json
+jarvis_status.json.tmp
+live_state.json.tmp
+
+# learning sessions (investment-bot learn)
+learning_session.json
+learning_session.json.tmp
+
+# the indicator lab (investment-bot lab / trade-package)
+lab.json
+lab.json.tmp
+lab_session.json
+lab_session.json.tmp
+universe.json
+package_trader.json
+package_trader.json.tmp
+
+# research (investment-bot research)
+news.db
+news.db-journal
+research.json
+research.json.tmp
+news_trader.json
+news_trader.json.tmp

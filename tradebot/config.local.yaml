@@ -1,0 +1,93 @@
+# Local (free) setup: real market data, simulated money, state in this folder.
+# Used by run-local.ps1 / run-local.sh. Nothing here costs anything.
+
+data:
+  source: yahoo          # free daily bars; swap to 'synthetic' to run offline
+  cache_dir: data_cache  # gitignored
+  cache_ttl_hours: 12
+
+universe: [AAPL, MSFT, NVDA, AMZN, GOOG, META, TSLA, SPY]
+
+strategy:
+  threshold: 0.25
+  long_only: false
+  max_volatility: 0.80
+
+risk:
+  risk_per_trade: 0.01
+  atr_stop_multiple: 3.0
+  max_position_weight: 0.20
+  max_gross_exposure: 1.0
+  max_drawdown: 0.25
+  allow_short: true
+
+live:
+  broker: paper
+  poll_minutes: 60       # daily-bar strategy: hourly is plenty, and polite to Yahoo
+  state_file: live_state.json   # gitignored; survives restarts on your machine
+  starting_cash: 100000
+  lookback: 300
+  max_daily_loss: 0.03          # package trader: no new trades after losing 3% in a day
+  allow_real_money: false       # package trader refuses Alpaca's live endpoint unless true
+
+# The indicator lab (investment-bot lab / run-local.ps1 -Mode lab): every indicator on
+# 10m, 30m, 1h, 4h and 1d candles, for the most-traded stocks and crypto on Alpaca.
+# Stocks need ALPACA_API_KEY and ALPACA_SECRET_KEY in .env; crypto works without.
+lab:
+  source: alpaca
+  feed: iex                # free real-time stock data; 'sip' needs a paid Alpaca data plan
+  timeframes: [10m, 30m, 1h, 4h, 1d]
+  intraday_days: 730       # two years of 10-minute candles
+  stocks: 200              # the most-traded US stocks/ETFs (of ~11,000 on Alpaca)
+  crypto: 20               # the most-traded crypto pairs against USD
+  min_price: 5
+  max_feature_gb: 8        # disk cap for the indicator store
+  drawdown_budget: 0.15    # trade size is set so training drawdown stays within 15%
+
+# Research (investment-bot research / run-local.ps1 -Mode research): news about the
+# lab's symbols from Alpaca (free, Benzinga), plus X when X_BEARER_TOKEN is set,
+# each item scored once by Gemini (GEMINI_API_KEY in .env). Reads only, no orders.
+research:
+  model: gemini-3.5-flash
+  poll_minutes: 5
+  first_hours: 24          # the first run reads the last day of news
+  max_scored_per_cycle: 200
+  x:
+    monthly_cap: 5.00      # dollars a month, spread evenly over the month; 0 = off
+    price_per_post: 0.005  # X's pay-per-use price for reading one post
+    posts_per_search: 10   # X's minimum
+    minutes_between: 120   # at most one search this often
+  signals:
+    window_hours: 24
+    half_life_hours: 6     # a story's weight halves every 6 hours
+    threshold: 0.5         # |mood| that flags a buy/sell (needs real news behind it)
+  # News trading (investment-bot research --trade / run-local.ps1 -Mode research-trade):
+  # Gemini gives each article a 1-100% probability; the bet grows with it.
+  trade:
+    min_probability: 0.55  # no trade below 55%
+    full_probability: 0.95 # 95%+ gets the biggest bet
+    min_size: 0.02         # 2% of equity at 55% ...
+    max_size: 0.50         # ... up to 50% at 95%
+    max_total: 1.0         # all news trades together, of equity
+    max_open: 10
+    entry_window_hours: 2  # only articles this fresh
+    stop_pct: 4.0          # stop loss, % against the entry
+    cooldown_hours: 6
+    allow_real_money: false
+
+learning:
+  enabled: true          # adapt ensemble weights from realized outcomes
+  eta_trade: 4.0         # step size when a closed trade scores the entry votes
+  eta_signal: 1.5        # step size when a new daily bar scores yesterday's votes
+  return_cap: 0.10       # clip |return| per lesson so one wild day can't blow up weights
+  weight_floor: 0.05     # no strategy is ever fully silenced
+  shrink: 0.002          # pull toward equal weights each lesson (~43-day memory)
+
+  # Backtest memory: after every backtest, review the trades and try small
+  # setting changes; keep one only if it cuts losses on both the training data
+  # and held-out data it never chose from. Saved to learned.json, which the
+  # next backtest and paper trading start from. `investment-bot learned` shows
+  # it; `investment-bot learned --reset` forgets it.
+  auto_tune: true
+  memory_file: learned.json
+  loss_aversion: 1.5     # score = return + 1.5 x max drawdown (drawdown hurts more)

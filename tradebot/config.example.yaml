@@ -1,0 +1,104 @@
+# Investment Bot configuration.
+# Copy to config.yaml and edit; every key shown here has a sane default.
+
+data:
+  source: synthetic        # synthetic | yahoo | csv
+  seed: 42                 # synthetic only
+  # directory: data        # csv only: reads <directory>/<SYMBOL>.csv
+  # cache_dir: data_cache  # yahoo only: on-disk cache location
+  # cache_ttl_hours: 12    # yahoo only
+
+universe: [AAPL, MSFT, NVDA, AMZN, GOOG, META, TSLA, SPY]
+
+strategy:
+  threshold: 0.25          # |weighted vote| needed to take a position
+  long_only: false
+  max_volatility: 0.80     # veto entries when 20d annualized vol exceeds this
+  members:
+    - {name: sma_cross, weight: 1.0, params: {fast: 20, slow: 100}}
+    - {name: macd,      weight: 1.0}
+    - {name: breakout,  weight: 1.5, params: {entry_window: 55, exit_window: 20}}
+    - {name: bollinger, weight: 0.75}
+    - {name: rsi,       weight: 0.75}
+
+risk:
+  risk_per_trade: 0.01       # fraction of equity at risk between entry and stop
+  atr_window: 14
+  atr_stop_multiple: 3.0     # stop distance (and trail) in ATRs
+  take_profit_multiple: null # e.g. 6.0; null disables take-profits
+  max_position_weight: 0.20  # any one position <= 20% of equity
+  max_gross_exposure: 1.0    # no leverage
+  max_drawdown: 0.25         # kill switch: liquidate + halt at -25% from peak
+  allow_short: true
+
+execution:
+  slippage_bps: 5
+  commission_per_share: 0.0
+  commission_pct: 0.0005
+  min_commission: 0.0
+
+backtest:
+  starting_cash: 100000
+  days: 1260               # ~5 years
+  lookback: 300            # history window handed to strategies
+
+live:
+  broker: paper            # paper | alpaca (alpaca needs env credentials)
+  poll_minutes: 15
+  state_file: live_state.json
+  starting_cash: 100000
+  lookback: 300
+
+# Online learning: score each strategy's votes against realized bar returns
+# and closed-trade outcomes, shifting ensemble weight toward whoever has been
+# right (multiplicative-weights update with a floor + shrink so nobody is
+# silenced and nothing overfits too fast). Weights persist in the state file.
+# Research (investment-bot research / run-local.ps1 -Mode research): news about the
+# lab's symbols from Alpaca (free, Benzinga), plus X when X_BEARER_TOKEN is set,
+# each item scored once by Gemini (GEMINI_API_KEY in .env). Reads only, no orders.
+research:
+  model: gemini-3.5-flash
+  poll_minutes: 5
+  first_hours: 24          # the first run reads the last day of news
+  max_scored_per_cycle: 200
+  x:
+    monthly_cap: 5.00      # dollars a month, spread evenly over the month; 0 = off
+    price_per_post: 0.005  # X's pay-per-use price for reading one post
+    posts_per_search: 10   # X's minimum
+    minutes_between: 120   # at most one search this often
+  signals:
+    window_hours: 24
+    half_life_hours: 6     # a story's weight halves every 6 hours
+    threshold: 0.5         # |mood| that flags a buy/sell (needs real news behind it)
+  # News trading (investment-bot research --trade / run-local.ps1 -Mode research-trade):
+  # Gemini gives each article a 1-100% probability; the bet grows with it.
+  trade:
+    min_probability: 0.55  # no trade below 55%
+    full_probability: 0.95 # 95%+ gets the biggest bet
+    min_size: 0.02         # 2% of equity at 55% ...
+    max_size: 0.50         # ... up to 50% at 95%
+    max_total: 1.0         # all news trades together, of equity
+    max_open: 10
+    entry_window_hours: 2  # only articles this fresh
+    stop_pct: 4.0          # stop loss, % against the entry
+    cooldown_hours: 6
+    allow_real_money: false
+
+learning:
+  enabled: true
+  eta_trade: 4.0         # step size for closed-trade lessons
+  eta_signal: 1.5        # step size for new-bar lessons
+  return_cap: 0.10       # clip |return| per lesson
+  weight_floor: 0.05     # minimum share any strategy keeps
+  shrink: 0.002          # pull toward equal weights per lesson (~43-day memory)
+
+  # Backtest memory: each backtest reviews its trades and keeps at most one
+  # setting change (threshold, stops, sizing, vol veto, long-only, weights)
+  # that lowers losses on both training and held-out data. See README.
+  auto_tune: false
+  memory_file: learned.json
+  holdout: 0.30          # last 30% of history validates every change
+  loss_aversion: 1.5     # score = return + 1.5 x max drawdown
+  min_gain: 0.002        # improvement needed on both windows to keep a change
+  min_trade_ratio: 0.5   # a change may not halve the number of trades
+  workers: 0             # parallel backtests; 0 = CPU cores - 1

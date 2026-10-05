@@ -1,0 +1,3 @@
+# Every change needs the owner's review. This takes effect once branch
+# protection on `main` has "Require review from Code Owners" switched on.
+* @nicolaasvzz
