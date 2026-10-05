@@ -911,8 +911,8 @@ async def until(check: Any, timeout: float = 5) -> None:
 async def test_a_fresh_install_starts_from_the_example_mothership(tmp_path: Path) -> None:
     jarvis = make(tmp_path, FakeWeb())
     names = [c["name"] for c in jarvis.mothership.controls]
-    assert "Make it rain" in names and jarvis.mothership.projects
-    assert "`Make it rain`" in jarvis.mothership_summary()
+    assert "Paper trading" in names and jarvis.mothership.projects
+    assert "`Paper trading`" in jarvis.mothership_summary()
 
 
 @pytest.mark.asyncio
@@ -931,7 +931,7 @@ async def test_controls_projects_and_ideas_over_the_api(tmp_path: Path) -> None:
         project = (await client.post(f"{ms}/projects", headers=auth, json={
             "name": "TradeBot", "folder": str(folder), "status_file": "live_state.json"})).json()
         relative = await client.post(f"{ms}/projects", headers=auth,
-                                     json={"name": "x", "folder": "not/absolute"})
+                                     json={"name": "x", "folder": "../not/inside"})
         assert relative.status_code == 422
         status = (await client.get(f"{ms}/projects/{project['id']}/status", headers=auth)).json()
         assert status["data"] == {"cash": 100.5, "halted": False}
@@ -1033,6 +1033,46 @@ async def test_a_projects_reports_are_listed_newest_first_with_their_labels(
 
 
 @pytest.mark.asyncio
+async def test_a_folder_inside_jarvis_can_be_given_by_name(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    repo = tmp_path / "repo"
+    (repo / "tradebot").mkdir(parents=True)
+    (repo / "tradebot" / "jarvis_status.json").write_text('{"Equity": 100}', encoding="utf-8")
+    monkeypatch.setattr(J, "REPO", repo)
+    empty_mothership(tmp_path)
+    jarvis = make(tmp_path, FakeWeb())
+    auth = {"Authorization": "Bearer secret-token"}
+    ms = "/dash/api/mothership"
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=J.create_app(jarvis)),
+                                 base_url="http://jarvis") as client:
+        project = (await client.post(f"{ms}/projects", headers=auth, json={
+            "name": "TradeBot", "folder": "tradebot",
+            "status_file": "jarvis_status.json"})).json()
+        assert jarvis.mothership.folder(project["id"]) == repo / "tradebot"
+        status = (await client.get(f"{ms}/projects/{project['id']}/status",
+                                   headers=auth)).json()
+        assert status["available"] and status["data"]["Equity"] == 100
+        # Relative means inside Jarvis: nothing that climbs out of it.
+        escape = await client.post(f"{ms}/projects", headers=auth, json={
+            "name": "Elsewhere", "folder": "../outside"})
+        assert escape.status_code == 422
+
+
+def test_a_fresh_install_comes_with_the_tradebot(tmp_path: Path) -> None:
+    example = json.loads((J.HERE / "mothership.example.json").read_text(encoding="utf-8"))
+    (bot,) = [p for p in example["projects"] if p["name"] == "TradeBot"]
+    assert bot["folder"] == "tradebot"
+    assert (J.REPO / "tradebot" / "run-local.ps1").is_file()
+    for control in example["controls"]:
+        if control["kind"] == "command":
+            assert control["project"] == bot["id"], control["name"]
+    # No one's own history ships: no runs, no last answers.
+    assert not any("last_run" in c or "last_inputs" in c for c in example["controls"])
+    jarvis = make(tmp_path, FakeWeb())  # no mothership.json yet: starts from the example
+    assert jarvis.mothership.folder(bot["id"]) == J.REPO / "tradebot"
+
+
+@pytest.mark.asyncio
 async def test_jarvis_runs_a_control_by_voice_asking_first_unless_trusted(
         tmp_path: Path) -> None:
     empty_mothership(tmp_path)
@@ -1066,19 +1106,19 @@ async def test_an_unbuilt_control_says_so_and_ideas_can_be_noted(tmp_path: Path)
         reply({"functionCall": {"name": "run_control", "args": {"control": "night"}}}),
         reply({"text": "That one isn't built yet."}),
         reply({"functionCall": {"name": "add_idea", "args": {
-            "project": "velocity", "idea": "A pit-wall menu"}}}),
+            "project": "garden", "idea": "A watering schedule"}}}),
         reply({"text": "Noted."}))
     (tmp_path / "persona.md").write_text("Mothership:\n{{mothership}}", encoding="utf-8")
     jarvis = make(tmp_path, web)
     jarvis.save_control({"name": "Night time", "kind": "idea", "description": "Set it to night"})
-    jarvis.save_project({"name": "VelocityRacing"})
+    jarvis.save_project({"name": "GardenPlanner"})
     await finished(jarvis, jarvis.submit("make it night"))
     assert "Build with Claude" in tool_result(web, 1)["error"]
-    await finished(jarvis, jarvis.submit("note an idea for velocity"))
+    await finished(jarvis, jarvis.submit("note an idea for the garden"))
     (idea,) = jarvis.mothership.projects[0]["ideas"]
-    assert (idea["text"], idea["by"]) == ("A pit-wall menu", "jarvis")
+    assert (idea["text"], idea["by"]) == ("A watering schedule", "jarvis")
     persona = web.gemini_bodies[0]["systemInstruction"]["parts"][0]["text"]
-    assert "Night time" in persona and "VelocityRacing" in persona
+    assert "Night time" in persona and "GardenPlanner" in persona
 
 
 @pytest.mark.asyncio

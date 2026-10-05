@@ -16,6 +16,7 @@ browser ──▶ frontend (dashboard) ──HTTP+token──▶ backend/jarvis.
 |---|---|
 | [`backend/`](backend/) | **One file, `jarvis.py`**: talks to Gemini, runs the tools, serves the dashboard. Plus `persona.md` (who Jarvis is), `.env` (your key and settings) and `start.bat`. |
 | [`frontend/`](frontend/) | The dashboard: a reactive particle core, a Mothership control centre (custom controls, projects, every request), live terminals you share with Jarvis, and an approvals page. It installs on your phone as an app. Plain HTML/JS — reusable for other projects, see [frontend/API.md](frontend/API.md). |
+| [`tradebot/`](tradebot/) | **The TradeBot**, already set up as a Mothership project: a trading bot on Alpaca's free paper (pretend) money that builds and tests its own sets of indicators, learns from every backtest and can watch the news. See [The TradeBot](#the-tradebot) below and [tradebot/README.md](tradebot/README.md). |
 
 ## Start it
 
@@ -49,6 +50,33 @@ python jarvis.py
   their output; long ones (installs, builds, servers) open **their own
   terminal window** and keep going, and Jarvis tells you when they finish.
 - **Speak** its answers in a British voice (`edge-tts`, free).
+
+## The TradeBot
+
+A fresh Jarvis comes with the TradeBot on its Mothership: **Mothership →
+TradeBot** has its live status (equity, positions, trades, what it learned),
+every report it has written, and buttons for its modes:
+
+- **Champ-set builder** — tries indicator sets until it finds the best one.
+- **Learning mode** — backtests over and over, keeping only changes that hold up.
+- **Paper trading** — trades the best set on your Alpaca paper account.
+- **Test mode** — checks every part of the bot without trading.
+- **Update Jarvis and the bot** — pulls the latest version.
+
+Each mode can also run **news research** alongside it: Gemini reads the latest
+market news, and (if you choose) the bot trades it on paper, betting more the
+likelier Gemini thinks the move is.
+
+To set it up, make a free account at [Alpaca](https://alpaca.markets), create
+a **paper trading** API key, copy `tradebot/.env.example` to `tradebot/.env`
+and fill in `ALPACA_API_KEY`, `ALPACA_SECRET_KEY` and `GEMINI_API_KEY` (the
+same key as Jarvis's). The first press of a mode installs what the bot needs.
+It trades pretend money unless you deliberately change that.
+
+**What stays on your computer:** keys (`.env`), your Mothership and request
+history (`backend/data/`), and everything the bot learns or holds: backtest
+lessons, lab results, downloaded prices, the news it read, its reports and
+trades. None of it is committed.
 
 ## On your phone, from anywhere
 

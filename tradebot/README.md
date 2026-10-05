@@ -1,6 +1,8 @@
 # Investment Bot 🤖📈
 
-[![CI](https://github.com/nicolaasvzz/Investment_Bot/actions/workflows/ci.yml/badge.svg)](https://github.com/nicolaasvzz/Investment_Bot/actions/workflows/ci.yml)
+[![TradeBot](https://github.com/nicolaasvzz/Jarvis/actions/workflows/tradebot.yml/badge.svg)](https://github.com/nicolaasvzz/Jarvis/actions/workflows/tradebot.yml)
+
+**Part of [Jarvis](../README.md).** The bot lives in Jarvis's `tradebot/` folder and comes set up as a project on Jarvis's Mothership, with buttons for every mode. It also runs on its own, as below. (It used to be its own repo, `nicolaasvzz/Investment_Bot`, now archived.)
 
 A multi-strategy automated trading bot with an event-driven backtester,
 portfolio-level risk management, parameter optimization with walk-forward
@@ -16,8 +18,8 @@ config and a single CLI. Comes in two parts: the full-featured **Python bot**
 ## Get it
 
 ```bash
-git clone https://github.com/nicolaasvzz/Investment_Bot.git
-cd Investment_Bot
+git clone https://github.com/nicolaasvzz/Jarvis.git
+cd Jarvis/tradebot
 ```
 
 …or use **Code → Download ZIP** on the GitHub page. You need Python 3.10+

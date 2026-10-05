@@ -15,8 +15,8 @@ download and run it, but **changes need the owner's permission** (see
 ## Development setup
 
 ```bash
-git clone https://github.com/nicolaasvzz/Investment_Bot.git
-cd Investment_Bot
+git clone https://github.com/nicolaasvzz/Jarvis.git
+cd Jarvis/tradebot
 python -m venv .venv
 # Windows: .venv\Scripts\activate      macOS/Linux: source .venv/bin/activate
 pip install -e ".[dev]"

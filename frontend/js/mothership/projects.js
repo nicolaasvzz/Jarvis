@@ -323,12 +323,13 @@ export function editProject(existing) {
     title: existing ? `Edit ${existing.name}` : "New project",
     submit: existing ? "Save" : "Create",
     fields: [
-      { name: "name", label: "Name", value: p.name, placeholder: "VelocityRacing" },
+      { name: "name", label: "Name", value: p.name, placeholder: "My website" },
       { name: "description", label: "What is it?", type: "textarea", value: p.description,
-        placeholder: "My sim racing brand — menus, merch ideas, the website." },
+        placeholder: "What it's for, so Jarvis knows too." },
       { name: "folder", label: "Folder", value: p.folder,
         placeholder: "C:\\Users\\you\\projects\\something",
-        hint: "Its terminals and command controls start here." },
+        hint: "Its terminals and command controls start here. A folder inside Jarvis can be "
+          + "given by its name alone, like tradebot." },
       { name: "status_file", label: "Status file (optional)", value: p.status_file,
         placeholder: "live_state.json",
         hint: "A JSON file in that folder that the project keeps up to date — shown live here." },

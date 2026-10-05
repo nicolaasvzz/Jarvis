@@ -58,6 +58,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 HERE = Path(__file__).resolve().parent
+REPO = HERE.parent  # the whole repo: backend/, frontend/, tradebot/
 WINDOWS = platform.system() == "Windows"
 VOICE_STYLE = ("A deep, refined British voice in a Received Pronunciation accent, calm and "
                "measured, dry and understated, like a butler AI. Warm, brief and precise; "
@@ -918,10 +919,15 @@ class Mothership:
         return self._find(self.projects, key)
 
     def folder(self, project_id: str | None) -> Path | None:
-        """A project's folder, if it names one that exists."""
+        """A project's folder, if it names one that exists. A relative folder
+        is inside this repo (the TradeBot's is "tradebot"), so a fresh
+        download finds it wherever the repo was put."""
         project = self.project(project_id) if project_id else None
-        folder = Path(str(project.get("folder") or "")) if project else None
-        return folder if folder and folder.is_absolute() and folder.is_dir() else None
+        text = str(project.get("folder") or "") if project else ""
+        if not text:
+            return None
+        folder = Path(text) if Path(text).is_absolute() else REPO / text
+        return folder if folder.is_dir() else None
 
 
 # ======================================================== tool plumbing ===
@@ -2930,8 +2936,11 @@ def create_app(jarvis: Jarvis) -> FastAPI:
         return body.model_dump()
 
     def checked_project(body: ProjectIn) -> dict[str, Any]:
-        if body.folder and not Path(body.folder).is_absolute():
-            raise HTTPException(status_code=422, detail="Give the folder's full path.")
+        folder = Path(body.folder)
+        if body.folder and not folder.is_absolute() and (
+                folder.drive or REPO.resolve() not in (REPO / folder).resolve().parents):
+            raise HTTPException(status_code=422, detail="Give the folder's full path, or a "
+                                                        "folder inside Jarvis (like tradebot).")
         if any(not web_address(link.url) for link in body.links):
             raise HTTPException(status_code=422, detail="Links must start with http(s)://.")
         return body.model_dump()
