@@ -86,11 +86,34 @@ export function reload(part, wait = 250) {
   timers[part] = setTimeout(() => load(part), wait);
 }
 
-export async function loadAll() {
-  const snapshot = await Hud.getJSON(Hud.route("snapshot"));
-  state.events = (snapshot.events || []).slice(-80);
+/** Load everything; `snapshot` (when the caller has a fresh one) saves a request. */
+export async function loadAll(snapshot) {
+  const fresh = snapshot || (await Hud.getJSON(Hud.route("snapshot")));
+  state.events = (fresh.events || []).slice(-80);
   await Promise.all(Object.keys(loaders).map((part) => loaders[part]().catch(() => {})));
   changed("all");
+}
+
+const taskTimers = {};
+
+/**
+ * Re-read one request — an event names the task it is about, and that one
+ * is all that changed, so there is no need to fetch every request again.
+ */
+function reloadTask(id) {
+  clearTimeout(taskTimers[id]);
+  taskTimers[id] = setTimeout(async () => {
+    delete taskTimers[id];
+    try {
+      const fresh = await Hud.getJSON(Hud.route("task", { id }));
+      const at = state.tasks.findIndex((t) => t.id === id);
+      if (at >= 0) state.tasks[at] = fresh;
+      else state.tasks.unshift(fresh); // a new one: the newest of all
+      changed("tasks");
+    } catch (_) {
+      reload("tasks"); // gone or unreachable: the whole list will say
+    }
+  }, 250);
 }
 
 /** Feed one live event in: remember it, and reload what it touched. */
@@ -98,7 +121,10 @@ export function hear(frame) {
   state.events.push(frame);
   if (state.events.length > 120) state.events.shift();
   const type = frame.type || "";
-  if (type.startsWith("task.") || type.startsWith("step.")) reload("tasks");
+  if (type.startsWith("task.") || type.startsWith("step.")) {
+    if (frame.task_id) reloadTask(frame.task_id);
+    else reload("tasks");
+  }
   if (type.startsWith("approval.")) reload("approvals", 80);
   if (type.startsWith("terminal.")) reload("terminals");
   if (type === "mothership.updated") reload("mothership", 80);

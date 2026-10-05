@@ -53,10 +53,16 @@ body {
     radial-gradient(ellipse at 50% 120%, rgba(34, 211, 238, 0.05), transparent 55%);
 }
 
-body.is-thinking { --accent: #fbbf24; }
-body.is-error { --accent: #f43f5e; }
+/* The Core screen re-tints itself while Jarvis thinks or something failed. */
+.is-thinking { --accent: #fbbf24; }
+.is-error { --accent: #f43f5e; }
 
 /* -- layout --------------------------------------------------------------- */
+
+/* One screen per tab (js/lib/tabs.js). The wrapper draws nothing itself, so
+   each page lays out exactly as it would alone; hidden ones take no part. */
+.screen { display: contents; }
+.screen[hidden] { display: none !important; }
 
 #stage {
   position: fixed;

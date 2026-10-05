@@ -5,6 +5,11 @@
  * the small amount of state it needs to render — tasks, approvals, the last
  * few events — and rebuilds those panels when they change, rather than trying
  * to patch the DOM in place. At this scale that is both simpler and faster.
+ *
+ * It is one tab of several (js/lib/tabs.js): mounted once, then shown and
+ * hidden. While hidden the sphere and the stats polling stop and the panels
+ * aren't redrawn — they catch up in show() — but the voice carries on, so
+ * Jarvis still answers out loud while you watch another tab.
  */
 
 import { Hud } from "../lib/hud.js";
@@ -17,6 +22,8 @@ let core = null;
 let voice = null;
 let muted = Hud.load("muted") === "1";
 let statsTimer = null;
+let statsEvery = 2000;
+let visible = false;
 
 const state = {
   tasks: [],
@@ -26,16 +33,14 @@ const state = {
   history: { cpu: [], memory: [] },
 };
 
-/* -- boot ------------------------------------------------------------------ */
+/* -- the tab's life ---------------------------------------------------------- */
 
-Hud.start(async () => {
-
-  const snapshot = await Hud.getJSON(Hud.route("snapshot"));
+export function mount(snapshot) {
   core = new Core(el("core"), {
     accent: snapshot.settings.accent,
     particles: snapshot.settings.particles,
+    root: document.querySelector('[data-screen="core"]'),
   });
-  core.start();
 
   document.querySelector("[data-workspace]").textContent = shortenPath(
     snapshot.workspace
@@ -45,57 +50,90 @@ Hud.start(async () => {
   state.approvals = snapshot.approvals || [];
   state.terminals = snapshot.terminals || [];
   state.events = (snapshot.events || []).slice(-40);
-
-  renderTasks();
-  renderApprovals();
-  renderFeed();
-  renderTerminalSummary();
-  refreshState();
+  paint("tasks", "approvals", "feed", "terminals");
 
   setupVoice(snapshot.voice);
   setupConsole();
   setupMute();
 
   showBrain();
-  pollStats(snapshot.settings.stats_interval || 2);
+  statsEvery = Math.max(1000, (snapshot.settings.stats_interval || 2) * 1000);
   Hud.onEvent(onFrame);
   el("reply-close").addEventListener("click", () => (el("reply").hidden = true));
-});
+}
+
+export function show() {
+  visible = true;
+  core.start();
+  pollStats();
+  flush();
+}
+
+export function hide() {
+  visible = false;
+  core.stop();
+  clearInterval(statsTimer);
+}
+
+/** Back from a dropped stream: what was missed is in the routes, not the feed. */
+export function resync() {
+  refresh("tasks", "approvals", "terminals");
+}
+
+/* -- drawing, batched: one redraw per frame, none while hidden ------------ */
+
+const dirty = new Set();
+let painting = 0;
+
+function paint(...parts) {
+  parts.forEach((part) => dirty.add(part));
+  if (visible && !painting) painting = requestAnimationFrame(flush);
+}
+
+function flush() {
+  cancelAnimationFrame(painting);
+  painting = 0;
+  if (dirty.has("tasks")) renderTasks();
+  if (dirty.has("approvals")) renderApprovals();
+  if (dirty.has("feed")) renderFeed();
+  if (dirty.has("terminals")) renderTerminalSummary();
+  dirty.clear();
+  refreshState();
+}
 
 /* -- live events ----------------------------------------------------------- */
 
 function onFrame(frame) {
   state.events.push(frame);
   if (state.events.length > 60) state.events.shift();
-  renderFeed();
+  paint("feed");
 
   if (core) core.pulse(frame.type.startsWith("task.") ? 0.9 : 0.32);
 
-  // Anything that changes task or approval shape needs a re-read; the
-  // snapshot is small and this keeps one source of truth.
-  if (
-    frame.type.startsWith("task.") ||
-    frame.type.startsWith("step.") ||
-    frame.type.startsWith("approval.") ||
-    frame.type.startsWith("terminal.")
-  ) {
-    refreshCollections();
+  // Re-read whatever the event changed — just that, a burst of events
+  // becoming one request each.
+  const type = frame.type;
+  if (type === "task.created" && frame.task_id) {
+    asks.set(frame.task_id, frame.message);
+    if (asks.size > 20) asks.delete(asks.keys().next().value);
   }
+  if (type.startsWith("task.") || type.startsWith("step.")) refresh("tasks");
+  if (type.startsWith("approval.")) refresh("approvals", "tasks");
+  if (type.startsWith("terminal.")) refresh("terminals");
 
-  if (frame.type === "task.failed" || frame.type === "error") {
+  // The other tabs say these their own way; here they'd only repeat it.
+  if (visible && (type === "task.failed" || type === "error")) {
     Hud.toast(frame.message, "bad");
   }
-  if (frame.type === "approval.required") {
+  if (visible && type === "approval.required") {
     Hud.toast(frame.message, "bad");
   }
 
-  if (frame.type === "task.completed" || frame.type === "task.failed") {
+  if (type === "task.completed" || type === "task.failed") {
     showReply(frame);
   }
 
   if (frame.speak && !muted && voice && forMe(frame)) voice.say(frame.message);
-
-  refreshState();
 }
 
 /** A reply to a request from a page is spoken only on that page; the rest
@@ -108,10 +146,14 @@ function forMe(frame) {
 /* -- the reply panel: Jarvis's latest answer, readable in full ------------- */
 
 let awaiting = null; // the task id of the request just typed, if any
+// What each recent task asked, from its task.created event: a quick answer
+// can arrive before the task list has been re-read.
+const asks = new Map();
 
 function showReply(frame) {
   const task = state.tasks.find((t) => t.id === frame.task_id);
-  const asked = (frame.data && frame.data.request) || (task && task.request) || "";
+  const asked =
+    (frame.data && frame.data.request) || (task && task.request) || asks.get(frame.task_id) || "";
   // Only a request's own answer replaces the panel while another is being
   // waited on.
   if (awaiting && frame.task_id !== awaiting && !asked) return;
@@ -157,18 +199,50 @@ function markdown(text) {
   return html.join("");
 }
 
-async function refreshCollections() {
+const loaders = {
+  // The same 20 the snapshot carries, without its 300 events.
+  tasks: async () => (state.tasks = await Hud.getJSON(`${Hud.route("tasks")}?limit=20`)),
+  approvals: async () => (state.approvals = await Hud.getJSON(Hud.route("approvals"))),
+  terminals: async () => (state.terminals = await Hud.getJSON(Hud.route("terminals"))),
+};
+const wanted = new Set();
+let refreshing = false;
+let viaSnapshot = false; // a backend without those routes: the snapshot has them all
+
+/** Re-read parts of the state: one request per part per burst, in order. */
+async function refresh(...parts) {
+  parts.forEach((part) => wanted.add(part));
+  if (refreshing) return;
+  refreshing = true;
+  try {
+    while (wanted.size) {
+      await new Promise((resolve) => setTimeout(resolve, 60)); // let a burst gather
+      const now = [...wanted];
+      wanted.clear();
+      await reread(now);
+      paint(...now);
+    }
+  } finally {
+    refreshing = false;
+  }
+}
+
+async function reread(parts) {
+  if (!viaSnapshot) {
+    const results = await Promise.allSettled(parts.map((part) => loaders[part]()));
+    const missing = results.some((r) => r.status === "rejected" && r.reason.status === 404);
+    // Anything else dropped is harmless; the next event will try again.
+    if (!missing) return;
+    viaSnapshot = true;
+  }
   try {
     const snapshot = await Hud.getJSON(Hud.route("snapshot"));
     state.tasks = snapshot.tasks || [];
     state.approvals = snapshot.approvals || [];
     state.terminals = snapshot.terminals || [];
-    renderTasks();
-    renderApprovals();
-    renderTerminalSummary();
-    refreshState();
+    paint("tasks", "approvals", "terminals");
   } catch (_) {
-    /* a dropped refresh is harmless; the next event will try again */
+    /* as above */
   }
 }
 
@@ -286,7 +360,7 @@ function renderApprovals() {
         await Hud.postJSON(Hud.route("approval", { id }), {
           decision: button.getAttribute("data-decide"),
         });
-        refreshCollections();
+        refresh("approvals", "tasks");
       } catch (err) {
         Hud.toast(String(err.message || err), "bad");
         card.querySelectorAll("button").forEach((b) => (b.disabled = false));
@@ -343,17 +417,21 @@ async function showBrain() {
   }
 }
 
-function pollStats(intervalSeconds) {
+/** Sample the machine now and every few seconds — while this tab is shown. */
+function pollStats() {
   const run = async () => {
+    // A tab in the background has no one to show the numbers to.
+    if (document.hidden) return;
     try {
-      renderStats(await Hud.getJSON(Hud.route("stats")));
+      const stats = await Hud.getJSON(Hud.route("stats"));
+      if (visible) renderStats(stats);
     } catch (_) {
       /* a missed sample is not worth reporting */
     }
   };
   run();
-  if (statsTimer) clearInterval(statsTimer);
-  statsTimer = setInterval(run, Math.max(1000, intervalSeconds * 1000));
+  clearInterval(statsTimer);
+  statsTimer = setInterval(run, statsEvery);
 }
 
 function renderStats(stats) {

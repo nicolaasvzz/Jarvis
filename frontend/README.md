@@ -15,6 +15,17 @@ other projects too.
 | `terminal.html` — **Terminal** | Live terminals on the backend's machine, shared with the assistant: you both see them and type in them. Its approval requests show here too, a failed command lights up **Explain**, and a terminal can be trusted so the assistant types there without asking |
 | `approve.html` — **Approvals** | Built for a phone: Allow/Deny what the assistant wants to run, with the exact command, and what happened recently |
 
+**Core, Terminal and Mothership are tabs of one live page.** Each is still its
+own file — open, bookmark or reload any of them — but moving between them
+loads nothing: the first visit to a tab lifts its screen out of its file and
+mounts it, and after that it is only hidden and shown (`js/lib/tabs.js`). So
+switching is instant, the sphere, terminals, drawer and voice keep their
+state, and every tab shares one event stream. Shortly after the first tab
+is up the others are fetched in the background, and the Mothership's data
+is loaded, so even a first visit is quick. A hidden tab stops drawing and
+polling and catches up when shown; the voice keeps going, so Jarvis still
+answers out loud while you watch the Terminal.
+
 **On a phone** every page has a layout of its own, with a tab bar along the
 bottom (Mothership, Core, Terminal, Approve) that shows how many approvals
 are waiting. The Terminal page keeps each terminal at a readable size and
@@ -126,8 +137,9 @@ frontend/
 └── js/
     ├── lib/
     │   ├── connection.js  settings, server, token, routes, branding (every page loads it first)
-    │   └── hud.js         fetch + auth, the live event stream, connect screen, the phone's tab bar
-    ├── pages/             core.js, terminal.js, approve.js — one per page
+    │   ├── hud.js         fetch + auth, the live event stream, connect screen, the phone's tab bar
+    │   └── tabs.js        Core, Terminal and Mothership as one page: mounts, switches, prefetches
+    ├── pages/             core.js, terminal.js (tabs: mount/show/hide), approve.js
     ├── mothership/        app.js (routing, live updates), state.js, overview.js,
     │                      requests.js, controls.js, projects.js, status.js, ui.js
     └── components/        core-visual.js (the sphere),

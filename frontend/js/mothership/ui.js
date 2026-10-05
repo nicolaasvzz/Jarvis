@@ -6,10 +6,14 @@
  */
 
 import { Hud } from "../lib/hud.js";
+import { go } from "../lib/tabs.js";
 
 export const esc = Hud.escape;
 export const $ = (selector, root = document) => root.querySelector(selector);
 export const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
+
+/** Whether an element is on screen at all — false while another tab shows. */
+export const shown = (node) => Boolean(node && node.getClientRects().length);
 
 /* -- icons ----------------------------------------------------------------- */
 
@@ -250,6 +254,7 @@ export function drawCharts() {
       charts.delete(id);
       continue;
     }
+    if (!shown(host)) continue; // measured when its tab is shown again
     const width = Math.max(200, host.clientWidth);
     const { series, labels, height, format, counts } = spec;
     const all = series.flatMap((s) => s.values).filter((v) => Number.isFinite(v));
@@ -287,15 +292,15 @@ export function drawCharts() {
     // and the ones at the edges kept inside the chart.
     const xWidth = Math.max(1, ...labels.map((l) => String(l).length)) * CHAR;
     const step = Math.max(1, Math.ceil(labels.length / Math.max(2, Math.floor((width - pad.left) / (xWidth + 16)))));
-    let shown = null;
-    let shownAt = -Infinity;
+    let lastLabel = null;
+    let lastAt = -Infinity;
     const xLabels = labels
       .map((label, i) => {
         const at = x(i);
         const last = i === labels.length - 1;
-        if ((i % step !== 0 && !last) || String(label) === shown || at - shownAt < xWidth + 8) return "";
-        shown = String(label);
-        shownAt = at;
+        if ((i % step !== 0 && !last) || String(label) === lastLabel || at - lastAt < xWidth + 8) return "";
+        lastLabel = String(label);
+        lastAt = at;
         const anchor = at + xWidth / 2 > width ? "end" : at - xWidth / 2 < 0 ? "start" : "middle";
         return `<text x="${at}" y="${height - 6}" text-anchor="${anchor}">${esc(label)}</text>`;
       })
@@ -486,7 +491,8 @@ export function closeForm() {
   $("#ms-modal").hidden = true;
 }
 
-document.addEventListener("DOMContentLoaded", () => {
+/** Wire the dialog and drawer, once, when the Mothership is mounted. */
+export function wireChrome() {
   $("#ms-modal-form").addEventListener("submit", (event) => {
     event.preventDefault();
     if (formSubmit) formSubmit();
@@ -499,12 +505,13 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   $("#ms-shade").addEventListener("click", closeDrawer);
   document.addEventListener("keydown", (event) => {
-    if (event.key !== "Escape") return;
+    // Escape on another tab is that tab's business.
+    if (event.key !== "Escape" || !shown($("#ms-view"))) return;
     if (!$("#ms-modal").hidden) closeForm();
     else if (!$("#ms-viewer").hidden) closeViewer();
     else closeDrawer();
   });
-});
+}
 
 /* -- actions ------------------------------------------------------------------- */
 
@@ -523,5 +530,5 @@ export async function act(promise, done) {
 /** Open a terminal on the Terminal page. */
 export function showTerminal(id) {
   if (id) Hud.save("terminal", id);
-  window.location.href = "terminal.html";
+  go("terminal.html");
 }

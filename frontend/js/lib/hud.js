@@ -49,7 +49,9 @@ export const Hud = (() => {
       } catch (_) {
         /* a non-JSON error body is fine; the status line will do */
       }
-      throw new Error(detail);
+      const error = new Error(detail);
+      error.status = response.status;
+      throw error;
     }
     return response;
   }
@@ -91,8 +93,7 @@ export const Hud = (() => {
       try {
         const snapshot = await getJSON(Connection.route("snapshot"));
         setWaiting((snapshot.approvals || []).length);
-        hideGate();
-        onReady();
+        onReady(snapshot);
       } catch (err) {
         showGate(String(err.message || err));
       }
@@ -109,14 +110,33 @@ export const Hud = (() => {
   /* -- live stream ------------------------------------------------------- */
 
   const listeners = new Set();
+  const resyncers = new Set();
   let source = null;
   let retryDelay = 1000;
-  let statusEl = null;
+  let dropped = false; // the stream failed since it last opened
+  let status = { state: "", label: "Connecting" };
 
+  /* Every page part showing the connection light ([data-connection]) — a
+     tab mounted later is painted by decorate(). */
   function setStatus(state, label) {
-    if (!statusEl) statusEl = document.querySelector("[data-connection]");
-    if (!statusEl) return;
-    statusEl.innerHTML = `<span class="dot ${state}"></span>${label}`;
+    status = { state, label };
+    document.querySelectorAll("[data-connection]").forEach(paintStatus);
+  }
+
+  function paintStatus(node) {
+    node.innerHTML = `<span class="dot ${status.state}"></span>${status.label}`;
+  }
+
+  /* Events sent while the stream was down are gone, so anything kept from
+     them is stale: tell the pages to re-read. Tabs stay open for days. */
+  function resynced() {
+    resyncers.forEach((fn) => {
+      try {
+        fn();
+      } catch (err) {
+        console.error("resync failed", err);
+      }
+    });
   }
 
   function connect() {
@@ -129,6 +149,10 @@ export const Hud = (() => {
     source.onopen = () => {
       retryDelay = 1000;
       setStatus("live", "Online");
+      if (dropped) {
+        dropped = false;
+        resynced();
+      }
     };
 
     source.onmessage = (event) => {
@@ -149,6 +173,7 @@ export const Hud = (() => {
 
     source.onerror = () => {
       setStatus("down", "Reconnecting");
+      dropped = true;
       source.close();
       source = null;
       // Back off up to 15s so a stopped server does not spin the browser.
@@ -162,19 +187,37 @@ export const Hud = (() => {
     return () => listeners.delete(fn);
   };
 
+  /** fn() after the stream comes back from a drop, or after signing in again. */
+  const onResync = (fn) => {
+    resyncers.add(fn);
+    return () => resyncers.delete(fn);
+  };
+
   /* -- boot -------------------------------------------------------------- */
 
+  /**
+   * Sign in (or show the connect screen), open the event stream, then
+   * onReady(snapshot) with the snapshot that proved the token works — so a
+   * page needn't fetch it again. Only ever once: signing in again later
+   * (a token was rejected) reconnects and resyncs instead.
+   */
   async function start(onReady) {
-    wireGate(() => {
+    let started = false;
+    const ready = (snapshot) => {
+      hideGate();
       connect();
-      onReady();
-    });
+      if (started) return resynced();
+      started = true;
+      onReady(snapshot);
+    };
+    wireGate(ready);
     if (!Connection.token()) {
       showGate();
       return;
     }
+    let snapshot;
     try {
-      const snapshot = await getJSON(Connection.route("snapshot"));
+      snapshot = await getJSON(Connection.route("snapshot"));
       setWaiting((snapshot.approvals || []).length);
     } catch (err) {
       // Unreachable is as likely as unauthorised when the frontend is opened
@@ -182,9 +225,7 @@ export const Hud = (() => {
       if (String(err.message) !== "unauthorised") showGate(err.message);
       return;
     }
-    hideGate();
-    connect();
-    onReady();
+    ready(snapshot);
   }
 
   /* -- the phone's tab bar ------------------------------------------------
@@ -285,24 +326,43 @@ export const Hud = (() => {
     return "";
   }
 
-  function markNav() {
-    buildTabs();
+  /** A page's name from its path: "/dash/", "/dash/index.html" → "index". */
+  function pageName(path) {
     // "/dash/", "/dash/index.html" and "/dash/terminal" vs "terminal.html" are
     // the same pages, so compare on the page name alone.
-    const page = (path) =>
-      path.replace(/\/$/, "/index").split("/").pop().replace(/\.html$/, "") || "index";
-    const here = page(window.location.pathname);
-    document.querySelectorAll(".nav a, .tabbar a").forEach((link) => {
-      if (page(new URL(link.href).pathname) === here) link.classList.add("active");
-    });
-    // Links into the backend itself (API docs) follow whichever server this
-    // page is connected to.
-    document.querySelectorAll("[data-route-link]").forEach((link) => {
-      link.href = Connection.endpoint(link.dataset.routeLink);
+    return path.replace(/\/$/, "/index").split("/").pop().replace(/\.html$/, "") || "index";
+  }
+
+  /** Light the phone tab bar's link to `page` (tabs.js calls it on every switch). */
+  function markTabbar(page = pageName(window.location.pathname)) {
+    document.querySelectorAll(".tabbar a").forEach((link) => {
+      link.classList.toggle("active", pageName(new URL(link.href).pathname) === page);
     });
   }
 
-  document.addEventListener("DOMContentLoaded", markNav);
+  /**
+   * Bring a page part's chrome up to date: the nav link to the page it
+   * belongs to (`page`, default this address's), links into the backend,
+   * and the connection light. Tabs mounted later are decorated on arrival.
+   * The whole document also gets the phone's tab bar, once.
+   */
+  function decorate(root = document, page = pageName(window.location.pathname)) {
+    if (root === document) {
+      buildTabs();
+      markTabbar(page);
+    }
+    root.querySelectorAll(".nav a").forEach((link) => {
+      link.classList.toggle("active", pageName(new URL(link.href).pathname) === page);
+    });
+    // Links into the backend itself (API docs) follow whichever server this
+    // page is connected to.
+    root.querySelectorAll("[data-route-link]").forEach((link) => {
+      link.href = Connection.endpoint(link.dataset.routeLink);
+    });
+    root.querySelectorAll("[data-connection]").forEach(paintStatus);
+  }
+
+  document.addEventListener("DOMContentLoaded", () => decorate());
 
   return {
     api,
@@ -310,6 +370,10 @@ export const Hud = (() => {
     postJSON,
     start,
     onEvent,
+    onResync,
+    decorate,
+    markTabbar,
+    pageName,
     toast,
     ago,
     bytes,

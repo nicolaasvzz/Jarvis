@@ -227,27 +227,37 @@
 
   // Elements marked data-app-name show the configured name; "dotted" spells
   // it J.A.R.V.I.S.-style. Titles are "<name> — <page>".
-  function applyBranding() {
+  function applyBranding(root) {
     var name = String(settings.appName || DEFAULTS.appName);
-    document.querySelectorAll("[data-app-name]").forEach(function (el) {
+    (root || document).querySelectorAll("[data-app-name]").forEach(function (el) {
       el.textContent =
         el.getAttribute("data-app-name") === "dotted"
           ? name.toUpperCase().split("").join(".") + "."
           : name;
     });
-    var page = document.documentElement.getAttribute("data-page");
-    document.title = page ? name + " — " + page : name;
+    setTitle(document.documentElement.getAttribute("data-page"));
     if (settings.tokenHint) {
-      document.querySelectorAll("[data-token-hint]").forEach(function (el) {
+      (root || document).querySelectorAll("[data-token-hint]").forEach(function (el) {
         el.textContent = settings.tokenHint;
       });
     }
   }
+  function setTitle(page) {
+    var name = String(settings.appName || DEFAULTS.appName);
+    if (page) document.documentElement.setAttribute("data-page", page);
+    document.title = page ? name + " — " + page : name;
+  }
   if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", applyBranding);
+    document.addEventListener("DOMContentLoaded", function () {
+      applyBranding();
+    });
   } else {
     applyBranding();
   }
+
+  // For page parts added after load (a tab's screen arriving).
+  Connection.applyBranding = applyBranding;
+  Connection.setTitle = setTitle;
 
   window.HudConnection = Connection;
 })();

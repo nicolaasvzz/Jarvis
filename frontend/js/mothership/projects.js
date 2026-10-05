@@ -9,7 +9,8 @@
 import { Hud } from "../lib/hud.js";
 import { state, project as findProject } from "./state.js";
 import {
-  esc, $, $$, icon, ago, clock, act, openForm, closeForm, showTerminal, drawCharts, openViewer,
+  esc, $, $$, icon, ago, clock, act, openForm, closeForm, showTerminal, drawCharts, shown,
+  openViewer,
 } from "./ui.js";
 import {
   card as controlCard, topButton, wire as wireControls, editControl,
@@ -187,7 +188,7 @@ export function render(root, params) {
 
   if (p.status_file) {
     pollStatus(p.id);
-    statusTimer = setInterval(() => document.hidden || pollStatus(p.id), 5000);
+    statusTimer = setInterval(() => document.hidden || !shown(root) || pollStatus(p.id), 5000);
   }
   const reports = root.querySelector("#reports");
   if (reports) {
@@ -206,7 +207,7 @@ export function render(root, params) {
       }
     });
     pollReports(p.id);
-    reportsTimer = setInterval(() => document.hidden || pollReports(p.id), 15000);
+    reportsTimer = setInterval(() => document.hidden || !shown(root) || pollReports(p.id), 15000);
   }
   drawCharts();
   return () => {
@@ -246,8 +247,8 @@ function reportsHtml(data) {
   if (!reports.length) return '<p class="muted pad">No reports yet — every run of a mode leaves one here.</p>';
   const kinds = [...new Set(reports.map((r) => r.kind || ""))];
   if (reportKind !== "all" && !kinds.includes(reportKind)) reportKind = "all";
-  const shown = reports.filter((r) => reportKind === "all" || (r.kind || "") === reportKind);
-  const list = allReports ? shown : shown.slice(0, REPORTS_SHOWN);
+  const matching = reports.filter((r) => reportKind === "all" || (r.kind || "") === reportKind);
+  const list = allReports ? matching : matching.slice(0, REPORTS_SHOWN);
   const chips = kinds.length > 1
     ? `<div class="chips small">${["all", ...kinds]
         .map((k) => {
@@ -268,8 +269,8 @@ function reportsHtml(data) {
         <small class="muted">${esc(ago(r.created_at))} · ${esc(clock(r.created_at))}</small></span>
         <span class="report-open">${icon("external")}</span></li>`;
     })
-    .join("")}</ul>${shown.length > REPORTS_SHOWN
-      ? `<button class="btn ghost small more" data-more-reports>${allReports ? "Show fewer" : `Show all ${shown.length}`}</button>`
+    .join("")}</ul>${matching.length > REPORTS_SHOWN
+      ? `<button class="btn ghost small more" data-more-reports>${allReports ? "Show fewer" : `Show all ${matching.length}`}</button>`
       : ""}${data.total > (data.reports || []).length
       ? `<p class="muted pad">The newest ${(data.reports || []).length} of ${data.total} are listed.</p>` : ""}`;
 }

@@ -6,14 +6,30 @@
  * Jarvis is doing: resting cyan, amber while thinking, pulsing in time with
  * its own voice while speaking, red on failure.
  *
- * The one performance trick worth knowing: the sphere is *rigid*, so which
- * points are neighbours never changes. Those pairs are computed once at
- * startup rather than every frame, turning an O(n^2) distance check per frame
- * into a fixed list to draw. That is the difference between 600 points at 60fps
- * and a slideshow.
+ * The performance tricks worth knowing:
+ *
+ * - The sphere is *rigid*, so which points are neighbours never changes.
+ *   Those pairs are computed once at startup rather than every frame, turning
+ *   an O(n^2) distance check per frame into a fixed list to draw.
+ *
+ * - Nothing is drawn one dot at a time with its own colour. Setting a canvas
+ *   colour from an "rgba(...)" string makes the browser parse CSS, and doing
+ *   that 1,500 times a frame was most of the cost. Instead every dot's
+ *   brightness is rounded to one of a few dozen levels (finer than the eye
+ *   can tell apart on a dot this size), and each level is drawn in one go
+ *   with a numeric globalAlpha.
+ *
+ * - The glow is a gradient painted once into a small sprite per colour and
+ *   stretched into place, rather than built anew every frame.
+ *
+ * - It draws at most ~80 frames a second: a 144 Hz screen would otherwise
+ *   ask for twice the work for motion this slow, and nobody could tell.
  */
 
 const TAU = Math.PI * 2;
+const FRAME_MS = 12.5; // skip a display refresh that comes sooner than this
+const LEVELS = 128; // brightness steps per unit of alpha
+const GLOW_SPRITE = 512; // px; the glow is a smooth gradient, so this stretches well
 
 /* Deterministic, cheap surface wobble. Real noise would be overkill: summed
  * sines of the point's own coordinates give an organic undulation that never
@@ -26,12 +42,78 @@ function wobble(x, y, z, t) {
   );
 }
 
+const RINGS = [
+  { radius: 1.52, speed: 0.16, arc: 0.72, width: 1.1, offset: 0 },
+  { radius: 1.74, speed: -0.1, arc: 0.28, width: 2.2, offset: 0 },
+  { radius: 1.74, speed: -0.1, arc: 0.16, width: 2.2, offset: Math.PI },
+  { radius: 2.02, speed: 0.06, arc: 0.44, width: 0.8, offset: 0 },
+];
+
+/**
+ * Dots drawn in brightness batches. add() a dot with its alpha, then draw()
+ * fills every dot of one brightness with one globalAlpha — a counting sort,
+ * so it stays linear however many dots there are.
+ */
+class DotBatch {
+  constructor(capacity) {
+    this.x = new Float32Array(capacity);
+    this.y = new Float32Array(capacity);
+    this.size = new Float32Array(capacity);
+    this.level = new Uint16Array(capacity);
+    this.order = new Uint32Array(capacity);
+    this.counts = new Uint32Array(LEVELS + 1);
+    this.length = 0;
+  }
+
+  clear() {
+    this.length = 0;
+  }
+
+  add(x, y, size, alpha) {
+    const level = Math.round(alpha * LEVELS);
+    if (level <= 0) return; // invisible either way
+    const i = this.length++;
+    this.x[i] = x;
+    this.y[i] = y;
+    this.size[i] = size;
+    this.level[i] = level > LEVELS ? LEVELS : level;
+  }
+
+  draw(ctx) {
+    const { counts, order, level, length } = this;
+    counts.fill(0);
+    for (let i = 0; i < length; i++) counts[level[i]]++;
+    // counts → the index each level's run starts at.
+    let start = 0;
+    for (let l = 0; l <= LEVELS; l++) {
+      const n = counts[l];
+      counts[l] = start;
+      start += n;
+    }
+    for (let i = 0; i < length; i++) order[counts[level[i]]++] = i;
+
+    let i = 0;
+    while (i < length) {
+      const l = level[order[i]];
+      ctx.globalAlpha = l / LEVELS;
+      for (; i < length && level[order[i]] === l; i++) {
+        const k = order[i];
+        ctx.fillRect(this.x[k], this.y[k], this.size[k], this.size[k]);
+      }
+    }
+    ctx.globalAlpha = 1;
+  }
+}
+
 export class Core {
   constructor(canvas, options = {}) {
     this.canvas = canvas;
     this.ctx = canvas.getContext("2d", { alpha: true });
     this.accent = options.accent || "#22d3ee";
     this.driftCount = options.particles ?? 900;
+    // The element whose classes say "thinking" or "error", which re-tints
+    // the HUD around the sphere.
+    this.moodRoot = options.root || document.body;
 
     this.state = "idle";
     this.energy = 0;       // 0..1, eased toward the state's target
@@ -41,21 +123,23 @@ export class Core {
     this.pointCount = options.points ?? 620;
     this.buildSphere();
     this.buildDrift();
+    this.dots = new DotBatch(this.pointCount + this.driftCount);
+    this.glows = new Map(); // colour → pre-rendered glow sprite
 
     this.rotation = 0;
     this.tilt = -0.22;
     this.last = performance.now();
-    this.running = false;
+    this.wanted = false;   // start() was called and stop() wasn't
+    this.running = false;  // a frame is scheduled
+    this.frame = 0;        // its requestAnimationFrame id
+    this.width = 0;
+    this.height = 0;
 
     this.onResize = this.onResize.bind(this);
     this.tick = this.tick.bind(this);
     window.addEventListener("resize", this.onResize);
-    document.addEventListener("visibilitychange", () => {
-      // A hidden tab should not burn battery animating nothing.
-      if (document.hidden) this.stop();
-      else this.start();
-    });
-    this.onResize();
+    // A hidden tab should not burn battery animating nothing.
+    document.addEventListener("visibilitychange", () => this.resume());
   }
 
   /* -- geometry ---------------------------------------------------------- */
@@ -126,6 +210,9 @@ export class Core {
   /* -- lifecycle --------------------------------------------------------- */
 
   onResize() {
+    // A canvas on a hidden screen measures 0; keep the last real size and
+    // measure again when it is shown (start() does).
+    if (!this.canvas.clientWidth || !this.canvas.clientHeight) return;
     // Cap the pixel ratio: a 3x retina buffer costs 9x the fill rate for a
     // difference nobody can see on a glow effect.
     const ratio = Math.min(window.devicePixelRatio || 1, 2);
@@ -138,22 +225,39 @@ export class Core {
   }
 
   start() {
-    if (this.running) return;
-    this.running = true;
-    this.last = performance.now();
-    requestAnimationFrame(this.tick);
+    this.wanted = true;
+    this.onResize();
+    this.resume();
   }
 
   stop() {
+    this.wanted = false;
+    this.halt();
+  }
+
+  /** Run if wanted and the page is visible; pause while it isn't. */
+  resume() {
+    if (document.hidden || !this.wanted) {
+      this.halt();
+      return;
+    }
+    if (this.running) return;
+    this.running = true;
+    this.last = performance.now();
+    this.frame = requestAnimationFrame(this.tick);
+  }
+
+  halt() {
     this.running = false;
+    cancelAnimationFrame(this.frame);
   }
 
   /* -- external state ---------------------------------------------------- */
 
   setState(state) {
     this.state = state;
-    document.body.classList.toggle("is-thinking", state === "thinking");
-    document.body.classList.toggle("is-error", state === "error");
+    this.moodRoot.classList.toggle("is-thinking", state === "thinking");
+    this.moodRoot.classList.toggle("is-error", state === "error");
   }
 
   /** Live voice loudness, 0..1, drives the pulse while speaking. */
@@ -183,6 +287,8 @@ export class Core {
 
   tick(now) {
     if (!this.running) return;
+    this.frame = requestAnimationFrame(this.tick);
+    if (now - this.last < FRAME_MS) return; // a high-refresh screen's extra frame
     // Clamped at both ends. The upper bound stops a backgrounded tab from
     // lurching when it resumes; the lower bound matters more than it looks,
     // because a negative delta feeds Math.exp an ever-growing positive
@@ -199,44 +305,43 @@ export class Core {
     this.rotation += dt * 0.00013 * (0.55 + this.energy * 2.4);
 
     const ctx = this.ctx;
+    const rgb = this.colour();
     ctx.clearRect(0, 0, this.width, this.height);
-    this.drawDrift(dt, t);
-    this.drawSphere(t);
-    requestAnimationFrame(this.tick);
+    ctx.fillStyle = `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`;
+    this.dots.clear();
+    this.queueDrift(dt, t);
+    this.dots.draw(ctx); // the drift sits behind the sphere's wireframe
+    this.dots.clear();
+    this.drawSphere(t, rgb);
   }
 
-  drawDrift(dt, t) {
-    if (!this.drift.length) return;
-    const ctx = this.ctx;
-    const [r, g, b] = this.colour();
-    ctx.save();
+  queueDrift(dt, t) {
+    const w = this.width;
+    const h = this.height;
+    const along = 1 + this.energy * 2;
+    const rise = 1 + this.energy * 3;
+    const glow = 0.34 * (0.45 + this.energy);
     for (const mote of this.drift) {
-      mote.x += mote.vx * dt * (1 + this.energy * 2);
-      mote.y += mote.vy * dt * (1 + this.energy * 3);
+      mote.x += mote.vx * dt * along;
+      mote.y += mote.vy * dt * rise;
       if (mote.y < -0.06) Object.assign(mote, this.newMote(false));
       if (mote.x < -0.05) mote.x = 1.05;
       if (mote.x > 1.05) mote.x = -0.05;
 
       // Twinkle, scaled by depth so far motes stay quiet.
       const twinkle = 0.55 + 0.45 * Math.sin(t * 1.7 + mote.phase);
-      const alpha = mote.z * 0.34 * twinkle * (0.45 + this.energy);
-      ctx.fillStyle = `rgba(${r},${g},${b},${alpha.toFixed(3)})`;
-      ctx.fillRect(
-        mote.x * this.width,
-        mote.y * this.height,
-        mote.size * mote.z,
-        mote.size * mote.z
-      );
+      const size = mote.size * mote.z;
+      this.dots.add(mote.x * w, mote.y * h, size, mote.z * glow * twinkle);
     }
-    ctx.restore();
   }
 
-  drawSphere(t) {
+  drawSphere(t, rgb) {
     const ctx = this.ctx;
+    const [r, g, b] = rgb;
     const cx = this.width / 2;
     const cy = this.height / 2;
-    const [r, g, b] = this.colour();
     const n = this.pointCount;
+    const p = this.projected;
 
     const breathe = 1 + Math.sin(t * 0.85) * 0.014;
     const surge = this.amplitude * 0.16 + this.flash * 0.07;
@@ -255,9 +360,9 @@ export class Core {
       const pz = this.points[i * 3 + 2];
 
       const scale = 1 + wobble(px, py, pz, t) * roughness;
-      let x = px * scale;
-      let y = py * scale;
-      let z = pz * scale;
+      const x = px * scale;
+      const y = py * scale;
+      const z = pz * scale;
 
       // Yaw, then pitch.
       const rx = x * cosR - z * sinR;
@@ -267,70 +372,76 @@ export class Core {
 
       // Mild perspective: nearer points spread out and brighten.
       const perspective = 1 / (1.85 - dz * 0.55);
-      this.projected[i * 4] = cx + rx * base * perspective * 1.85;
-      this.projected[i * 4 + 1] = cy + ry * base * perspective * 1.85;
-      this.projected[i * 4 + 2] = perspective;
-      this.projected[i * 4 + 3] = dz;
+      p[i * 4] = cx + rx * base * perspective * 1.85;
+      p[i * 4 + 1] = cy + ry * base * perspective * 1.85;
+      p[i * 4 + 2] = perspective;
+      p[i * 4 + 3] = dz;
     }
 
     // 2. Edges — the wireframe that gives it structure.
+    const edges = this.edges;
     ctx.lineWidth = 0.7;
     ctx.beginPath();
-    for (let e = 0; e < this.edges.length; e += 2) {
-      const i = this.edges[e];
-      const j = this.edges[e + 1];
-      const di = this.projected[i * 4 + 3];
-      const dj = this.projected[j * 4 + 3];
-      if (di < -0.15 && dj < -0.15) continue; // fully behind: skip
-      ctx.moveTo(this.projected[i * 4], this.projected[i * 4 + 1]);
-      ctx.lineTo(this.projected[j * 4], this.projected[j * 4 + 1]);
+    for (let e = 0; e < edges.length; e += 2) {
+      const i = edges[e] * 4;
+      const j = edges[e + 1] * 4;
+      if (p[i + 3] < -0.15 && p[j + 3] < -0.15) continue; // fully behind: skip
+      ctx.moveTo(p[i], p[i + 1]);
+      ctx.lineTo(p[j], p[j + 1]);
     }
     ctx.strokeStyle = `rgba(${r},${g},${b},${(0.1 + this.energy * 0.2).toFixed(3)})`;
     ctx.stroke();
 
     // 3. Points, brighter toward the viewer.
+    const grow = 0.85 + this.energy * 1.5;
     for (let i = 0; i < n; i++) {
-      const depth = this.projected[i * 4 + 3];
-      const alpha = (depth + 1.15) / 2.3;
-      const size = this.projected[i * 4 + 2] * (0.85 + this.energy * 1.5);
-      ctx.fillStyle = `rgba(${r},${g},${b},${(alpha * 0.85).toFixed(3)})`;
-      ctx.fillRect(
-        this.projected[i * 4] - size / 2,
-        this.projected[i * 4 + 1] - size / 2,
-        size,
-        size
-      );
+      const depth = p[i * 4 + 3];
+      const size = p[i * 4 + 2] * grow;
+      this.dots.add(p[i * 4] - size / 2, p[i * 4 + 1] - size / 2, size,
+        ((depth + 1.15) / 2.3) * 0.85);
     }
+    this.dots.draw(ctx);
 
-    // 4. The glow at the heart of it.
+    // 4. The glow at the heart of it: a pre-drawn sprite, faded and sized.
     const glowRadius = base * (1.28 + this.amplitude * 0.3);
-    const glow = ctx.createRadialGradient(cx, cy, 0, cx, cy, glowRadius);
     const strength = 0.14 + this.energy * 0.2 + this.flash * 0.18;
-    glow.addColorStop(0, `rgba(${r},${g},${b},${strength.toFixed(3)})`);
-    glow.addColorStop(0.55, `rgba(${r},${g},${b},${(strength * 0.28).toFixed(3)})`);
-    glow.addColorStop(1, "rgba(0,0,0,0)");
-    ctx.fillStyle = glow;
-    ctx.beginPath();
-    ctx.arc(cx, cy, glowRadius, 0, TAU);
-    ctx.fill();
+    ctx.globalAlpha = Math.min(1, strength);
+    ctx.drawImage(this.glowSprite(rgb), cx - glowRadius, cy - glowRadius,
+      glowRadius * 2, glowRadius * 2);
+    ctx.globalAlpha = 1;
 
-    this.drawRings(cx, cy, base, t, [r, g, b]);
+    this.drawRings(cx, cy, base, t, rgb);
+  }
+
+  /** The glow gradient at full strength, drawn once per colour. */
+  glowSprite([r, g, b]) {
+    const key = `${r},${g},${b}`;
+    let sprite = this.glows.get(key);
+    if (sprite) return sprite;
+    sprite = document.createElement("canvas");
+    sprite.width = sprite.height = GLOW_SPRITE;
+    const c = sprite.getContext("2d");
+    const half = GLOW_SPRITE / 2;
+    const glow = c.createRadialGradient(half, half, 0, half, half, half);
+    glow.addColorStop(0, `rgba(${key},1)`);
+    glow.addColorStop(0.55, `rgba(${key},0.28)`);
+    glow.addColorStop(1, "rgba(0,0,0,0)");
+    c.fillStyle = glow;
+    c.beginPath();
+    c.arc(half, half, half, 0, TAU);
+    c.fill();
+    this.glows.set(key, sprite);
+    return sprite;
   }
 
   /* Instrument rings — arcs at fixed radii, each turning at its own rate. */
   drawRings(cx, cy, base, t, [r, g, b]) {
     const ctx = this.ctx;
-    const rings = [
-      { radius: 1.52, speed: 0.16, arc: 0.72, width: 1.1 },
-      { radius: 1.74, speed: -0.1, arc: 0.28, width: 2.2 },
-      { radius: 1.74, speed: -0.1, arc: 0.16, width: 2.2, offset: Math.PI },
-      { radius: 2.02, speed: 0.06, arc: 0.44, width: 0.8 },
-    ];
-    for (const ring of rings) {
-      const start = t * ring.speed + (ring.offset || 0);
+    ctx.strokeStyle = `rgba(${r},${g},${b},${(0.1 + this.energy * 0.24).toFixed(3)})`;
+    for (const ring of RINGS) {
+      const start = t * ring.speed + ring.offset;
       ctx.beginPath();
       ctx.arc(cx, cy, base * ring.radius, start, start + ring.arc * TAU);
-      ctx.strokeStyle = `rgba(${r},${g},${b},${(0.1 + this.energy * 0.24).toFixed(3)})`;
       ctx.lineWidth = ring.width;
       ctx.stroke();
     }
@@ -339,18 +450,24 @@ export class Core {
     ctx.strokeStyle = `rgba(${r},${g},${b},${(0.08 + this.energy * 0.14).toFixed(3)})`;
     ctx.lineWidth = 1;
     ctx.beginPath();
+    const inner = base * 2.2;
     for (let i = 0; i < 72; i++) {
       const angle = (i / 72) * TAU - t * 0.03;
-      const inner = base * 2.2;
       const outer = inner + (i % 6 === 0 ? 9 : 4);
-      ctx.moveTo(cx + Math.cos(angle) * inner, cy + Math.sin(angle) * inner);
-      ctx.lineTo(cx + Math.cos(angle) * outer, cy + Math.sin(angle) * outer);
+      const cos = Math.cos(angle);
+      const sin = Math.sin(angle);
+      ctx.moveTo(cx + cos * inner, cy + sin * inner);
+      ctx.lineTo(cx + cos * outer, cy + sin * outer);
     }
     ctx.stroke();
   }
 }
 
+const rgbCache = new Map();
+
 function hexToRgb(hex) {
+  let rgb = rgbCache.get(hex);
+  if (rgb) return rgb;
   const clean = hex.replace("#", "");
   const value = parseInt(
     clean.length === 3
@@ -361,5 +478,7 @@ function hexToRgb(hex) {
       : clean,
     16
   );
-  return [(value >> 16) & 255, (value >> 8) & 255, value & 255];
+  rgb = [(value >> 16) & 255, (value >> 8) & 255, value & 255];
+  rgbCache.set(hex, rgb);
+  return rgb;
 }

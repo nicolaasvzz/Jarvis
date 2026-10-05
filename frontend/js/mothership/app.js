@@ -6,11 +6,15 @@
  * event stream; when a part changes, the views that use it redraw. A view
  * isn't redrawn while you are typing in it, so live updates never steal
  * your cursor — it catches up when you leave the field.
+ *
+ * It is one tab of several (js/lib/tabs.js), and mounted early: its data is
+ * loaded and kept current in the background, so opening it is instant.
+ * Nothing is drawn while another tab is showing; show() catches up.
  */
 
 import { Hud } from "../lib/hud.js";
 import { state, onChange, loadAll, load, hear, controlTerminal } from "./state.js";
-import { esc, $, $$, icon, ago, act, refreshDrawer, closeDrawer } from "./ui.js";
+import { esc, $, $$, icon, ago, act, refreshDrawer, closeDrawer, drawCharts, wireChrome } from "./ui.js";
 import * as overview from "./overview.js";
 import * as requests from "./requests.js";
 import * as controls from "./controls.js";
@@ -53,6 +57,8 @@ const VIEWS = {
 
 let current = { name: null, params: {}, cleanup: null };
 let stale = false;
+let visible = false;
+let missed = false; // something changed while another tab was showing
 
 /* -- routing ------------------------------------------------------------------- */
 
@@ -64,7 +70,7 @@ function parseHash() {
   return { name: VIEWS[name] ? name : "overview", params };
 }
 
-function show() {
+function route() {
   const { name, params } = parseHash();
   if (current.cleanup) current.cleanup();
   current = { name, params, cleanup: null };
@@ -74,6 +80,7 @@ function show() {
 }
 
 function draw(force = false) {
+  if (!current.name) return;
   const root = $("#ms-view");
   const active = document.activeElement;
   const typing = active && root.contains(active) && /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName);
@@ -236,38 +243,83 @@ function askBar() {
   });
   document.addEventListener("keydown", (event) => {
     const tag = (document.activeElement && document.activeElement.tagName) || "";
-    if (event.key === "/" && !/^(INPUT|TEXTAREA|SELECT)$/.test(tag)) {
+    if (visible && event.key === "/" && !/^(INPUT|TEXTAREA|SELECT)$/.test(tag)) {
       event.preventDefault();
       input.focus();
     }
   });
 }
 
-/* -- boot ----------------------------------------------------------------------------- */
+/* -- the tab's life ------------------------------------------------------------------- */
 
-Hud.start(async () => {
-  await loadAll();
-  window.addEventListener("hashchange", show);
-  show();
-  sidebar();
+export const early = true;
+
+export async function mount(snapshot) {
+  wireChrome();
   askBar();
-
+  await loadAll(snapshot);
+  // A burst of events (a request running) is one redraw a frame, not one each.
+  let queued = false;
+  let viewChanged = false;
   onChange((part) => {
-    sidebar();
-    if (VIEWS[current.name].parts.includes(part)) draw();
-    refreshDrawer();
+    if (!visible) {
+      missed = true;
+      return;
+    }
+    if (current.name && VIEWS[current.name].parts.includes(part)) viewChanged = true;
+    if (queued) return;
+    queued = true;
+    requestAnimationFrame(() => {
+      queued = false;
+      sidebar();
+      if (viewChanged) draw();
+      viewChanged = false;
+      refreshDrawer();
+    });
   });
   Hud.onEvent(hear);
 
+  // Its #/… address only means something while this tab is the one showing.
+  window.addEventListener("hashchange", () => {
+    if (!visible) return;
+    route();
+    closeDrawer();
+  });
   // Catch up after typing; keep stats and hand-edited controls current.
-  document.addEventListener("focusout", () => setTimeout(() => stale && draw(), 50));
-  setInterval(() => !document.hidden && current.name === "overview" && load("stats"), 4000);
-  setInterval(() => !document.hidden && load("mothership"), 10000);
+  document.addEventListener("focusout", () => setTimeout(() => visible && stale && draw(), 50));
+  const live = () => visible && !document.hidden;
+  setInterval(() => live() && current.name === "overview" && load("stats"), 4000);
+  setInterval(() => live() && load("mothership"), 10000);
 
   $("#ms-burger").addEventListener("click", () => $("#ms-side").classList.toggle("open"));
   $("#nav-new-project").addEventListener("click", () => editProject());
-  window.addEventListener("hashchange", closeDrawer);
-});
 
-// Exported for the console, when poking at a running page.
-window.Mothership = { state, controlTerminal };
+  // Exported for the console, when poking at a running page.
+  window.Mothership = { state, controlTerminal };
+}
+
+/** This tab is showing: follow the address, and redraw what changed meanwhile. */
+export function show() {
+  visible = true;
+  const { name, params } = parseHash();
+  if (name !== current.name || JSON.stringify(params) !== JSON.stringify(current.params)) {
+    route();
+    sidebar();
+  } else if (missed) {
+    sidebar();
+    draw();
+    refreshDrawer();
+  } else {
+    drawCharts(); // the window may have changed size meanwhile
+  }
+  missed = false;
+  if (current.name === "overview") load("stats");
+}
+
+export function hide() {
+  visible = false;
+}
+
+export function resync() {
+  loadAll();
+}

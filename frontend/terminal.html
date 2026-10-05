@@ -18,6 +18,8 @@
 </head>
 <body class="hud-page">
 
+<div class="screen" data-screen="terminal" data-title="Terminal" data-module="js/pages/terminal.js">
+
 <div class="hud term-page">
 
   <header class="topbar">
@@ -35,9 +37,9 @@
   </header>
 
   <div class="col col-left">
-    <section class="panel" id="approvals-panel" style="display:none">
-      <h2>Approval Needed <span class="count" id="approval-count"></span></h2>
-      <div class="body" id="approvals"></div>
+    <section class="panel" id="term-approvals-panel" style="display:none">
+      <h2>Approval Needed <span class="count" id="term-approval-count"></span></h2>
+      <div class="body" id="term-approvals"></div>
     </section>
 
     <section class="panel grow">
@@ -99,6 +101,8 @@
 
 </div>
 
+</div>
+
 <div id="toasts"></div>
 
 <div id="gate" style="display:none">
@@ -118,6 +122,6 @@
 <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.min.js"></script>
 <script src="config.js"></script>
 <script src="js/lib/connection.js"></script>
-<script type="module" src="js/pages/terminal.js"></script>
+<script type="module" src="js/lib/tabs.js"></script>
 </body>
 </html>
