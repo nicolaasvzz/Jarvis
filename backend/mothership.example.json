@@ -6,8 +6,8 @@
       "group": "TradeBot",
       "project": "p-tradebot",
       "kind": "command",
-      "action": ".\\run-local.ps1 -Mode champ -For {limit} -Round {round} -Style {style} -Confidence {confidence} -Bet {bet} -Custom {custom} -Money {money} -Research {research}",
-      "description": "Keeps improving the champion set of indicators - adding, swapping and re-weighting them, kept only when it beats the champion on training and held-out data - until every indicator has been tried in the set. Then it stops by itself and writes a report. Stop any time: it carries on where it left off.",
+      "action": ".\\run-local.ps1 -Mode champ -For {limit} -Only {only} -Style {style} -Confidence {confidence} -Bet {bet} -Custom {custom} -Money {money} -Research {research}",
+      "description": "Masters the 4-hour, 1-hour and 30-minute charts one after another (the clearest indicators of each, look-alikes counted once), then builds one setup for stocks and one for crypto that trade only on the 1-hour chart, when all three charts agree and the target looks likelier than the stop. Stop, target and time limit come from how past trades really moved. A setup is only called proven when it wins in most of four later stretches of history by more than luck explains; the final check is never used to choose. Usually takes minutes; writes a report.",
       "trusted": false,
       "inputs": [
         {
@@ -47,26 +47,22 @@
           ]
         },
         {
-          "name": "round",
-          "label": "Each round lasts up to",
+          "name": "only",
+          "label": "Stocks or crypto",
           "kind": "choice",
-          "default": "1h",
+          "default": "both",
           "options": [
             {
-              "label": "15 minutes",
-              "value": "15m"
+              "label": "Both (each gets its own setup)",
+              "value": "both"
             },
             {
-              "label": "30 minutes",
-              "value": "30m"
+              "label": "Stocks only",
+              "value": "stock"
             },
             {
-              "label": "1 hour",
-              "value": "1h"
-            },
-            {
-              "label": "2 hours",
-              "value": "2h"
+              "label": "Crypto only",
+              "value": "crypto"
             }
           ]
         },
@@ -96,7 +92,7 @@
         },
         {
           "name": "confidence",
-          "label": "Confidence needed",
+          "label": "Confidence needed (chance of the target before the stop)",
           "kind": "choice",
           "default": "0",
           "options": [
@@ -624,10 +620,30 @@
       "group": "TradeBot",
       "project": "p-tradebot",
       "kind": "command",
-      "action": ".\\run-local.ps1 -Mode package -Style {style} -Confidence {confidence} -Bet {bet} -Custom {custom} -Money {money} -Research {research}",
-      "description": "The main mode: trades the champion set on your Alpaca paper account with your API key, every 10 minutes (stocks while the market is open, crypto around the clock), and picks up a better champion as soon as the builder finds one. Stop leaves positions open on the account; a report is kept when it stops.",
+      "action": ".\\run-local.ps1 -Mode package -Only {only} -Style {style} -Confidence {confidence} -Bet {bet} -Custom {custom} -Money {money} -Research {research}",
+      "description": "The main mode: trades the champion setups on your Alpaca paper account. It decides when a 1-hour candle closes (crypto around the clock, stocks while the market is open) and watches its trades every 10 minutes: stop, target, time limit, and stocks close by the bell. With news research on, agreeing news can keep a trade open longer. Small stock accounts keep within the 3-day-trades rule. Picks up a new champion as soon as the builder finds one; stop leaves positions open; a report is kept when it stops.",
       "trusted": false,
       "inputs": [
+        {
+          "name": "only",
+          "label": "Stocks or crypto",
+          "kind": "choice",
+          "default": "both",
+          "options": [
+            {
+              "label": "Both (each gets its own setup)",
+              "value": "both"
+            },
+            {
+              "label": "Stocks only",
+              "value": "stock"
+            },
+            {
+              "label": "Crypto only",
+              "value": "crypto"
+            }
+          ]
+        },
         {
           "name": "style",
           "label": "Strategy to try",
@@ -654,7 +670,7 @@
         },
         {
           "name": "confidence",
-          "label": "Confidence needed",
+          "label": "Confidence needed (chance of the target before the stop)",
           "kind": "choice",
           "default": "0",
           "options": [

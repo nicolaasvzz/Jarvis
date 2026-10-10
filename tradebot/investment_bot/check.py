@@ -12,8 +12,10 @@ dry run keeps its book in a throwaway file.
 3. a small backtest on made-up prices: the strategies, risk and engine
 4. Alpaca: keys, the account, the market clock, positions
 5. candles: a stock and a crypto pair from Alpaca, and the backtest feed
-6. the indicator lab: results, champion package, symbol list, indicator store
-7. the package trader: one dry-run cycle on a few symbols
+6. the champ-set builder: its champion setups and its chart store; the older
+   indicator lab: results, champion package, symbol list, indicator store
+7. the traders: one dry-run look each (1h setups, and the older package
+   trader) on a few symbols
 8. the files Jarvis reads: ``jarvis_status.json`` and ``reports/``
 """
 from __future__ import annotations
@@ -283,9 +285,47 @@ def run_checks(config_path: str | None, quick: bool = False,
         size = sum(p.stat().st_size for p in Path(cfg.feature_dir).glob("*/feat.npy"))
         return f"{len(symbols)} symbols x {len(fs.columns)} indicator columns, {size / 1e9:.1f} GB"
 
-    check("Lab results", lab)
+    def champ() -> str:
+        from .lab.champ import SESSION_FILE, ChampConfig, load_champions, running_builder
+        from .lab.setups import Setup
+
+        cfg = ChampConfig.from_config(ctx["config"])
+        champions = load_champions(cfg.results_file)
+        other = running_builder(SESSION_FILE)
+        running = f"; the builder is running now (process {other})" if other else ""
+        if not champions:
+            raise Warn(f"no champion setup in {cfg.results_file} yet: run the champ-set "
+                       f"builder{running}")
+        ctx["setups"] = champions
+        parts = []
+        for cls, champ in champions.items():
+            setup = Setup.from_dict(champ["setup"])
+            test = ((champ.get("metrics") or {}).get("test") or {}).get("total_return", 0.0)
+            parts.append(f"{cls}: {'proven' if champ.get('proven') else 'NOT proven'}, "
+                         f"{len(setup.features)} indicators on 3 charts, test {test:+.1%}")
+        line = "; ".join(parts) + running
+        if not all(c.get("proven") for c in champions.values()):
+            raise Warn(line + " (unproven setups trade small, paper only)")
+        return line
+
+    def charts() -> str:
+        from .lab.champ import ChampConfig
+        from .lab.features import FeatureStore
+
+        cfg = ChampConfig.from_config(ctx["config"])
+        fs = FeatureStore(cfg.feature_dir)
+        symbols = fs.symbols()
+        if not symbols:
+            raise Warn(f"{cfg.feature_dir} is empty: the champ-set builder builds it")
+        size = sum(p.stat().st_size for p in Path(cfg.feature_dir).glob("*/feat.npy"))
+        return (f"{len(symbols)} symbols x {len(fs.columns)} columns (1h, 30m, 4h), "
+                f"{size / 1e9:.1f} GB")
+
+    check("Champ-set builder", champ)
+    check("Chart store", charts)
+    check("Lab results (older lab)", lab)
     check("Lab symbol list", universe)
-    check("Indicator store", store)
+    check("Indicator store (older lab)", store)
 
     # 7. the trader, dry run ------------------------------------------------------------------
     def trader() -> str:
@@ -318,6 +358,38 @@ def run_checks(config_path: str | None, quick: bool = False,
         return f"one dry-run cycle on {names}, no orders placed. {summary}"
 
     check("Package trader (dry run)", trader)
+
+    def setup_trader() -> str:
+        if "broker" not in ctx:
+            raise Skip("no Alpaca account")
+        if "setups" not in ctx:
+            raise Skip("no champion setup to trade")
+        from .data.alpaca_data import AlpacaData
+        from .lab.prepare import LabConfig
+        from .lab.setup_trader import SetupTrader
+
+        cfg = LabConfig.from_config(ctx["config"])
+        lines: list[str] = []
+        data = AlpacaData(scratch / "alpaca", feed=cfg.feed)
+        t = SetupTrader(ctx["config"], ctx["broker"], data, say=lines.append, dry_run=True,
+                        state_file=scratch / "setup_trader.json")
+        t.load_setups()
+        everything = t.universe()
+        stocks = [u for u in everything if u.get("class") != "crypto"][:2]
+        crypto = [u for u in everything if u.get("class") == "crypto"][:1]
+        sample = stocks + crypto
+        if not sample:
+            raise Skip("no symbol list yet")
+        t.universe = lambda: sample  # type: ignore[method-assign]
+        t.cycle()
+        failed = [ln.strip() for ln in lines if "failed" in ln or "no candles" in ln]
+        names = ", ".join(u["symbol"] for u in sample)
+        summary = next((ln for ln in reversed(lines) if "equity" in ln), "").strip()
+        if failed:
+            raise RuntimeError(f"{names}: " + "; ".join(failed[:3]))
+        return f"one dry-run look on {names}, no orders placed. {summary}"
+
+    check("1h setup trader (dry run)", setup_trader)
 
     # 8. what Jarvis reads -----------------------------------------------------------------------
     def status() -> str:

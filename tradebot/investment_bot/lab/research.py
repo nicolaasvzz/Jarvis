@@ -229,11 +229,11 @@ def triples_job(job: tuple[list[str], tuple[int, int], list[str], list[int], int
 
 
 def sample_job(job: tuple[list[str], tuple[int, int], list[str], int, int, int]) -> dict[str, Any]:
-    """Random candles: indicator votes and the move after (for building packages)."""
+    """Random candles: indicator votes, the move after and when (for building packages)."""
     symbols, window, cols, h, per_symbol, seed = job
     store: FeatureStore = _W["store"]
     rng = np.random.default_rng(seed)
-    xs, fs, cs = [], [], []
+    xs, fs, cs, ts = [], [], [], []
     for symbol in symbols:
         rows = _rows(symbol, window)
         if rows.stop - rows.start < 200:
@@ -246,12 +246,14 @@ def sample_job(job: tuple[list[str], tuple[int, int], list[str], int, int, int])
         x = store.load(symbol, cols)[rows][pick]
         xs.append(np.nan_to_num(x).astype(np.float32))
         fs.append(f[pick])
+        ts.append(ns(_bars(symbol).index)[rows][pick])
         cost = _W["costs"].get(_W["meta"].get(symbol, {}).get("class", "stock"), 0.0)
         cs.append(np.full(len(pick), 2 * cost))  # a round trip: in and out
     if not xs:
         return {"x": np.zeros((0, len(cols)), dtype=np.float32), "f": np.zeros(0),
-                "cost": np.zeros(0)}
-    return {"x": np.concatenate(xs), "f": np.concatenate(fs), "cost": np.concatenate(cs)}
+                "cost": np.zeros(0), "t": np.zeros(0, dtype="int64")}
+    return {"x": np.concatenate(xs), "f": np.concatenate(fs), "cost": np.concatenate(cs),
+            "t": np.concatenate(ts)}
 
 
 # ------------------------------------------------------------------ backtests

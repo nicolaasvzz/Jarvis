@@ -66,6 +66,7 @@ class LabConfig:
     min_gain: float = 0.002
     min_trades: int = 30
     synthetic_symbols: int = 12
+    synthetic_crypto: int = 0              # made-up pairs trading around the clock (tests)
     seed: int = 7
 
     @classmethod
@@ -271,16 +272,29 @@ def synthetic_symbols(cfg: LabConfig) -> list[str]:
     return [f"SYN{i:02d}" for i in range(cfg.synthetic_symbols)]
 
 
-def synthetic_bars(symbol: str, cfg: LabConfig) -> pd.DataFrame:
-    """Regime-switching 10-minute candles in market hours, for offline runs and tests."""
+def synthetic_crypto(cfg: LabConfig) -> list[str]:
+    return [f"SYN{i:02d}/USD" for i in range(cfg.synthetic_crypto)]
+
+
+def synthetic_bars(symbol: str, cfg: LabConfig, around_the_clock: bool = False) -> pd.DataFrame:
+    """Regime-switching 10-minute candles in market hours (or around the clock,
+    like crypto), for offline runs and tests."""
     seed = (cfg.seed * 1000 + sum(map(ord, symbol))) % 2**32
     rng = np.random.default_rng(seed)
-    days = pd.bdate_range(end=pd.Timestamp("2026-09-30"),
-                          periods=max(cfg.intraday_days * 5 // 7, 60))
     step = duration(cfg.base_tf)
-    per_day = int(pd.Timedelta(hours=6.5) / step)
-    stamps = (days.repeat(per_day) + pd.Timedelta(hours=13, minutes=30)
+    if around_the_clock:
+        days = pd.date_range(end=pd.Timestamp("2026-09-30"), periods=max(cfg.intraday_days, 60))
+        per_day = int(pd.Timedelta(days=1) / step)
+        start = pd.Timedelta(0)
+    else:
+        days = pd.bdate_range(end=pd.Timestamp("2026-09-30"),
+                              periods=max(cfg.intraday_days * 5 // 7, 60))
+        per_day = int(pd.Timedelta(hours=6.5) / step)
+        start = pd.Timedelta(hours=9, minutes=30)  # New York time, put in UTC below
+    stamps = (days.repeat(per_day) + start
               + pd.to_timedelta(np.tile(np.arange(per_day), len(days)) * step))
+    stamps = (pd.DatetimeIndex(stamps).tz_localize("UTC") if around_the_clock else
+              pd.DatetimeIndex(stamps).tz_localize("America/New_York").tz_convert("UTC"))
     n = len(stamps)
     regime = np.cumsum(rng.random(n) < 1 / 400) % 3  # drift up / sideways / down
     drift = np.array([4e-5, 0.0, -4e-5])[regime]
@@ -293,4 +307,4 @@ def synthetic_bars(symbol: str, cfg: LabConfig) -> pd.DataFrame:
     low = np.minimum(open_, close) - wick[1]
     volume = rng.lognormal(10, 0.5, n) * (1 + 50 * np.abs(ret))
     return pd.DataFrame({"open": open_, "high": high, "low": low, "close": close,
-                         "volume": volume}, index=pd.DatetimeIndex(stamps, tz="UTC"))
+                         "volume": volume}, index=stamps.as_unit("ns"))

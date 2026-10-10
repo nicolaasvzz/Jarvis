@@ -4,16 +4,17 @@
 #   .\run-local.ps1 -Mode api    # HTTP API on :8000, for the web dashboard
 #   .\run-local.ps1 -Mode once   # single cycle, then exit (for Task Scheduler)
 #   .\run-local.ps1 -Mode backtest
-#   .\run-local.ps1 -Mode lab -For 8h -Round 1h   # find the clearest indicator package
-#   .\run-local.ps1 -Mode champ -For 3d            # champ-set builder: until every indicator is tried
-#   .\run-local.ps1 -Mode package                  # trade it on Alpaca paper, every 10 min
+#   .\run-local.ps1 -Mode champ                    # champ-set builder: 4h, 1h and 30m charts, one setup
+#   .\run-local.ps1 -Mode package                  # trade its setups on Alpaca paper (1h decisions)
 #   .\run-local.ps1 -Mode check                    # test mode: check every part, no trading
 #   .\run-local.ps1 -Mode research                 # watch news (and X) about the symbols
 #   .\run-local.ps1 -Mode research-trade           # ...and trade it on Alpaca paper
+#   .\run-local.ps1 -Mode lab -For 8h -Round 1h   # the older indicator lab (10-minute packages)
 #
 # Backtest, learn, lab, champ and package also take the strategy to try and the
 # money to use: -Style refine|fewer|more|custom [-Custom "your words"] -Money 10000
-# [-Confidence 70] [-Bet 10] (percent; 0 keeps what the strategy says)
+# [-Confidence 70] [-Bet 10] (percent; 0 keeps what the strategy says). Champ and
+# package also take -Only stock|crypto (default: both).
 #
 # Every run of backtest, learn, lab, champ, package and check keeps a report
 # in reports\ (Jarvis's TradeBot page lists them all).
@@ -37,7 +38,9 @@ param(
     [string]$Confidence = '0', # confidence needed, %; 0 = the strategy's own
     [string]$Bet = '0',       # share of the money a trade, %; 0 = the strategy's own
     [ValidateSet('off', 'watch', 'trade')]
-    [string]$Research = 'off' # news research alongside the mode: watch, or trade it too
+    [string]$Research = 'off', # news research alongside the mode: watch, or trade it too
+    [ValidateSet('both', 'stock', 'stocks', 'crypto')]
+    [string]$Only = 'both'    # champ/package: stocks and crypto, or just one of them
 )
 
 $ErrorActionPreference = 'Stop'
@@ -80,6 +83,8 @@ foreach ($pair in @(@('--confidence', $Confidence), @('--bet', $Bet))) {
     if ($number -and [double]$number -gt 0) { $styleArgs += @($pair[0], $number) }
 }
 if ($Custom.Trim()) { $styleArgs += @('--custom', ($Custom -replace '"', "'")) }
+$onlyArgs = @()
+if ($Only -ne 'both') { $onlyArgs = @('--only', $Only) }
 
 switch ($Mode) {
     'terminal' {
@@ -108,18 +113,18 @@ switch ($Mode) {
         & $venvPython -m investment_bot lab -c $config --for $For --round $labRound @styleArgs @news
     }
     'champ' {
+        # -Round is still accepted (older Jarvis buttons send it) but no longer used.
         $champFor = if ($PSBoundParameters.ContainsKey('For')) { $For } else { '3d' }
-        $labRound = if ($PSBoundParameters.ContainsKey('Round')) { $Round } else { '1h' }
-        Write-Host "=== Champ-set builder: until every indicator is tried (at most $champFor; Ctrl-C stops; results kept) ===" -ForegroundColor Cyan
-        & $venvPython -m investment_bot lab -c $config --for $champFor --round $labRound --until-done @styleArgs @news
+        Write-Host "=== Champ-set builder: 4h, 1h and 30m charts, one setup trading the 1h (at most $champFor; Ctrl-C stops) ===" -ForegroundColor Cyan
+        & $venvPython -m investment_bot champ -c $config --for $champFor @onlyArgs @styleArgs @news
     }
     'check' {
         Write-Host '=== Test mode: checking every part of the bot (no trading) ===' -ForegroundColor Cyan
         & $venvPython -m investment_bot check -c $config @news
     }
     'package' {
-        Write-Host '=== Trading the champion package on Alpaca (Ctrl-C stops) ===' -ForegroundColor Cyan
-        & $venvPython -m investment_bot trade-package -c $config @styleArgs @news
+        Write-Host '=== Trading the champion setups on Alpaca: 1h decisions, watched every 10 min (Ctrl-C stops) ===' -ForegroundColor Cyan
+        & $venvPython -m investment_bot trade-setup -c $config @onlyArgs @styleArgs @news
     }
     'research' {
         Write-Host '=== Watching the news (Ctrl-C stops; everything collected is kept) ===' -ForegroundColor Cyan
