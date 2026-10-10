@@ -60,6 +60,17 @@ first; once approved, changes come in through a reviewed pull request.
   history; `investment-bot learned --reset` forgets it; `backtest --no-tune`
   skips one round.
 
+- **A champ-set builder that reads three charts.** It masters the 4-hour,
+  1-hour and 30-minute charts separately (the clearest indicators of each,
+  look-alikes counted once), then builds one setup that trades only on the
+  1-hour chart, when all three agree and a confidence model says the target is
+  likely before the stop. Stop, target and time limit come from how past
+  trades really moved. It's only called **proven** after winning in most of
+  four later stretches of history by more than luck would explain. Stocks and
+  crypto are built apart. The 1h trader can let agreeing news keep a trade
+  open longer, and respects the day-trade limit on small stock accounts. See
+  [The champ-set builder](#the-champ-set-builder).
+
 - **An indicator lab.** 126 indicators (trend, momentum, volatility, volume,
   candle patterns) on 10-minute, 30-minute, 1-hour, 4-hour and daily candles,
   for the most-traded stocks and crypto on Alpaca. Round after round it scores
@@ -153,24 +164,115 @@ Point your dashboard's `INVESTMENT_BOT_URL` at the URL it prints. Quick
 tunnels get a new random URL each restart; a named tunnel (free Cloudflare
 account) gives you a permanent one.
 
+## The champ-set builder
+
+```powershell
+.\run-local.ps1 -Mode champ               # build: 4h, 1h and 30m charts, stocks and crypto
+.\run-local.ps1 -Mode package             # trade the champion setups on Alpaca paper
+.\run-local.ps1 -Mode champ -Only crypto  # one class only (-Only stock / crypto)
+```
+
+(or `investment-bot champ [--for 3d] [--only stock|crypto] [--fresh]` and
+`investment-bot trade-setup [--once] [--dry-run] [--only stock|crypto]`).
+Jarvis's **Champ-set builder** and **Paper trading** buttons run these.
+
+The bot trades only on the **1-hour chart**, and reads the **4-hour** chart
+(the bigger picture) and the **30-minute** chart (the closer look) before it
+does. Stocks and crypto are built separately: their costs differ about 8x
+(3 bps a side against Alpaca's 25), and so do their hours.
+
+**The charts.** All three are made from 10-minute candles. Stock candles
+follow the trading day: they start at the 9:30 open, and the last one ends at
+the 16:00 close (two 4-hour candles a day, 9:30-13:30 and 13:30-16:00, in any
+season). Crypto candles start on the UTC hour. A 4-hour candle counts only
+once it has closed. Bad prints are tamed first: Alpaca's crypto candles are
+mostly quotes, and some carry one-candle spikes that snap straight back. So
+no 10-minute candle may move more than 6 usual moves from the previous one.
+That rule only looks back, so the builder and the trader see the same thing.
+
+**1. Master each chart** (4h, then 1h, then 30m), each on its own candles:
+
+- *scout*: score every indicator by how the price moved after it voted (30m:
+  1-2 hours ahead, 1h: 2-4, 4h: 4-8);
+- keep only readings that held up in both halves of training;
+- *look-alikes count once*: indicators that move together (correlation 0.7
+  or more) form a group, and only the group's clearest member stays, up to
+  `champ.per_chart` (35) per chart, with every family represented;
+- *the set*: start with the best of each family, add whichever helps most,
+  and give each one an equal vote, followed or faded. Tuned weights don't hold
+  up on new data. The set size that predicts best on the last third of
+  training wins.
+
+**2. Combine.** A trade is possible when the 1h set leans one way and the 4h
+and 30m sets agree. For each way of gating that (how far the 1h must lean, how
+firmly the others must agree), on training data only, the builder fits:
+
+- *the stop, target and time limit*, from how far past winners dipped first
+  (MAE) and how far they ran (MFE). The time limit is 2 to 6 hours, and stocks
+  always close by the day's close. The target is capped by what the 4-hour
+  chart says a few hours usually move;
+- *the confidence model*: a logistic model of how often trades with this much
+  agreement on each chart reached the target before the stop. Its weights show
+  what each chart really adds (the report says, for example, "4h x1.6, 30m
+  x0.9");
+- *the confidence bar*: a little above break-even, or the one you pick.
+  Confidence here means the chance of reaching the target before the stop.
+
+**3. Judge.** Every candidate is tested on four stretches of history after
+training. It's **proven** only if it made money on training, in at least 3 of
+the 4 test windows and in all of them together, and if its daily results
+there beat the **luck bar**. That's the t-statistic the best of that many
+tries would reach by pure luck (the expected maximum behind Bailey and
+Lopez de Prado's deflated Sharpe ratio). Every try ever made counts, kept in
+`champ.json` until `--fresh`, so re-running doesn't make luck easier. The last
+20% of history, the **final check**, is never used to choose anything and is
+only reported. The previous champion is re-tested and competes too. A proven
+champion's bet is the largest whose training drawdown stays inside
+`lab.drawdown_budget`. An unproven one bets 2% and never trades real money.
+
+**The 1h setup trader** decides when a 1-hour candle closes (crypto on the
+hour, stocks at :30 New York) and watches its trades every 10 minutes: stop,
+target, time limit, and for stocks the day's close (at 15:50). Trades it says
+yes to are taken surest first, with half the bet at the confidence bar and the
+full bet 15 points above it.
+
+- **News can stretch a trade.** At its normal end, if the symbol's news mood
+  agrees (past `research.signals.threshold`) and the 1h chart still leans its
+  way, the trade stays open up to `champ.news_cap_hours` (72) x news strength
+  x signal strength, never past the story's own horizon. Its target moves
+  toward the news's predicted move (at most 3x), and its stop moves to
+  break-even once it's half an ATR up. News turning against it closes it.
+  Only a stretched stock trade is held overnight. Every stretched trade
+  records what the normal exit would have made, and after
+  `champ.news_judge_after` (50) of them, the trader stops stretching if
+  stretching did worse. News comes from `news.db`, so run research alongside
+  (`-Research watch`). Old news can't be honestly backtested: an AI rating old
+  articles often already knows what happened next.
+- **Small accounts.** A US stock account under $25,000 gets 3 day trades per
+  5 business days (the Pattern Day Trader rule). Any stock trade here can
+  become one, so each keeps one in reserve, and when Alpaca's count leaves
+  none there are no new stock trades. Crypto isn't affected. Under $2,000
+  there are no stock shorts.
+- **Real money** needs `live.allow_real_money: true`, and then only proven
+  setups trade. `champ.trade` picks the classes it trades.
+
 ## The indicator lab
+
+The older engine: 10-minute decisions on packages of indicators from five
+timeframes. It still works from the command line, but the Jarvis buttons now
+run the champ-set builder above.
 
 ```powershell
 .\run-local.ps1 -Mode lab -For 8h -Round 1h   # find the clearest package of indicators
-.\run-local.ps1 -Mode champ -For 3d            # champ-set builder: until every indicator is tried
-.\run-local.ps1 -Mode package                  # trade it on Alpaca paper, every 10 minutes
-.\run-local.ps1 -Mode check                    # test mode: check every part, no trading
 ```
 
 (or `investment-bot lab --for 8h --round 1h [--until-done]`, `investment-bot
 package` to see the result, `investment-bot trade-package [--once] [--dry-run]`
 and `investment-bot check [--quick]`).
 
-**The champ-set builder** (`--until-done`) is the lab with a finish line:
-its challenge rounds also try every indicator the champion hasn't had yet,
-added or swapped in for the weakest of its family, and it stops by itself
-once all of them have been tried. `--for` is then only the longest it may
-take. A stopped builder carries on where it left off.
+`--until-done` gives the lab a finish line: its challenge rounds also try
+every indicator the champion hasn't had yet, and it stops once all have been
+tried once. That is one try each, not every combination.
 
 **Strategy and money.** `backtest`, `learn`, `lab` and `trade-package` take
 `--style refine|fewer|more|custom [--custom "your words"] --money 10000`

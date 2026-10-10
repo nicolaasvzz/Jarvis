@@ -57,9 +57,13 @@ A fresh Jarvis comes with the TradeBot on its Mothership: **Mothership →
 TradeBot** has its live status (equity, positions, trades, what it learned),
 every report it has written, and buttons for its modes:
 
-- **Champ-set builder** — tries indicator sets until it finds the best one.
-- **Learning mode** — backtests over and over, keeping only changes that hold up.
-- **Paper trading** — trades the best set on your Alpaca paper account.
+- **Champ-set builder**: masters the 4-hour, 1-hour and 30-minute charts, then
+  builds one setup for stocks and one for crypto. Each trades on the 1-hour
+  chart when all three agree, and is only called proven when it beats luck on
+  history it was never tuned on.
+- **Learning mode**: backtests over and over, keeping only changes that hold up.
+- **Paper trading**: trades those setups on your Alpaca paper account, deciding
+  hourly and watching every 10 minutes.
 - **Test mode** — checks every part of the bot without trading.
 - **Update Jarvis and the bot** — pulls the latest version.
 

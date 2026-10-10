@@ -43,6 +43,16 @@ def test_indicators_never_look_ahead():
     np.testing.assert_allclose(a.to_numpy(), b.to_numpy(), equal_nan=True, atol=1e-6)
 
 
+def test_slopes_point_the_way_the_price_goes():
+    idx = pd.date_range("2026-01-01", periods=300, freq="1h", tz="UTC")
+    for close, sign in ((np.linspace(100, 130, 300), 1), (np.linspace(130, 100, 300), -1)):
+        c = pd.Series(close, index=idx)
+        df = pd.DataFrame({"open": c.shift(1).fillna(close[0]), "high": c + 0.1, "low": c - 0.1,
+                           "close": c, "volume": 1.0})
+        votes = compute(df, ["linreg_slope_20", "linreg_slope_50"]).iloc[-1]
+        assert (np.sign(votes) == sign).all()
+
+
 def test_short_or_flat_data_does_not_crash():
     flat = pd.DataFrame({c: np.full(30, 10.0) for c in ("open", "high", "low", "close", "volume")},
                         index=pd.date_range("2026-01-01", periods=30, freq="10min", tz="UTC"))

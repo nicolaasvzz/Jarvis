@@ -10,6 +10,9 @@ human-readable keys, from the files the bot already keeps:
 - backtest memory (``learned.json``): learned settings, run-by-run history
 - a learning session (``learning_session.json``): goal, time left, rounds
 - news research (``research.json``): mood per symbol, signals, X spend
+- the champ-set builder (``champ.json``, ``champ_session.json``) and its 1h
+  setup trader (``setup_trader.json``); the older indicator lab's files
+  (``lab.json``) only show while there's no ``champ.json``
 
 It is rewritten after every trading cycle, every backtest, and on
 ``investment-bot status``. Reading only, never trading: if a file is missing,
@@ -177,6 +180,84 @@ def _lab(config: BotConfig, now: datetime) -> dict[str, Any]:
     return out
 
 
+def _champ(config: BotConfig, now: datetime) -> dict[str, Any]:
+    """The champ-set builder: its session, each class's champion setup, and the 1h
+    setup trader on Alpaca."""
+    from .lab.catalog import family_of
+    from .lab.champ import SESSION_FILE, ChampConfig, model_words
+    from .lab.setup_trader import STATE_FILE as TRADER_FILE
+    from .lab.setup_trader import Trade, trade_rows
+    from .lab.setups import Setup
+
+    try:
+        cfg = ChampConfig.from_config(config)
+    except (ValueError, TypeError):
+        return {}
+    out: dict[str, Any] = {}
+    session = _read(Path(SESSION_FILE))
+    if session:
+        status = str(session.get("status", ""))
+        if status == "running" and not _alive(session.get("pid")):
+            status = "stopped"
+        out["Champ builder"] = session.get("phase") if status == "running" else status
+        if status == "running" and session.get("ends"):
+            try:
+                ends = datetime.fromisoformat(str(session["ends"]))
+                left = (ends - now.astimezone(timezone.utc)).total_seconds()
+                out["Champ builder may run"] = (
+                    f"{int(left // 3600)}h {int(left % 3600 // 60):02d}m" if left > 0
+                    else "finishing")
+            except (KeyError, ValueError):
+                pass
+    results = _read(Path(cfg.results_file))
+    rows = []
+    for cls, data in (results.get("classes") or {}).items():
+        champ = (data or {}).get("champion") or {}
+        if not champ:
+            continue
+        word = "Stocks" if cls == "stock" else "Crypto"
+        setup = Setup.from_dict(champ["setup"])
+        out[f"{word} champion"] = ("proven" if champ.get("proven") else
+                                   "not proven (paper only, small bets)")
+        out[f"{word} setup"] = f"{setup.describe()}; {setup.size:.0%} a trade"
+        metrics = champ.get("metrics") or {}
+        for part, label in (("test", "test"), ("final", "final check")):
+            m = metrics.get(part)
+            if m:
+                out[f"{word} {label} %"] = round(float(m["total_return"]) * 100, 2)
+        out[f"{word} confidence model"] = model_words(setup.model)
+        failed = [k for k, ok in (champ.get("checks") or {}).items() if not ok]
+        if failed:
+            out[f"{word}: not proven because"] = "; ".join(failed)[:300]
+        rows += [{"Class": word, "Chart": tf, "Indicator": f.split("@", 1)[0],
+                  "Family": family_of(f), "Use": "follow" if w > 0 else "fade"}
+                 for tf in ("4h", "1h", "30m") for f, w in setup.sets[tf].items()]
+    if rows:
+        out["Champion charts"] = rows
+    trader = _read(Path(TRADER_FILE))
+    if trader:
+        curve = trader.get("equity") or []
+        if curve:
+            out["Alpaca equity (1h setups)"] = _money(curve[-1][1])
+        if len(curve) > 1:
+            out["Alpaca equity curve (1h setups)"] = [[str(t)[:16], _money(e)]
+                                                      for t, e in curve[-300:]]
+        trades = {s: Trade(**t) for s, t in (trader.get("trades") or {}).items()}
+        out["Open trades (1h setups)"] = trade_rows(trades)
+        stretched = trader.get("stretched") or []
+        if trader.get("stretch_off"):
+            out["News stretches"] = f"off: they did worse than normal exits ({len(stretched)})"
+        elif stretched:
+            better = sum(float(x["pnl"]) - float(x["plain"]) for x in stretched) / len(stretched)
+            out["News stretches"] = (f"{len(stretched)} closed, {better * 100:+.2f}% a trade "
+                                     "vs the normal exit")
+        out["Orders (1h setups)"] = [
+            {"At": str(e.get("at", ""))[:16], "Symbol": e.get("symbol"), "What": e.get("what")}
+            for e in (trader.get("log") or [])[-50:]
+        ]
+    return out
+
+
 def _news_trades(path: Path) -> dict[str, Any]:
     """The news trader: open bets, closed ones, and whether its probabilities hold up."""
     state = _read(path)
@@ -298,7 +379,10 @@ def build_status(config: BotConfig, now: datetime | None = None) -> dict[str, An
         out["Backtests learned from"] = len(rounds)
     out.update(_session(Path("learning_session.json"), now))
     try:
-        out.update(_lab(config, now))
+        champ = _champ(config, now)
+        out.update(champ)
+        if not any(k.endswith("champion") for k in champ):
+            out.update(_lab(config, now))  # the older lab, until the builder has a champion
     except (OSError, ValueError, KeyError, TypeError):
         pass  # the lab's files are optional; never let them break the page
     try:

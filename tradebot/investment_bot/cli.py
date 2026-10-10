@@ -8,6 +8,8 @@
     investment-bot lab       --for 8h [--round 1h] [--until-done] [--prepare-only] [--fresh]
     investment-bot package   [-c config.yaml]
     investment-bot trade-package [--once] [--dry-run]
+    investment-bot champ     --for 3d [--only stock|crypto] [--fresh] [--prepare-only]
+    investment-bot trade-setup [--once] [--dry-run] [--only stock|crypto]
     investment-bot research  [--once] [--trade [--dry-run]]
     investment-bot check     [--quick]
     investment-bot strategies
@@ -531,6 +533,85 @@ def cmd_trade_package(args: argparse.Namespace) -> None:
             console.print(f"Report kept in [bold]{saved}[/bold]")
 
 
+def cmd_champ(args: argparse.Namespace) -> None:
+    """The champ-set builder: master the 4h, 1h and 30m charts, one setup per class."""
+    from .lab.champ import SESSION_FILE, ChampBuilder, ChampConfig, prepare_charts, running_builder
+    from .memory import apply_overrides
+    from .session import keep_awake, parse_duration
+
+    try:
+        seconds = parse_duration(args.duration)
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
+    style = _style(args)
+    config = BotConfig.load(args.config)
+    if args.only:
+        config = apply_overrides(config, {"champ.classes": [args.only.rstrip("s")]})
+    cfg = ChampConfig.from_config(config)
+    other = running_builder()
+    if other:
+        raise SystemExit(f"The champ-set builder is already running (process {other}). Stop it "
+                         "first, or let it finish.")
+    session = Path(SESSION_FILE)
+    session.write_text(json.dumps({"status": "running", "phase": "getting the charts ready",
+                                   "pid": os.getpid()}), encoding="utf-8")
+    if args.fresh:
+        Path(cfg.results_file).unlink(missing_ok=True)
+        console.print(f"Starting over: forgot {cfg.results_file} (and every try it counted).")
+    say = lambda line: console.print(line, markup=False, highlight=False, soft_wrap=True)
+    keep_awake()
+    symbols = args.symbols.split(",") if args.symbols else None
+    try:
+        store, universe = prepare_charts(config, say, symbols)
+    finally:
+        session.write_text(json.dumps({"status": "finished", "phase": "charts ready"}),
+                           encoding="utf-8")
+    if args.prepare_only or not universe:
+        return
+    builder = ChampBuilder(config, store, universe, seconds, say=say,
+                           on_progress=lambda: write_status(config), style=style, money=args.money)
+    status = builder.run()
+    saved = builder.report(status).save()
+    write_status(config)
+    if saved:
+        console.print(f"Report kept in [bold]{saved}[/bold]")
+    console.print(DISCLAIMER)
+
+
+def cmd_trade_setup(args: argparse.Namespace) -> None:
+    from .broker.alpaca import AlpacaBroker, AlpacaCredentialsError
+    from .data.alpaca_data import AlpacaData
+    from .lab.prepare import LabConfig
+    from .lab.setup_trader import SetupTrader
+
+    style = _style(args)
+    config = BotConfig.load(args.config)
+    try:
+        broker = AlpacaBroker(execution=config.build_execution())
+    except AlpacaCredentialsError as exc:
+        raise SystemExit(str(exc)) from exc
+    say = lambda line: console.print(line, markup=False, highlight=False, soft_wrap=True)
+    lab_cfg = LabConfig.from_config(config)
+    data = AlpacaData(lab_cfg.cache_dir, feed=lab_cfg.feed, say=say)
+    trader = SetupTrader(config, broker, data, say=say, dry_run=args.dry_run, style=style,
+                         money=args.money, only=args.only)
+    where = "PAPER" if "paper" in broker.base_url else "LIVE (real money)"
+    console.print(f"[bold]1h setup trader[/bold] on Alpaca {where}"
+                  + (" - dry run, no orders" if args.dry_run else "") + ".")
+    console.print(DISCLAIMER)
+    if args.once:
+        trader.cycle()
+        write_status(config)
+        return
+    try:
+        trader.run_forever()
+    finally:
+        saved = trader.session_report().save()
+        write_status(config)
+        if saved:
+            console.print(f"Report kept in [bold]{saved}[/bold]")
+
+
 def cmd_check(args: argparse.Namespace) -> None:
     from .check import run_checks
 
@@ -695,6 +776,29 @@ def build_parser() -> argparse.ArgumentParser:
     tp.add_argument("--once", action="store_true", help="Run a single cycle and exit")
     tp.add_argument("--dry-run", action="store_true", help="Decide and log, place no orders")
     tp.set_defaults(func=cmd_trade_package)
+
+    ch = sub.add_parser(
+        "champ", parents=[common],
+        help="Champ-set builder: master the 4h, 1h and 30m charts, then one setup that "
+             "trades the 1h (stocks and crypto apart)")
+    ch.add_argument("--for", dest="duration", default="3d",
+                    help="The longest it may take (it usually needs minutes)")
+    ch.add_argument("--round", default=None, help=argparse.SUPPRESS)  # older Jarvis buttons
+    ch.add_argument("--only", choices=["stock", "stocks", "crypto"], default=None,
+                    help="Build one class only")
+    ch.add_argument("--fresh", action="store_true",
+                    help="Forget earlier results, and the count of setups tried")
+    ch.add_argument("--prepare-only", action="store_true",
+                    help="Download candles and build the charts, then stop")
+    ch.set_defaults(func=cmd_champ)
+
+    ts = sub.add_parser("trade-setup", parents=[common],
+                        help="Trade the champ-set builder's setups on Alpaca (1h decisions)")
+    ts.add_argument("--once", action="store_true", help="Run a single look and exit")
+    ts.add_argument("--dry-run", action="store_true", help="Decide and log, place no orders")
+    ts.add_argument("--only", choices=["stock", "stocks", "crypto"], default=None,
+                    help="Trade one class only")
+    ts.set_defaults(func=cmd_trade_setup)
 
     rs = sub.add_parser("research", parents=[common],
                         help="Watch news (and X) about the bot's symbols, scored by Gemini")

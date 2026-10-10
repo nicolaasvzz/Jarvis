@@ -56,6 +56,14 @@ universe.json
 package_trader.json
 package_trader.json.tmp
 
+# the champ-set builder and its trader (investment-bot champ / trade-setup)
+champ.json
+champ.json.tmp
+champ_session.json
+champ_session.json.tmp
+setup_trader.json
+setup_trader.json.tmp
+
 # research (investment-bot research)
 news.db
 news.db-journal

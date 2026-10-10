@@ -131,7 +131,8 @@ def _rolling_sum_weighted(y: np.ndarray, n: int) -> np.ndarray:
     """sum_{k=0}^{n-1} k * y[t-n+1+k] for each t (NaN for t < n-1)."""
     out = np.full(len(y), np.nan)
     if len(y) >= n:
-        out[n - 1:] = np.convolve(y, np.arange(n, dtype=float), mode="valid")
+        # convolve flips its kernel: reversed, the newest value gets weight n-1
+        out[n - 1:] = np.convolve(y, np.arange(n, dtype=float)[::-1], mode="valid")
     return out
 
 

@@ -44,6 +44,20 @@ lab:
   max_feature_gb: 8        # disk cap for the indicator store
   drawdown_budget: 0.15    # trade size is set so training drawdown stays within 15%
 
+# The champ-set builder (investment-bot champ / run-local.ps1 -Mode champ) and its trader
+# (investment-bot trade-setup / -Mode package): the 30m, 1h and 4h charts, one setup per
+# class that trades the 1h. Uses the lab's symbols, candles and costs above.
+champ:
+  classes: [stock, crypto] # what the builder learns
+  trade: [stock, crypto]   # what the trader trades (real money can use just one)
+  per_chart: 35            # indicators kept per chart: the clearest of each look-alike group
+  max_hours: 6             # longest normal trade; news can stretch it (below)
+  test_windows: 4          # stretches of time after training a setup must win in (3 of 4)
+  news_extension: true     # agreeing news may keep a trade open longer...
+  news_cap_hours: 72       # ...up to this long
+  news_judge_after: 50     # stretched trades before the trader judges stretching
+  pdt_equity: 25000        # stock accounts under this: 3 day trades per 5 business days
+
 # Research (investment-bot research / run-local.ps1 -Mode research): news about the
 # lab's symbols from Alpaca (free, Benzinga), plus X when X_BEARER_TOKEN is set,
 # each item scored once by Gemini (GEMINI_API_KEY in .env). Reads only, no orders.

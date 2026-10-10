@@ -25,8 +25,9 @@ TradeBot, which Jarvis drives as a Mothership project:
   imports it; the bot never imports Jarvis. They talk through files: the bot
   writes `jarvis_status.json` and `reports/`, and Jarvis reads them.
   Everything the bot learns or holds (`.env`, `learned.json`, `lab*.json`,
-  `universe.json`, `news.db`, `data_cache/`, `reports/`, trader state) is
-  gitignored in `tradebot/.gitignore`. The repo is public: keep it that way.
+  `champ*.json`, `setup_trader.json`, `universe.json`, `news.db`,
+  `data_cache/`, `reports/`, trader state) is gitignored in
+  `tradebot/.gitignore`. The repo is public: keep it that way.
   When the user wants to publish a finished champion indicator set, that is
   a deliberate, separate commit.
 
