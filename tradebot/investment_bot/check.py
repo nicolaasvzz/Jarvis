@@ -287,7 +287,7 @@ def run_checks(config_path: str | None, quick: bool = False,
 
     def champ() -> str:
         from .lab.champ import SESSION_FILE, ChampConfig, load_champions, running_builder
-        from .lab.setups import Setup
+        from .lab.setups import FORMULA_WORDS, Setup
 
         cfg = ChampConfig.from_config(ctx["config"])
         champions = load_champions(cfg.results_file)
@@ -302,7 +302,10 @@ def run_checks(config_path: str | None, quick: bool = False,
             setup = Setup.from_dict(champ["setup"])
             test = ((champ.get("metrics") or {}).get("test") or {}).get("total_return", 0.0)
             parts.append(f"{cls}: {'proven' if champ.get('proven') else 'NOT proven'}, "
-                         f"{len(setup.features)} indicators on 3 charts, test {test:+.1%}")
+                         f"{FORMULA_WORDS[setup.formula]} on {len(setup.features)} indicators "
+                         f"from 3 charts, test {test:+.1%}")
+            if setup.formula == "trees":
+                setup.trees()  # the saved trees must load
         line = "; ".join(parts) + running
         if not all(c.get("proven") for c in champions.values()):
             raise Warn(line + " (unproven setups trade small, paper only)")

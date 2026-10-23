@@ -63,6 +63,7 @@ champ_session.json
 champ_session.json.tmp
 setup_trader.json
 setup_trader.json.tmp
+champ_models/
 
 # research (investment-bot research)
 news.db

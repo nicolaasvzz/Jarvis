@@ -7,11 +7,16 @@ Each chart has its own set of indicators, every one followed (+1) or faded
 1. the **1h** score leans one way by at least ``entry``: that's the direction;
 2. the **4h** score leans the same way by at least ``agree_4h``, and the
    **30m** score by at least ``agree_30m``;
-3. the **confidence model** gives it at least ``confidence`` chance of
-   reaching the take-profit before the stop. It's a logistic model, fitted on
-   training history: how often trades like this one, with this much agreement
-   on each chart, won. Its weights show how much each chart really adds, so
-   three charts agreeing isn't simply counted as three votes.
+3. the setup's **formula** gives it at least ``confidence`` chance of
+   reaching the take-profit before the stop. There are three kinds:
+
+   - ``vote`` (chart votes): a logistic model on the three chart scores alone,
+     fitted on training history: how often trades like this one, with this
+     much agreement on each chart, won. Its weights show how much each chart
+     really adds, so three charts agreeing isn't simply three votes.
+   - ``weights`` (learned weights) and ``trees`` (decision trees) read every
+     indicator in ``inputs`` (the clearest of each look-alike group on all
+     three charts) and learn how they work together. See ``formulas.py``.
 
 Then three exits (the "triple barrier"), whichever comes first:
 
@@ -33,7 +38,9 @@ touches both, the stop counts; a candle that opens past the stop exits at that
 from __future__ import annotations
 
 import math
+import pickle
 from dataclasses import asdict, dataclass, field, fields
+from pathlib import Path
 from statistics import NormalDist
 from typing import Any
 
@@ -45,6 +52,8 @@ from .charts import CHARTS, chart_of
 EXITS = ("stop", "take profit", "time limit", "day's close", "end of data")
 STOP, TAKE, TIME, CLOSE, END = range(5)
 FULL_SIZE_ABOVE = 0.15     # full size once the chance is this far above the bar
+FORMULAS = ("vote", "weights", "trees")
+FORMULA_WORDS = {"vote": "chart votes", "weights": "learned weights", "trees": "decision trees"}
 
 
 @dataclass
@@ -61,6 +70,12 @@ class Setup:
     size: float = 0.10
     shorts: bool = True
     name: str = ""
+    formula: str = "vote"                       # vote | weights | trees
+    inputs: dict[str, float] = field(default_factory=dict)  # weights/trees: column -> +1/-1
+    coef: list[float] = field(default_factory=list)    # weights: bias, then one per feature
+    centre: list[float] = field(default_factory=list)  # weights: each feature's mean...
+    spread: list[float] = field(default_factory=list)  # ...and spread on training
+    model_file: str = ""                        # trees: where the fitted trees are kept
 
     def __post_init__(self) -> None:
         self.sets = {tf: {f: float(w) for f, w in (self.sets.get(tf) or {}).items() if w}
@@ -68,25 +83,41 @@ class Setup:
         missing = [tf for tf in CHARTS if not self.sets[tf]]
         if missing:
             raise ValueError(f"a setup needs indicators on every chart (none on {missing})")
+        if self.formula not in FORMULAS:
+            raise ValueError(f"unknown formula {self.formula!r}; use one of {FORMULAS}")
+        if self.formula != "vote" and not self.inputs:
+            raise ValueError(f"the {self.formula} formula needs inputs")
         self.model = [float(v) for v in self.model]
+        self.inputs = {f: float(w) for f, w in self.inputs.items()}
         self.hours = int(self.hours)
+        self._trees: Any = None  # the fitted trees, loaded from model_file when first needed
 
     @property
     def features(self) -> list[str]:
-        return [f for tf in CHARTS for f in self.sets[tf]]
+        """Every indicator column the setup reads: its chart sets, then its inputs."""
+        out = [f for tf in CHARTS for f in self.sets[tf]]
+        seen = set(out)
+        return out + [f for f in self.inputs if f not in seen]
 
     def names(self) -> dict[str, list[str]]:
         """Indicator names per chart, for ``charts.decision_features``."""
-        return {tf: [f.split("@", 1)[0] for f in self.sets[tf]] for tf in CHARTS}
+        return {tf: [f.split("@", 1)[0] for f in self.features if chart_of(f) == tf]
+                for tf in CHARTS}
 
     def with_(self, **changes: Any) -> Setup:
         data = asdict(self)
         data.update(changes)
-        return Setup(**data)
+        out = Setup(**data)
+        if out.formula == self.formula and out.model_file == self.model_file:
+            out._trees = self._trees
+        return out
 
     def to_dict(self) -> dict[str, Any]:
         out = asdict(self)
         out["model"] = [round(v, 4) for v in self.model]
+        out["coef"] = [round(v, 6) for v in self.coef]
+        out["centre"] = [round(v, 6) for v in self.centre]
+        out["spread"] = [round(v, 6) for v in self.spread]
         for key in ("entry", "agree_4h", "agree_30m", "confidence", "sl_atr", "tp_atr", "size"):
             out[key] = round(float(out[key]), 4)
         return out
@@ -98,8 +129,10 @@ class Setup:
 
     def describe(self) -> str:
         counts = ", ".join(f"{len(self.sets[tf])} on {tf}" for tf in ("4h", "1h", "30m"))
-        return (f"{counts}; trade when 1h >= {self.entry:.2f}, 4h and 30m agree, "
-                f"{self.confidence:.0%} sure; stop {self.sl_atr:.2g} ATR, target "
+        reads = ("" if self.formula == "vote" else
+                 f"{FORMULA_WORDS[self.formula]} on {len(self.inputs)} indicators; ")
+        return (f"{reads}votes from {counts}; trade when 1h >= {self.entry:.2f}, 4h and 30m "
+                f"agree, {self.confidence:.0%} sure; stop {self.sl_atr:.2g} ATR, target "
                 f"{self.tp_atr:.2g} ATR, at most {self.hours}h")
 
     # ------------------------------------------------------------ reading the charts
@@ -115,19 +148,47 @@ class Setup:
         return out
 
     def p_win(self, a1: np.ndarray, a4: np.ndarray, a30: np.ndarray) -> np.ndarray:
+        """The chart-vote model: chance of a win from the three charts' agreement."""
         b, w1, w4, w30 = self.model
         z = b + w1 * a1 + w4 * a4 + w30 * a30
         return 1.0 / (1.0 + np.exp(-np.clip(z, -30, 30)))
 
-    def decide(self, scores: dict[str, np.ndarray], can_short: bool = True
-               ) -> tuple[np.ndarray, np.ndarray]:
-        """Direction (+1, -1 or 0) and chance of winning, per row."""
+    def formula_inputs(self, x: np.ndarray, d: np.ndarray, a1: np.ndarray, a4: np.ndarray,
+                       a30: np.ndarray) -> np.ndarray:
+        return formula_features(x, np.array(list(self.inputs.values())), d, a1, a4, a30)
+
+    def chance(self, d: np.ndarray, a1: np.ndarray, a4: np.ndarray, a30: np.ndarray,
+               x: np.ndarray | None = None) -> np.ndarray:
+        """Chance of reaching the target before the stop, per row. ``x`` holds the
+        raw values of ``inputs`` (rows x inputs), for the learned formulas."""
+        if self.formula == "vote":
+            return self.p_win(a1, a4, a30)
+        if x is None:
+            raise ValueError(f"the {self.formula} formula needs its inputs' values")
+        f = self.formula_inputs(x, d, a1, a4, a30)
+        if self.formula == "weights":
+            scaled = (f - np.array(self.centre, dtype=np.float32)) / np.array(
+                self.spread, dtype=np.float32)
+            z = self.coef[0] + scaled @ np.array(self.coef[1:], dtype=np.float32)
+            return 1.0 / (1.0 + np.exp(-np.clip(z, -30, 30)))
+        return np.asarray(self.trees().predict_proba(f)[:, 1], dtype=float)
+
+    def trees(self) -> Any:
+        """The fitted trees (loaded from ``model_file`` the first time)."""
+        if self._trees is None:
+            self._trees = load_trees(self.model_file)
+        return self._trees
+
+    def decide(self, scores: dict[str, np.ndarray], can_short: bool = True,
+               x: np.ndarray | None = None) -> tuple[np.ndarray, np.ndarray]:
+        """Direction (+1, -1 or 0) and chance of winning, per row. ``x``: the raw
+        values of ``inputs`` on those rows (learned formulas only)."""
         s1, s4, s30 = scores["1h"], scores["4h"], scores["30m"]
         d = np.where(s1 >= self.entry, 1, np.where(s1 <= -self.entry, -1, 0)).astype(np.int8)
         if not (self.shorts and can_short):
             d[d < 0] = 0
         a1, a4, a30 = np.abs(s1), d * s4, d * s30
-        p = self.p_win(a1, a4, a30)
+        p = self.chance(d, a1, a4, a30, x)
         ok = (d != 0) & (a4 >= self.agree_4h) & (a30 >= self.agree_30m) & (p >= self.confidence)
         return np.where(ok, d, 0).astype(np.int8), p
 
@@ -143,6 +204,40 @@ class Setup:
         if math.isfinite(atr4h) and atr4h > 0:
             tp = min(tp, atr4h * math.sqrt(self.hours / 4))
         return tp
+
+
+def formula_features(x: np.ndarray, signs: np.ndarray, d: np.ndarray, a1: np.ndarray,
+                     a4: np.ndarray, a30: np.ndarray) -> np.ndarray:
+    """What a learned formula reads, per row: each input turned toward the trade
+    (its usual reading x the direction), the three chart scores, and +1 for a long."""
+    d = np.asarray(d, dtype=np.float32)
+    toward = (np.nan_to_num(np.asarray(x, dtype=np.float32)) * np.asarray(signs, np.float32)
+              * d[:, None])
+    return np.column_stack([toward, a1, a4, a30, d]).astype(np.float32)
+
+
+def save_trees(model: Any, path: str | Path) -> None:
+    import sklearn
+
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    with tmp.open("wb") as fh:
+        pickle.dump({"model": model, "sklearn": sklearn.__version__}, fh)
+    tmp.replace(path)
+
+
+def load_trees(path: str | Path) -> Any:
+    """Fitted trees saved by the builder. Only ever this bot's own file."""
+    if not path:
+        raise ValueError("this setup's trees were never saved: re-run the champ-set builder")
+    try:
+        with Path(path).open("rb") as fh:
+            saved = pickle.load(fh)  # noqa: S301 - the builder's own file, not downloaded
+    except (OSError, pickle.UnpicklingError, AttributeError, ImportError, EOFError) as exc:
+        raise ValueError(f"couldn't load the trees in {path} ({exc}): re-run the champ-set "
+                         "builder") from exc
+    return saved["model"]
 
 
 # ------------------------------------------------------------------ the triple barrier
