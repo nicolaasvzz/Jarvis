@@ -187,7 +187,7 @@ def _champ(config: BotConfig, now: datetime) -> dict[str, Any]:
     from .lab.champ import SESSION_FILE, ChampConfig, model_words
     from .lab.setup_trader import STATE_FILE as TRADER_FILE
     from .lab.setup_trader import Trade, trade_rows
-    from .lab.setups import Setup
+    from .lab.setups import FORMULA_WORDS, Setup
 
     try:
         cfg = ChampConfig.from_config(config)
@@ -210,7 +210,9 @@ def _champ(config: BotConfig, now: datetime) -> dict[str, Any]:
             except (KeyError, ValueError):
                 pass
     results = _read(Path(cfg.results_file))
-    rows = []
+    rows: list[dict[str, Any]] = []
+    compared: list[dict[str, Any]] = []
+    leans: list[dict[str, Any]] = []
     for cls, data in (results.get("classes") or {}).items():
         champ = (data or {}).get("champion") or {}
         if not champ:
@@ -225,13 +227,22 @@ def _champ(config: BotConfig, now: datetime) -> dict[str, Any]:
             m = metrics.get(part)
             if m:
                 out[f"{word} {label} %"] = round(float(m["total_return"]) * 100, 2)
-        out[f"{word} confidence model"] = model_words(setup.model)
+        out[f"{word} formula"] = FORMULA_WORDS.get(setup.formula, setup.formula)
+        if setup.formula == "vote":
+            out[f"{word} confidence model"] = model_words(setup.model)
         failed = [k for k, ok in (champ.get("checks") or {}).items() if not ok]
         if failed:
             out[f"{word}: not proven because"] = "; ".join(failed)[:300]
         rows += [{"Class": word, "Chart": tf, "Indicator": f.split("@", 1)[0],
                   "Family": family_of(f), "Use": "follow" if w > 0 else "fade"}
                  for tf in ("4h", "1h", "30m") for f, w in setup.sets[tf].items()]
+        compared += [{"Class": word, **row} for row in (data.get("formulas") or [])]
+        info = (data.get("formula_info") or {}).get(setup.formula) or {}
+        leans += [{"Class": word, **row} for row in (info.get("leans_on") or [])]
+    if compared:
+        out["Formulas compared"] = compared
+    if leans:
+        out["What the champion's formula leans on"] = leans
     if rows:
         out["Champion charts"] = rows
     trader = _read(Path(TRADER_FILE))

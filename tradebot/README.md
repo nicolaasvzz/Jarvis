@@ -63,8 +63,10 @@ first; once approved, changes come in through a reviewed pull request.
 - **A champ-set builder that reads three charts.** It masters the 4-hour,
   1-hour and 30-minute charts separately (the clearest indicators of each,
   look-alikes counted once), then builds one setup that trades only on the
-  1-hour chart, when all three agree and a confidence model says the target is
-  likely before the stop. Stop, target and time limit come from how past
+  1-hour chart, when all three agree and a formula says the target is likely
+  before the stop. Three formulas compete for that job: chart votes, learned
+  weights, and decision trees that learn how all the indicators work together.
+  Stop, target and time limit come from how past
   trades really moved. It's only called **proven** after winning in most of
   four later stretches of history by more than luck would explain. Stocks and
   crypto are built apart. The 1h trader can let agreeing news keep a trade
@@ -211,10 +213,23 @@ firmly the others must agree), on training data only, the builder fits:
   (MAE) and how far they ran (MFE). The time limit is 2 to 6 hours, and stocks
   always close by the day's close. The target is capped by what the 4-hour
   chart says a few hours usually move;
-- *the confidence model*: a logistic model of how often trades with this much
-  agreement on each chart reached the target before the stop. Its weights show
-  what each chart really adds (the report says, for example, "4h x1.6, 30m
-  x0.9");
+- *the formula* that says how sure to be: the chance of reaching the target
+  before the stop. Three kinds compete (`champ.formulas`, or `-Formula`):
+  - **chart votes**: a logistic model on the three chart scores alone. Its
+    weights show what each chart really adds (the report says, for example,
+    "4h x1.6, 30m x0.9");
+  - **learned weights**: a logistic model that reads every indicator the
+    builder kept on all three charts (the clearest of each look-alike group,
+    up to 105) and gives each its own weight, pulled toward zero unless the
+    data earns it;
+  - **decision trees**: gradient-boosted trees on the same indicators, three
+    levels deep, so they can learn combinations ("RSI high only matters when
+    volatility is low"). Each leaf needs at least 300 past trades. How many
+    trees to keep is picked on the last part of training.
+
+  The learned formulas only ever see training data. The report and Jarvis's
+  page show what each one leans on. A champion's trees are saved in
+  `champ_models/`;
 - *the confidence bar*: a little above break-even, or the one you pick.
   Confidence here means the chance of reaching the target before the stop.
 
@@ -223,10 +238,13 @@ training. It's **proven** only if it made money on training, in at least 3 of
 the 4 test windows and in all of them together, and if its daily results
 there beat the **luck bar**. That's the t-statistic the best of that many
 tries would reach by pure luck (the expected maximum behind Bailey and
-Lopez de Prado's deflated Sharpe ratio). Every try ever made counts, kept in
+Lopez de Prado's deflated Sharpe ratio). The three formulas face the same test,
+and every try ever made by any of them counts, kept in
 `champ.json` until `--fresh`, so re-running doesn't make luck easier. The last
 20% of history, the **final check**, is never used to choose anything and is
-only reported. The previous champion is re-tested and competes too. A proven
+only reported. The previous champion is re-tested and competes too. When none
+is proven, the best on the test windows is kept (never the best on training,
+which flatters whatever was fitted to it). A proven
 champion's bet is the largest whose training drawdown stays inside
 `lab.drawdown_budget`. An unproven one bets 2% and never trades real money.
 

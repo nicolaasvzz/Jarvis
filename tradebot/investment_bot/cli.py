@@ -8,7 +8,8 @@
     investment-bot lab       --for 8h [--round 1h] [--until-done] [--prepare-only] [--fresh]
     investment-bot package   [-c config.yaml]
     investment-bot trade-package [--once] [--dry-run]
-    investment-bot champ     --for 3d [--only stock|crypto] [--fresh] [--prepare-only]
+    investment-bot champ     --for 3d [--only stock|crypto] [--formulas all|vote,weights,trees]
+                             [--fresh] [--prepare-only]
     investment-bot trade-setup [--once] [--dry-run] [--only stock|crypto]
     investment-bot research  [--once] [--trade [--dry-run]]
     investment-bot check     [--quick]
@@ -547,6 +548,9 @@ def cmd_champ(args: argparse.Namespace) -> None:
     config = BotConfig.load(args.config)
     if args.only:
         config = apply_overrides(config, {"champ.classes": [args.only.rstrip("s")]})
+    if args.formulas and args.formulas != "all":
+        config = apply_overrides(config, {"champ.formulas": [
+            f.strip() for f in args.formulas.split(",") if f.strip()]})
     cfg = ChampConfig.from_config(config)
     other = running_builder()
     if other:
@@ -786,6 +790,9 @@ def build_parser() -> argparse.ArgumentParser:
     ch.add_argument("--round", default=None, help=argparse.SUPPRESS)  # older Jarvis buttons
     ch.add_argument("--only", choices=["stock", "stocks", "crypto"], default=None,
                     help="Build one class only")
+    ch.add_argument("--formulas", default=None,
+                    help="Which formulas compete: all (default), or some of vote, weights, "
+                         "trees, comma-separated")
     ch.add_argument("--fresh", action="store_true",
                     help="Forget earlier results, and the count of setups tried")
     ch.add_argument("--prepare-only", action="store_true",

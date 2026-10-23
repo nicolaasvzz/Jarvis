@@ -14,7 +14,8 @@
 # Backtest, learn, lab, champ and package also take the strategy to try and the
 # money to use: -Style refine|fewer|more|custom [-Custom "your words"] -Money 10000
 # [-Confidence 70] [-Bet 10] (percent; 0 keeps what the strategy says). Champ and
-# package also take -Only stock|crypto (default: both).
+# package also take -Only stock|crypto (default: both), and champ takes
+# -Formula all|vote|weights|trees (which formulas compete; default: all).
 #
 # Every run of backtest, learn, lab, champ, package and check keeps a report
 # in reports\ (Jarvis's TradeBot page lists them all).
@@ -40,7 +41,9 @@ param(
     [ValidateSet('off', 'watch', 'trade')]
     [string]$Research = 'off', # news research alongside the mode: watch, or trade it too
     [ValidateSet('both', 'stock', 'stocks', 'crypto')]
-    [string]$Only = 'both'    # champ/package: stocks and crypto, or just one of them
+    [string]$Only = 'both',   # champ/package: stocks and crypto, or just one of them
+    [ValidateSet('all', 'vote', 'weights', 'trees')]
+    [string]$Formula = 'all'  # champ: which formulas compete (chart votes, learned weights, trees)
 )
 
 $ErrorActionPreference = 'Stop'
@@ -85,6 +88,8 @@ foreach ($pair in @(@('--confidence', $Confidence), @('--bet', $Bet))) {
 if ($Custom.Trim()) { $styleArgs += @('--custom', ($Custom -replace '"', "'")) }
 $onlyArgs = @()
 if ($Only -ne 'both') { $onlyArgs = @('--only', $Only) }
+$formulaArgs = @()
+if ($Formula -ne 'all') { $formulaArgs = @('--formulas', $Formula) }
 
 switch ($Mode) {
     'terminal' {
@@ -116,7 +121,7 @@ switch ($Mode) {
         # -Round is still accepted (older Jarvis buttons send it) but no longer used.
         $champFor = if ($PSBoundParameters.ContainsKey('For')) { $For } else { '3d' }
         Write-Host "=== Champ-set builder: 4h, 1h and 30m charts, one setup trading the 1h (at most $champFor; Ctrl-C stops) ===" -ForegroundColor Cyan
-        & $venvPython -m investment_bot champ -c $config --for $champFor @onlyArgs @styleArgs @news
+        & $venvPython -m investment_bot champ -c $config --for $champFor @onlyArgs @formulaArgs @styleArgs @news
     }
     'check' {
         Write-Host '=== Test mode: checking every part of the bot (no trading) ===' -ForegroundColor Cyan

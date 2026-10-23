@@ -24,7 +24,8 @@ Every 10 minutes, just after a 10-minute candle closes:
    ``news.db``, so run news research alongside (``--research watch``).
 3. **New trades** when a 1-hour candle has closed (crypto on the hour, stocks
    at :30 New York): the champion setup for the symbol's class reads its
-   three charts, and the trades it says yes to are taken, surest first.
+   three charts (and, for a learned formula, every indicator it was fitted
+   on), and the trades it says yes to are taken, surest first.
 
 Small accounts: a US stock account under ``champ.pdt_equity`` ($25,000) may
 make only 3 day trades in 5 business days (the Pattern Day Trader rule). Any
@@ -224,7 +225,13 @@ class SetupTrader:
             for cls, champ in load_champions(path).items():
                 if cls not in self.classes:
                     continue
-                setup = Setup.from_dict(champ["setup"])
+                try:
+                    setup = Setup.from_dict(champ["setup"])
+                    if setup.formula == "trees":
+                        setup.trees()  # load the fitted trees now, not mid-trade
+                except (KeyError, TypeError, ValueError) as exc:
+                    self.say(f"Can't trade {cls}: {' '.join(str(exc).split())[:200]}")
+                    continue
                 if self.style.pinned:
                     pins = self.style.package_pins()
                     changes = {"confidence": pins.get("threshold"), "size": pins.get("size"),
@@ -368,10 +375,12 @@ class SetupTrader:
         row = int(rows[-1])
         scores = setup.chart_scores(feats[setup.features].to_numpy()[row:row + 1],
                                     setup.features)
+        x = (feats[list(setup.inputs)].to_numpy()[row:row + 1]
+             if setup.formula != "vote" else None)
         lean = float(scores["1h"][0])
         self.state.lean[symbol] = lean
         can_short = stock and bool(item.get("shortable"))  # Alpaca crypto can't be shorted
-        d, p = setup.decide(scores, can_short)
+        d, p = setup.decide(scores, can_short, x)
         details = {"chance": float(p[0]), "atr": float(bars["atr"].iloc[row]),
                    "atr4h": float(bars["atr4h"].iloc[row]),
                    "price": float(raw["close"].iloc[-1]),

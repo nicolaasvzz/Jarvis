@@ -6,15 +6,15 @@
       "group": "TradeBot",
       "project": "p-tradebot",
       "kind": "command",
-      "action": ".\\run-local.ps1 -Mode champ -For {limit} -Only {only} -Style {style} -Confidence {confidence} -Bet {bet} -Custom {custom} -Money {money} -Research {research}",
-      "description": "Masters the 4-hour, 1-hour and 30-minute charts one after another (the clearest indicators of each, look-alikes counted once), then builds one setup for stocks and one for crypto that trade only on the 1-hour chart, when all three charts agree and the target looks likelier than the stop. Stop, target and time limit come from how past trades really moved. A setup is only called proven when it wins in most of four later stretches of history by more than luck explains; the final check is never used to choose. Usually takes minutes; writes a report.",
+      "action": ".\\run-local.ps1 -Mode champ -For {limit} -Only {only} -Formula {formula} -Style {style} -Confidence {confidence} -Bet {bet} -Custom {custom} -Money {money} -Research {research}",
+      "description": "Masters the 4-hour, 1-hour and 30-minute charts one after another (the clearest indicators of each, look-alikes counted once), then builds one setup for stocks and one for crypto that trade only on the 1-hour chart, when all three charts agree. Three formulas compete to say how sure to be: chart votes, learned weights, and decision trees that learn how all the indicators work together. Stop, target and time limit come from how past trades really moved. A setup is only called proven when it wins in most of four later stretches of history by more than luck explains; the final check is never used to choose. Usually takes minutes; writes a report.",
       "trusted": false,
       "inputs": [
         {
           "name": "limit",
-          "label": "Give up after at most",
+          "label": "Give up after at most (it usually finishes in minutes)",
           "kind": "choice",
-          "default": "3d",
+          "default": "8h",
           "options": [
             {
               "label": "8 hours (a night)",
@@ -63,6 +63,30 @@
             {
               "label": "Crypto only",
               "value": "crypto"
+            }
+          ]
+        },
+        {
+          "name": "formula",
+          "label": "Formulas that compete",
+          "kind": "choice",
+          "default": "all",
+          "options": [
+            {
+              "label": "All three (votes, learned weights, decision trees)",
+              "value": "all"
+            },
+            {
+              "label": "Chart votes only",
+              "value": "vote"
+            },
+            {
+              "label": "Learned weights only",
+              "value": "weights"
+            },
+            {
+              "label": "Decision trees only",
+              "value": "trees"
             }
           ]
         },

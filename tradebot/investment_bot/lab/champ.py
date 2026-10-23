@@ -22,7 +22,13 @@ so do their hours. For each:
    trade. For each way of gating them (how far the 1h must lean, how firmly
    the 4h and 30m must agree) the builder fits, on training only: the stop,
    target and time limit (from how far winners dipped and ran: MAE/MFE), then
-   the confidence model, then the confidence bar (a little above break-even).
+   the formula that says how sure to be, then the confidence bar (a little
+   above break-even). Three formulas compete (``champ.formulas``):
+   - *chart votes*: a four-number model on the three chart scores;
+   - *learned weights* and *decision trees*: they read every indicator kept on
+     the three charts (the clearest of each look-alike group) and learn how
+     they work together; the trees can learn combinations ("this only matters
+     when that"). See ``formulas.py``.
 3. **Judge.** Every candidate is tested on ``test_windows`` stretches of time
    after training. To be **proven** it must make money on training, in most
    test windows (3 of 4) and in all of them together, and its daily results
@@ -62,11 +68,25 @@ from .catalog import FAMILIES, family_of
 from .charts import CHARTS, all_columns, chart_of, decision_features
 from .charts import VERSION as CHARTS_VERSION
 from .features import FeatureStore, ns
+from .formulas import fit_trees, fit_weights, input_names, leaning_on
 from .lab import greedy, proxy
 from .package import Trades, metrics, portfolio, score_of
 from .prepare import LabConfig, scan_universe, synthetic_bars, synthetic_crypto, synthetic_symbols
 from .research import _W, _bars, init_worker, sample_job, scoreboard, scout_job
-from .setups import CLOSE, END, TIME, Setup, barrier, daily_t, fit_model, luck_bar
+from .setups import (
+    CLOSE,
+    END,
+    FORMULA_WORDS,
+    FORMULAS,
+    TIME,
+    Setup,
+    barrier,
+    daily_t,
+    fit_model,
+    formula_features,
+    luck_bar,
+    save_trees,
+)
 
 SESSION_FILE = "champ_session.json"
 CLASSES = ("stock", "crypto")
@@ -83,6 +103,7 @@ HOURS = (2, 3, 4, 6)
 PATH = 6                                        # candles of each trade's path kept
 REF_SIZE = 0.10                                 # every candidate is judged at this size
 SMALL_SIZE = 0.02
+FIT_ROWS = 300_000                              # most past trades a learned formula is fitted on
 HOUR_NS = 3_600_000_000_000
 DAY_NS = 24 * HOUR_NS
 
@@ -104,6 +125,7 @@ class ChampConfig:
     news_judge_after: int = 50     # extended trades before the trader judges extensions
     pdt_equity: float = 25000      # stock accounts below this get 3 day trades per 5 days
     trade: list[str] = field(default_factory=lambda: ["stock", "crypto"])
+    formulas: list[str] = field(default_factory=lambda: list(FORMULAS))  # which ones compete
 
     @classmethod
     def from_config(cls, config: BotConfig) -> ChampConfig:
@@ -119,6 +141,10 @@ class ChampConfig:
                 raise ValueError(f"champ.{name}: use stock and/or crypto, not {bad}")
             setattr(cfg, name, values)
         cfg.max_hours = int(min(max(cfg.max_hours, 2), PATH))
+        cfg.formulas = [str(f).lower() for f in cfg.formulas]
+        bad = [f for f in cfg.formulas if f not in FORMULAS]
+        if bad or not cfg.formulas:
+            raise ValueError(f"champ.formulas: use some of {', '.join(FORMULAS)}, not {bad}")
         return cfg
 
 
@@ -266,15 +292,18 @@ class Candidates:
     times: np.ndarray      # (n, PATH) each candle's start
     k_last: np.ndarray     # last candle of the trading day (stocks); PATH for crypto
     valid: np.ndarray      # candles of data after the entry (at most PATH)
+    x: np.ndarray          # (n, inputs) each input indicator's raw value, for the formulas
+    inputs: list[str] = field(default_factory=list)
+    cache: dict[Any, np.ndarray] = field(default_factory=dict)  # chances, per formula
 
     KEYS = ("sym", "row", "t", "d", "a1", "a4", "a30", "entry", "scale", "cost", "tpcap",
-            "opn", "fav", "adv", "cls", "times", "k_last", "valid")
+            "opn", "fav", "adv", "cls", "times", "k_last", "valid", "x")
 
     def __len__(self) -> int:
         return len(self.t)
 
     @classmethod
-    def join(cls, parts: list[dict[str, Any]]) -> Candidates:
+    def join(cls, parts: list[dict[str, Any]], inputs: list[str]) -> Candidates:
         symbols = [s for p in parts for s in p["symbols"]]
         arrays: dict[str, list[np.ndarray]] = {k: [] for k in cls.KEYS}
         base = 0
@@ -289,7 +318,28 @@ class Candidates:
         else:
             joined["opn"] = joined["fav"] = joined["adv"] = joined["cls"] = np.zeros((0, PATH))
             joined["times"] = np.zeros((0, PATH), dtype="int64")
-        return cls(symbols, **joined)
+            joined["x"] = np.zeros((0, len(inputs)), dtype=np.float16)
+        return cls(symbols, **joined, inputs=list(inputs))
+
+    def x_for(self, setup: Setup) -> np.ndarray | None:
+        """The raw values of ``setup.inputs``, in its order (None for chart votes)."""
+        if setup.formula == "vote":
+            return None
+        where = {f: i for i, f in enumerate(self.inputs)}
+        return self.x[:, [where[f] for f in setup.inputs]]
+
+    def chances(self, setup: Setup) -> np.ndarray:
+        """The setup's chance of winning on every candidate (kept: the confidence bars
+        and windows tried share it)."""
+        if setup.formula == "vote":
+            key: Any = ("vote", tuple(setup.model))
+        elif setup.formula == "weights":
+            key = ("weights", tuple(setup.coef), tuple(setup.inputs))
+        else:
+            key = ("trees", id(setup.trees()), tuple(setup.inputs))
+        if key not in self.cache:
+            self.cache[key] = setup.chance(self.d, self.a1, self.a4, self.a30, self.x_for(setup))
+        return self.cache[key]
 
     def limits(self, idx: np.ndarray, hours: int) -> tuple[np.ndarray, np.ndarray]:
         """How many candles each trade may last, and what ends it then."""
@@ -304,11 +354,15 @@ class Candidates:
         return np.maximum(lim, 1), why
 
 
-def candidate_job(job: tuple[list[str], dict[str, dict[str, float]], int, bool]) -> dict[str, Any]:
-    """The candidates on a chunk of symbols, for one setup's three sets."""
-    symbols, sets, min_left_ns, shorts = job
+def candidate_job(job: tuple[list[str], dict[str, dict[str, float]], list[str], int, bool]
+                  ) -> dict[str, Any]:
+    """The candidates on a chunk of symbols, for one setup's three sets, with the
+    raw values of ``inputs`` (the learned formulas' indicators) on each."""
+    symbols, sets, inputs, min_left_ns, shorts = job
     store: FeatureStore = _W["store"]
     feats = [f for tf in CHARTS for f in sets[tf]]
+    feats += [f for f in inputs if f not in set(feats)]
+    where = {f: i for i, f in enumerate(feats)}
     probe = Setup(sets)
     out: dict[str, list[np.ndarray]] = {k: [] for k in Candidates.KEYS}
     names: list[str] = []
@@ -319,7 +373,8 @@ def candidate_job(job: tuple[list[str], dict[str, dict[str, float]], int, bool])
             continue
         item = _W["meta"].get(symbol, {})
         crypto = class_of(item) == "crypto"
-        scores = probe.chart_scores(store.load(symbol, feats), feats)
+        loaded = store.load(symbol, feats)
+        scores = probe.chart_scores(loaded, feats)
         s1 = scores["1h"]
         d = np.where(s1 >= GATE, 1, np.where(s1 <= -GATE, -1, 0)).astype(np.int8)
         if not (shorts and not crypto and item.get("shortable", False)):
@@ -375,6 +430,7 @@ def candidate_job(job: tuple[list[str], dict[str, dict[str, float]], int, bool])
         out["times"].append(start[idx])
         out["k_last"].append(k_last)
         out["valid"].append(valid)
+        out["x"].append(np.nan_to_num(loaded[r][:, [where[f] for f in inputs]]).astype(np.float16))
         names.append(symbol)
     result: dict[str, Any] = {"symbols": names}
     for k, v in out.items():
@@ -383,6 +439,7 @@ def candidate_job(job: tuple[list[str], dict[str, dict[str, float]], int, bool])
         else:
             result[k] = (np.zeros((0, PATH), dtype=np.float32) if k in ("opn", "fav", "adv", "cls")
                          else np.zeros((0, PATH), dtype="int64") if k == "times"
+                         else np.zeros((0, len(inputs)), dtype=np.float16) if k == "x"
                          else np.zeros(0))
     return result
 
@@ -394,7 +451,7 @@ def run_setup(setup: Setup, c: Candidates, mask: np.ndarray) -> tuple[Trades, np
             & (c.a30 >= setup.agree_30m))
     if not setup.shorts:
         gate &= c.d > 0
-    p = setup.p_win(c.a1, c.a4, c.a30)
+    p = c.chances(setup)
     gate &= p >= setup.confidence
     idx = np.flatnonzero(gate)
     if not len(idx):
@@ -722,8 +779,9 @@ class ChampBuilder:
             lessons.append("Out of time before combining the charts.")
             return
         sets = {tf: charts[tf]["set"] for tf in CHARTS}
+        inputs = {f: v for tf in ORDER for f, v in (charts[tf].get("inputs") or {}).items()}
         self.set_phase(f"{word}: combining the three charts")
-        cands = self.gather(symbols, sets)
+        cands = self.gather(symbols, sets, list(inputs))
         previous = (self.state["classes"].get(cls) or {}).get("champion")
         prev_setup = None
         prev_cands = None
@@ -731,13 +789,18 @@ class ChampBuilder:
             try:
                 prev_setup = Setup.from_dict(previous["setup"])
                 self.store.col_index(prev_setup.features)
-            except (KeyError, ValueError, TypeError):
+                if prev_setup.formula == "trees":
+                    prev_setup.trees()
+            except (KeyError, ValueError, TypeError) as exc:
+                lessons.append(f"The previous champion couldn't be re-tested ({exc}).")
                 prev_setup = None
             if prev_setup is not None:
-                prev_cands = (cands if prev_setup.sets == sets
-                              else self.gather(symbols, prev_setup.sets))
-        self.set_phase(f"{word}: judging the setups")
-        result = self.judge(cls, cands, w, sets, prev_setup, prev_cands, lessons)
+                same = prev_setup.sets == sets and set(prev_setup.inputs) <= set(inputs)
+                prev_cands = (cands if same
+                              else self.gather(symbols, prev_setup.sets, list(prev_setup.inputs)))
+        self.formula_info: dict[str, Any] = {}
+        self.set_phase(f"{word}: fitting the formulas and judging the setups")
+        result = self.judge(cls, cands, w, sets, inputs, prev_setup, prev_cands, lessons)
         self.state["classes"][cls] = {
             "updated": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             "symbols": len(symbols),
@@ -747,6 +810,8 @@ class ChampBuilder:
             "charts": charts,
             "champion": result.get("champion"),
             "tried": result.get("tried", []),
+            "formulas": result.get("formulas", []),
+            "formula_info": self.formula_info,
             "lessons": lessons,
         }
         for line in lessons:
@@ -808,8 +873,10 @@ class ChampBuilder:
         x = x * signs
         pool_idx, groups = look_alike_pool(x, use, self.cfg.per_chart, self.cfg.look_alike)
         pool = [cols[i] for i in pool_idx]
+        signs_by = {e["feature"]: float(e["sign"]) for e in use}
         empty = {"set": {}, "pool": pool, "stable": len(stable), "indicators": len(board),
                  "groups": groups, "horizon": h, "proxy": {"t": 0.0, "hit": 0.0},
+                 "inputs": {f: signs_by[f] for f in pool},
                  "top": [_compact(e) for e in board[:10]]}
         if not pool:
             fallback = board[0]
@@ -831,7 +898,6 @@ class ChampBuilder:
         score = xp[late][:, chosen].mean(1)
         voted = np.abs(score) >= theta
         hit = float((np.sign(score[voted]) * f[late][voted] > 0).mean()) if voted.any() else 0.0
-        signs_by = {e["feature"]: e["sign"] for e in use}
         empty.update(
             set={pool[i]: float(signs_by[pool[i]]) for i in chosen},
             proxy={"t": round(float(t_late) if math.isfinite(t_late) else 0.0, 2),
@@ -841,12 +907,14 @@ class ChampBuilder:
 
     # ------------------------------------------------------------ 2. combine
 
-    def gather(self, symbols: list[str], sets: dict[str, dict[str, float]]) -> Candidates:
+    def gather(self, symbols: list[str], sets: dict[str, dict[str, float]],
+               inputs: list[str] | None = None) -> Candidates:
         min_left = int(self.cfg.min_session_left * HOUR_NS)
         shorts = self.pins.get("shorts", True)
-        parts = self._map(candidate_job, [(c, sets, min_left, shorts)
+        inputs = list(inputs or [])
+        parts = self._map(candidate_job, [(c, sets, inputs, min_left, shorts)
                                           for c in self._chunks(symbols)])
-        return Candidates.join(parts)
+        return Candidates.join(parts, inputs)
 
     def _mask(self, c: Candidates, window: tuple[int, int]) -> np.ndarray:
         return (c.t >= window[0]) & (c.t < window[1])
@@ -861,8 +929,19 @@ class ChampBuilder:
         return max(5, round(self.lab.min_trades * (b - a) / max(tb - ta, 1)))
 
     def candidates_for(self, cls: str, c: Candidates, w: dict[str, Any],
-                       sets: dict[str, dict[str, float]]) -> list[Setup]:
-        """Every setup to judge: for each gate, exits and model fitted on training."""
+                       sets: dict[str, dict[str, float]], inputs: dict[str, float],
+                       lessons: list[str]) -> list[Setup]:
+        """Every setup to judge: for each gate, exits and formula fitted on training."""
+        out: list[Setup] = []
+        if "vote" in self.cfg.formulas:
+            out += self.vote_setups(c, w, sets)
+        learned = [f for f in self.cfg.formulas if f != "vote"]
+        if learned and inputs:
+            out += self.formula_setups(cls, c, w, sets, inputs, learned, lessons)
+        return out
+
+    def vote_setups(self, c: Candidates, w: dict[str, Any],
+                    sets: dict[str, dict[str, float]]) -> list[Setup]:
         train = self._mask(c, w["train"])
         out: list[Setup] = []
         pinned = self.pins.get("threshold")
@@ -894,8 +973,92 @@ class ChampBuilder:
                             sets, entry=entry, agree_4h=agree_4h, agree_30m=agree_30m,
                             model=model, confidence=bar, sl_atr=sl, tp_atr=tp, hours=hours,
                             size=REF_SIZE, shorts=shorts,
-                            name=(f"1h>={entry:g}, 4h>={agree_4h:g}, 30m>={agree_30m:g}, "
-                                  f"{bar:.0%} sure (break-even {even:.0%})")))
+                            name=(f"chart votes: 1h>={entry:g}, 4h>={agree_4h:g}, "
+                                  f"30m>={agree_30m:g}, {bar:.0%} sure (break-even {even:.0%})")))
+        return out
+
+    def formula_setups(self, cls: str, c: Candidates, w: dict[str, Any],
+                       sets: dict[str, dict[str, float]], inputs: dict[str, float],
+                       kinds: list[str], lessons: list[str]) -> list[Setup]:
+        """The learned formulas: on every possible trade where the charts agree, fit
+        how all the inputs together say whether it reaches its target first."""
+        shorts = bool(self.pins.get("shorts", True))
+        gate = self._mask(c, w["train"]) & (c.a1 >= GATE)
+        if not shorts:
+            gate &= c.d > 0
+        fitted = fit_barriers(c, gate, self.cfg.max_hours)
+        if fitted is None:
+            lessons.append("Too few possible trades on training to fit the learned formulas.")
+            return []
+        sl, tp, hours, _ = fitted
+        idx = np.flatnonzero(gate)
+        net = outcome(c, idx, sl, tp, hours)
+        ok = np.isfinite(net)
+        idx, net = idx[ok], net[ok]
+        if len(idx) > FIT_ROWS:  # plenty: a random share, kept in time order
+            keep = np.sort(np.random.default_rng(self.rng.randrange(1 << 30)).choice(
+                len(idx), FIT_ROWS, replace=False))
+            idx, net = idx[keep], net[keep]
+        y = (net > 0).astype(float)
+        where = {f: i for i, f in enumerate(c.inputs)}
+        names = list(inputs)
+        signs = np.array([inputs[f] for f in names], dtype=np.float32)
+        x = c.x[idx][:, [where[f] for f in names]]
+        f_all = formula_features(x, signs, c.d[idx], c.a1[idx], c.a4[idx], c.a30[idx])
+        t = c.t[idx]
+        cut = np.quantile(t, 0.8)
+        fit_m = t < cut - int(self.cfg.gap_hours * HOUR_NS)
+        check_m = t >= cut
+        if fit_m.sum() < 400 or check_m.sum() < 100 or y.min() == y.max():
+            lessons.append("Too few possible trades on training to fit the learned formulas.")
+            return []
+        gain = net[net > 0].mean() if (net > 0).any() else 0.0
+        loss = -net[net <= 0].mean() if (net <= 0).any() else 0.0
+        even = loss / (gain + loss) if gain + loss > 0 else 0.5
+        pinned = self.pins.get("threshold")
+        bars = ([float(pinned)] if pinned is not None
+                else [round(min(even + m, 0.95), 3) for m in MARGINS])
+        out: list[Setup] = []
+        labels = input_names(names)
+        for kind in kinds:
+            self.say(f"Fitting {FORMULA_WORDS[kind]} on {len(idx):,} past trades and "
+                     f"{len(names)} indicators...")
+            args = (f_all[fit_m], y[fit_m], f_all[check_m], y[check_m], f_all, y)
+            try:
+                done = (fit_weights(*args) if kind == "weights"
+                        else fit_trees(*args, seed=self.rng.randrange(1 << 30)))
+            except ImportError:
+                lessons.append(f"Skipped {FORMULA_WORDS[kind]}: scikit-learn isn't installed "
+                               "(press Update Jarvis and the bot).")
+                continue
+            info = {"rows": int(len(idx)), "inputs": len(names),
+                    "check_loss": round(done["check_loss"], 5),
+                    "base_loss": round(done["base_loss"], 5),
+                    "leans_on": leaning_on(kind, done, labels, f_all[check_m], y[check_m])}
+            if kind == "weights":
+                info["strength"] = done["strength"]
+                params: dict[str, Any] = {"coef": done["coef"], "centre": done["centre"],
+                                          "spread": done["spread"]}
+            else:
+                info["trees"] = done["trees"]
+                params = {}
+            self.formula_info[kind] = info
+            better = done["base_loss"] - done["check_loss"]
+            lessons.append(
+                f"{FORMULA_WORDS[kind].capitalize()}: fitted on {len(idx):,} past trades and "
+                f"{len(names)} indicators; on the last part of training it predicts "
+                + ("better than just knowing the usual win rate"
+                   if better > 0 else "no better than just knowing the usual win rate")
+                + f" (log loss {done['check_loss']:.4f} against {done['base_loss']:.4f}).")
+            for bar in bars:
+                setup = Setup(sets, entry=GATE, confidence=bar, sl_atr=sl, tp_atr=tp,
+                              hours=hours, size=REF_SIZE, shorts=shorts, formula=kind,
+                              inputs=dict(inputs), **params,
+                              name=f"{FORMULA_WORDS[kind]}: {bar:.0%} sure "
+                                   f"(break-even {even:.0%})")
+                if kind == "trees":
+                    setup._trees = done["model"]
+                out.append(setup)
         return out
 
     # ------------------------------------------------------------ 3. judge
@@ -920,10 +1083,10 @@ class ChampBuilder:
         return out
 
     def judge(self, cls: str, c: Candidates, w: dict[str, Any], sets: dict[str, Any],
-              prev: Setup | None, prev_c: Candidates | None,
+              inputs: dict[str, float], prev: Setup | None, prev_c: Candidates | None,
               lessons: list[str]) -> dict[str, Any]:
         word = CLASS_WORDS[cls]
-        setups = self.candidates_for(cls, c, w, sets)
+        setups = self.candidates_for(cls, c, w, sets, inputs, lessons)
         runs = [(s, c) for s in setups]
         if prev is not None and prev_c is not None:
             runs.append((prev.with_(size=REF_SIZE, name="previous champion"), prev_c))
@@ -960,10 +1123,12 @@ class ChampBuilder:
         proven = [r for r in judged if r["proven"]]
         eligible = [r for r in judged if r["eligible"]]
         trading = [r for r in judged if r["metrics"]["train"]["num_trades"]] or judged
+        # Ranked on the test windows only: training flatters whatever was fitted on it
+        # (most of all the learned formulas).
         if proven:
             best = max(proven, key=lambda r: r["scores"]["test"])
         elif eligible:
-            best = max(eligible, key=lambda r: r["scores"]["train"] + r["scores"]["test"])
+            best = max(eligible, key=lambda r: r["scores"]["test"])
         else:
             best = max(trading, key=lambda r: r["scores"]["train"])
         setup = best["setup"]
@@ -975,6 +1140,11 @@ class ChampBuilder:
             size = SMALL_SIZE
         final = self.evaluate(cls, setup, best["cands"], w, parts=("final",))
         setup = setup.with_(size=size)
+        if setup.formula == "trees":  # keep the fitted trees next to champ.json
+            path = self.results_file.parent / "champ_models" / f"{cls}.pkl"
+            save_trees(setup.trees(), path)
+            setup = setup.with_(model_file=str(path))
+            setup._trees = best["setup"].trees()
         champion = {
             "setup": setup.to_dict(),
             "proven": bool(best["proven"]),
@@ -992,7 +1162,12 @@ class ChampBuilder:
                        f"(luck bar t={bar:.2f} after {tries} tries).")
         lessons.append(("Champion" if best["proven"] else "Best so far, NOT proven (trades at "
                         f"{SMALL_SIZE:.0%}, never with real money)") + f": {setup.describe()}.")
-        lessons.append(f"Confidence model: {model_words(setup.model)}.")
+        if setup.formula == "vote":
+            lessons.append(f"Confidence model: {model_words(setup.model)}.")
+        else:
+            top = (self.formula_info.get(setup.formula) or {}).get("leans_on") or []
+            lessons.append(f"Its {FORMULA_WORDS[setup.formula]} lean most on: "
+                           + ", ".join(r["Input"] for r in top[:5]) + ".")
         lessons.append(f"Results at {REF_SIZE:.0%} a trade: {brief(m)}.")
         failed = [k for k, ok in best["checks"].items() if not ok]
         if failed:
@@ -1002,8 +1177,24 @@ class ChampBuilder:
             lessons.append("No setup made a single trade" + (
                 f": none is ever {pinned:.0%} sure of its target before its stop. Ask for "
                 "less confidence (or let the builder pick it)." if pinned is not None else "."))
-        tried = sorted(judged, key=lambda r: -(r["scores"]["train"] + r["scores"]["test"]))[:10]
-        return {"champion": champion, "tried": [
+        tried = sorted(judged, key=lambda r: -r["scores"]["test"])[:10]
+        formulas = []
+        for kind in FORMULAS:
+            mine = [r for r in judged if r["setup"].formula == kind
+                    and r["setup"].name != "previous champion"]
+            if not mine:
+                continue
+            top = max([r for r in mine if r["eligible"]] or mine,
+                      key=lambda r: r["scores"]["test"])
+            formulas.append({
+                "Formula": FORMULA_WORDS[kind], "Setups": len(mine),
+                "Proven": sum(1 for r in mine if r["proven"]),
+                "Best test %": round(top["metrics"]["test"]["total_return"] * 100, 2),
+                "Best test t": round(top["metrics"]["test"]["daily_t"], 2),
+                "Its trades": int(top["metrics"]["test"]["num_trades"]),
+                "Champion": "yes" if top["setup"] is best["setup"] else ""})
+        champion["formula"] = setup.formula
+        return {"champion": champion, "formulas": formulas, "tried": [
             {"name": r["setup"].name, "proven": r["proven"],
              "train %": round(r["metrics"]["train"]["total_return"] * 100, 2),
              "test %": round(r["metrics"]["test"]["total_return"] * 100, 2),
@@ -1055,8 +1246,17 @@ class ChampBuilder:
             for part, label in (("test", "test"), ("final", "final check")):
                 out.stat(f"{word} {label}", f"{m[part]['total_return']:+.1%}",
                          tone_of(m[part]["total_return"]))
+            how = (f"Confidence model: {model_words(setup.model)}." if setup.formula == "vote"
+                   else f"Formula: {FORMULA_WORDS[setup.formula]} on {len(setup.inputs)} "
+                        "indicators from the three charts.")
+            out.stat(f"{word} formula", FORMULA_WORDS[setup.formula])
             out.text(f"{word}: the champion", f"{setup.describe()}. Bet {setup.size:.0%} of the "
-                     f"money a trade. Confidence model: {model_words(setup.model)}.")
+                     f"money a trade. {how}")
+            out.table(f"{word}: the formulas compared (best setup of each)",
+                      data.get("formulas") or [])
+            for kind, info in (data.get("formula_info") or {}).items():
+                out.table(f"{word}: what the {FORMULA_WORDS[kind]} lean on",
+                          info.get("leans_on") or [])
             out.table(f"{word}: how it did (at {REF_SIZE:.0%} a trade)", [
                 {"Part": label, "Return %": round(m[p]["total_return"] * 100, 2),
                  "Max DD %": round(m[p]["max_drawdown"] * 100, 2),

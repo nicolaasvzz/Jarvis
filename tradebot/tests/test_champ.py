@@ -1,5 +1,6 @@
 """The champ-set builder (30m/1h/4h charts, one setup trading the 1h) and its trader."""
 import json
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -9,8 +10,20 @@ from investment_bot.config import BotConfig
 from investment_bot.lab import champ as champ_module
 from investment_bot.lab.champ import ChampBuilder, look_alike_pool, prepare_charts
 from investment_bot.lab.charts import NY, candles, clean, decision_features
+from investment_bot.lab.formulas import fit_trees, fit_weights
 from investment_bot.lab.setup_trader import SetupTrader, latest_close
-from investment_bot.lab.setups import CLOSE, STOP, TAKE, TIME, Setup, barrier, fit_model, luck_bar
+from investment_bot.lab.setups import (
+    CLOSE,
+    STOP,
+    TAKE,
+    TIME,
+    Setup,
+    barrier,
+    fit_model,
+    load_trees,
+    luck_bar,
+    save_trees,
+)
 
 
 def ten_minute(start: str, periods: int, tz: str = "UTC", step: float = 0.0,
@@ -180,10 +193,24 @@ def test_builder_masters_three_charts_per_class_and_counts_every_try(tmp_path):
         assert champ["proven"] == all(champ["checks"].values())
         if not champ["proven"]:
             assert setup.size == 0.02
+        # the three formulas competed (with enough past trades to fit the learned ones),
+        # and the champion's own trees can be loaded again
+        competed = [r["Formula"] for r in entry["formulas"]]
+        if cls == "crypto" or len(competed) == 3:
+            assert competed == ["chart votes", "learned weights", "decision trees"]
+        else:
+            assert competed == ["chart votes"]
+            assert any("Too few possible trades" in line for line in entry["lessons"])
+        assert champ["formula"] == setup.formula
+        if setup.formula == "trees":
+            assert Path(setup.model_file).exists() and setup.trees() is not None
+        if setup.formula != "vote":
+            assert setup.inputs and entry["formula_info"][setup.formula]["leans_on"]
     first = dict(data["trials"])
     assert json.loads((tmp_path / "session.json").read_text())["status"] == "finished"
     page = builder.report("finished").html()
     assert "Champ-set builder" in page and "indicators on each chart" in page
+    assert "formulas compared" in page
 
     again = ChampBuilder(config, store, universe, seconds=600, say=lambda _: None, seed=2,
                          state_file=tmp_path / "session.json")
@@ -212,6 +239,62 @@ def test_no_shorts_pinned_means_long_only(tmp_path):
     trades, _ = champ_module.run_setup(setup.with_(confidence=0.0), cands,
                                        builder._mask(cands, w["train"]))
     assert len(trades) and (trades.direction > 0).all()
+
+
+def test_only_the_chosen_formulas_compete(tmp_path):
+    config = _config(tmp_path, classes=["crypto"], formulas=["trees"])
+    store, universe = prepare_charts(config, say=lambda _: None)
+    builder = ChampBuilder(config, store, universe, seconds=600, say=lambda _: None, seed=3,
+                           state_file=tmp_path / "s.json")
+    builder.run()
+    entry = json.loads((tmp_path / "champ.json").read_text())["classes"]["crypto"]
+    assert [r["Formula"] for r in entry["formulas"]] == ["decision trees"]
+    assert all(t["name"].startswith("decision trees") for t in entry["tried"])
+    assert entry["champion"]["formula"] == "trees"
+
+
+def _interaction(n: int, seed: int) -> tuple[np.ndarray, np.ndarray]:
+    """Wins come from two inputs together (both up, or both down), not from either alone."""
+    rng = np.random.default_rng(seed)
+    f = rng.uniform(-1, 1, (n, 6)).astype(np.float32)
+    p = np.where(f[:, 0] * f[:, 1] > 0, 0.68, 0.32)
+    return f, (rng.uniform(size=n) < p).astype(float)
+
+
+def test_trees_learn_a_combination_that_weights_cannot():
+    f, y = _interaction(12000, 0)
+    fit, check = slice(0, 8000), slice(8000, None)
+    args = (f[fit], y[fit], f[check], y[check], f, y)
+    weights, trees = fit_weights(*args), fit_trees(*args)
+    assert trees["check_loss"] < trees["base_loss"] - 0.02          # trees found it
+    assert weights["check_loss"] > weights["base_loss"] - 0.005     # a straight line can't
+    assert 10 <= trees["trees"] <= 400
+
+
+def test_learned_formulas_survive_being_saved(tmp_path):
+    inputs = {"rsi_14@1h": 1.0, "cmf_20@4h": -1.0}
+    rng = np.random.default_rng(2)
+    x = rng.uniform(-1, 1, (50, 2))
+    d = np.where(rng.uniform(size=50) > 0.5, 1, -1).astype(np.int8)
+    a1, a4, a30 = rng.uniform(0.2, 1, 50), rng.uniform(0, 1, 50), rng.uniform(0, 1, 50)
+    weights = Setup(TREND, formula="weights", inputs=inputs, coef=[0.1, 0.5, -0.3, 0.2, 0.1,
+                                                                   0.0, 0.4],
+                    centre=[0.0] * 6, spread=[1.0] * 6)
+    again = Setup.from_dict(json.loads(json.dumps(weights.to_dict())))
+    np.testing.assert_allclose(weights.chance(d, a1, a4, a30, x), again.chance(d, a1, a4, a30, x),
+                               atol=1e-5)
+    f, y = _interaction(3000, 1)
+    model = fit_trees(f[:2000, :6], y[:2000], f[2000:, :6], y[2000:], f[:, :6], y)["model"]
+    path = tmp_path / "champ_models" / "crypto.pkl"
+    save_trees(model, path)
+    trees = Setup(TREND, formula="trees", inputs=inputs, model_file=str(path))
+    np.testing.assert_allclose(trees.chance(d, a1, a4, a30, x),
+                               model.predict_proba(trees.formula_inputs(x, d, a1, a4, a30))[:, 1])
+    assert load_trees(path) is not None
+    with pytest.raises(ValueError):
+        Setup(TREND, formula="trees", inputs=inputs).trees()   # never saved
+    with pytest.raises(ValueError):
+        Setup(TREND, formula="weights")                         # a learned formula needs inputs
 
 
 # ------------------------------------------------------------------ the trader
@@ -354,6 +437,24 @@ def test_stock_trades_close_by_the_bell_and_small_accounts_keep_day_trades(tmp_p
     assert any("no day trades left" in e["what"] for e in trader2.state.log)
 
 
+def test_trader_reads_every_input_of_a_learned_formula(tmp_path):
+    raw = _rising_crypto(24 * 12)
+    broker = FakeBroker()
+    trader, clock = _trader(tmp_path, "BTC/USD", "crypto", {"BTC/USD": raw}, broker)
+    inputs = {"rsi_14@30m": 1.0, "cmf_20@4h": 1.0, "close_location@1h": -1.0}
+    setup = Setup(TREND, entry=0.05, formula="weights", inputs=inputs, confidence=0.6,
+                  coef=[3.0] + [0.0] * 7, centre=[0.0] * 7, spread=[1.0] * 7,
+                  sl_atr=1.5, tp_atr=50.0, hours=3, size=0.1)
+    (tmp_path / "champ.json").write_text(json.dumps({"classes": {"crypto": {"champion": {
+        "setup": setup.to_dict(), "proven": True}}}}))
+    names = trader.load_setups()["crypto"][0].names()
+    assert "rsi_14" in names["30m"] and "cmf_20" in names["4h"]
+    clock["now"] = raw.index[-1] + pd.Timedelta(minutes=10, seconds=15)
+    trader.cycle()
+    assert broker.orders and broker.orders[0][:2] == ("BTC/USD", "buy")
+    assert trader.state.trades["BTC/USD"].chance == pytest.approx(1 / (1 + np.exp(-3.0)))
+
+
 def test_real_money_needs_permission_and_a_proven_setup(tmp_path):
     raw = _rising_crypto(24 * 12)
     broker = FakeBroker()
@@ -372,11 +473,17 @@ def test_jarvis_page_shows_the_champion_setups(tmp_path, monkeypatch):
     from investment_bot.jarvis_status import build_status
 
     monkeypatch.chdir(tmp_path)
-    setup = Setup(TREND, confidence=0.55, model=[0.1, 0.4, 0.9, 0.0])
-    (tmp_path / "champ.json").write_text(json.dumps({"classes": {"crypto": {"champion": {
-        "setup": setup.to_dict(), "proven": False,
-        "checks": {"made money on test": False, "enough trades": True},
-        "metrics": {"test": {"total_return": -0.01}, "final": {"total_return": 0.02}}}}}}))
+    setup = Setup(TREND, confidence=0.55, formula="weights", inputs={"rsi_14@1h": 1.0},
+                  coef=[0.1, 0.4, 0.0, 0.9, 0.0, 0.2], centre=[0.0] * 5, spread=[1.0] * 5)
+    (tmp_path / "champ.json").write_text(json.dumps({"classes": {"crypto": {
+        "champion": {
+            "setup": setup.to_dict(), "proven": False, "formula": "weights",
+            "checks": {"made money on test": False, "enough trades": True},
+            "metrics": {"test": {"total_return": -0.01}, "final": {"total_return": 0.02}}},
+        "formulas": [{"Formula": "chart votes", "Setups": 36, "Proven": 0},
+                     {"Formula": "learned weights", "Setups": 3, "Proven": 0}],
+        "formula_info": {"weights": {"leans_on": [
+            {"Input": "rsi_14@1h", "Effect": "toward a win", "Strength": 0.4}]}}}}}))
     (tmp_path / "lab.json").write_text(json.dumps({"champion": {"package": {
         "weights": {"rsi_14@1h": 1.0}, "threshold": 0.3, "size": 0.1}}}))
     out = build_status(BotConfig(raw={"champ": {"results_file": "champ.json"}}))
@@ -384,4 +491,7 @@ def test_jarvis_page_shows_the_champion_setups(tmp_path, monkeypatch):
     assert out["Crypto: not proven because"] == "made money on test"
     assert out["Crypto final check %"] == 2.0
     assert {r["Chart"] for r in out["Champion charts"]} == {"4h", "1h", "30m"}
+    assert out["Crypto formula"] == "learned weights"
+    assert [r["Formula"] for r in out["Formulas compared"]] == ["chart votes", "learned weights"]
+    assert out["What the champion's formula leans on"][0]["Input"] == "rsi_14@1h"
     assert "Champion package" not in out  # the older lab's champion is no longer shown
