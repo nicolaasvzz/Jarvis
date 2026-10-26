@@ -97,6 +97,7 @@ export function card(c, { command = true } = {}) {
         <span class="control-icon">${icon(kind.icon)}</span>
         <span class="control-kind">${esc(kind.label)}</span>
         ${c.trusted && c.kind === "command" ? `<span class="tag" title="Jarvis may run this without asking">${icon("shield")} trusted</span>` : ""}
+        ${c.autostart && c.kind === "command" ? `<span class="tag" title="Runs whenever Jarvis starts, with its last answers">${icon("play")} starts with Jarvis</span>` : ""}
         <span class="grow"></span>
         <button class="icon-btn" data-edit="${esc(c.id)}" title="Edit">${icon("edit")}</button>
       </header>
@@ -243,6 +244,9 @@ export function editControl(existing, preset = {}) {
       { name: "trusted", label: "Jarvis may run this without asking me", type: "checkbox",
         value: c.trusted, show: (v) => v.kind === "command",
         hint: "For harmless buttons you'll say out loud often, like weather changes." },
+      { name: "autostart", label: "Start it whenever Jarvis starts", type: "checkbox",
+        value: c.autostart, show: (v) => v.kind === "command",
+        hint: "With the answers you gave last time — e.g. a bot that should carry on after a restart." },
       { name: "pinned", label: "A button at the top of its project's page", type: "checkbox",
         value: c.pinned, show: (v) => Boolean(v.project) && v.kind !== "idea",
         hint: "For something you press now and then, like updating — not one of its modes." },
@@ -261,7 +265,7 @@ export function editControl(existing, preset = {}) {
         if (!Array.isArray(inputs)) throw new Error("Inputs must be a list: [ … ].");
       }
       const body = { ...v, inputs, action: v.kind === "idea" ? v.action || "" : v.action,
-        pinned: v.pinned && Boolean(v.project) };
+        pinned: v.pinned && Boolean(v.project), autostart: v.autostart && v.kind === "command" };
       if (existing) await Hud.postJSON(Hud.route("msControl", { id: existing.id }), body);
       else await Hud.postJSON(Hud.route("msControls"), body);
       Hud.toast(existing ? "Saved." : `Created “${v.name}”.`, "ok");

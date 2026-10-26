@@ -201,13 +201,15 @@ The Mothership page's controls and projects. All of them answer `404` for an
 unknown id and `409` (with a `detail`) for something that can't be done right
 now, e.g. running a control that isn't built.
 
-**Control** — `{id, name, group, project, kind, action, description, trusted, inputs, pinned, last_inputs, last_run, created_at, updated_at}`.
+**Control** — `{id, name, group, project, kind, action, description, trusted, inputs, pinned, autostart, last_inputs, last_run, created_at, updated_at}`.
 `kind` is `idea` (not built yet), `command` (`action` is a command line, run
 in a terminal in the project's folder), `ask` (`action` is a request for the
 assistant) or `link` (`action` is an http(s) address). `trusted` lets the
 assistant run a command control without asking. `project` is a project id or `""`.
 `pinned` shows it as a button at the top of its project's page instead of in
-its grid (TradeBot's "Update the bot").
+its grid (TradeBot's "Update the bot"). `autostart` runs a command control
+whenever Jarvis starts, with its `last_inputs`, as if you'd pressed it (e.g.
+Paper trading, so it carries on after the PC restarts).
 
 **Project** — `{id, name, description, folder, status_file, reports_dir, controls_title, hue, links: [{label, url}], ideas: [{id, text, done, by, created_at}], created_at, updated_at}`.
 `reports_dir` is a folder inside `folder` whose pages are listed on the
@@ -223,7 +225,7 @@ when it was made and what made it — `2026-10-05_213015_backtest.html` — give
 | Route | Default | |
 |---|---|---|
 | `mothership` | `GET /dash/api/mothership` | `{"controls": [Control], "projects": [Project], "claude": true}` — `claude`: Claude Code is installed |
-| `msControls` | `POST /dash/api/mothership/controls` | `{name, group, project, kind, action, description, trusted, inputs, pinned}` → the new Control. `inputs` (optional): `[{name, label, kind: "choice"\|"text", options: [{label, value}], default, placeholder}]`, asked for when it's pressed; the command line says `{name}` where each goes |
+| `msControls` | `POST /dash/api/mothership/controls` | `{name, group, project, kind, action, description, trusted, inputs, pinned, autostart}` → the new Control. `inputs` (optional): `[{name, label, kind: "choice"\|"text", options: [{label, value}], default, placeholder}]`, asked for when it's pressed; the command line says `{name}` where each goes |
 | `msControl` | `POST /dash/api/mothership/controls/{id}` | the same body → the updated Control |
 | `msControlDelete` | `POST …/controls/{id}/delete` | |
 | `msControlRun` | `POST …/controls/{id}/run` | You pressed it: runs now, no approval. Body (optional) `{"inputs": {name: value}}` — each is filled into the command quoted (a choice must be one of its options, else 409; missing → its default) and kept as the Control's `last_inputs`, which Restart reuses. → `{"terminal": "term-3"}`, `{"task_id": "t-…"}` (ask) or `{"url": "…"}` (link — the page opens it) |

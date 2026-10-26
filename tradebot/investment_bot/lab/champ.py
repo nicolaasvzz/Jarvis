@@ -126,6 +126,7 @@ class ChampConfig:
     pdt_equity: float = 25000      # stock accounts below this get 3 day trades per 5 days
     trade: list[str] = field(default_factory=lambda: ["stock", "crypto"])
     formulas: list[str] = field(default_factory=lambda: list(FORMULAS))  # which ones compete
+    skip_families: list[str] = field(default_factory=list)  # e.g. [volume]: left out entirely
 
     @classmethod
     def from_config(cls, config: BotConfig) -> ChampConfig:
@@ -145,6 +146,10 @@ class ChampConfig:
         bad = [f for f in cfg.formulas if f not in FORMULAS]
         if bad or not cfg.formulas:
             raise ValueError(f"champ.formulas: use some of {', '.join(FORMULAS)}, not {bad}")
+        cfg.skip_families = [str(f).lower() for f in cfg.skip_families]
+        bad = [f for f in cfg.skip_families if f not in FAMILIES]
+        if bad:
+            raise ValueError(f"champ.skip_families: use some of {', '.join(FAMILIES)}, not {bad}")
         return cfg
 
 
@@ -848,9 +853,11 @@ class ChampBuilder:
     def master_chart(self, tf: str, symbols: list[str], columns: list[str],
                      full: list[dict[str, Any]], halves: tuple[list[Any], list[Any]],
                      window: tuple[int, int]) -> dict[str, Any]:
+        skip = set(self.cfg.skip_families)
+
         def board_of(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
             board = scoreboard(results, columns, HORIZONS[tf])
-            return [e for e in board if chart_of(e["feature"]) == tf]
+            return [e for e in board if chart_of(e["feature"]) == tf and e["family"] not in skip]
 
         board = board_of(full)
         by1 = {e["feature"]: e for e in board_of(halves[0])}
