@@ -304,7 +304,7 @@ def run_checks(config_path: str | None, quick: bool = False,
             parts.append(f"{cls}: {'proven' if champ.get('proven') else 'NOT proven'}, "
                          f"{FORMULA_WORDS[setup.formula]} on {len(setup.features)} indicators "
                          f"from 3 charts, test {test:+.1%}")
-            if setup.formula == "trees":
+            if setup.formula in ("trees", "bagged"):
                 setup.trees()  # the saved trees must load
         line = "; ".join(parts) + running
         if not all(c.get("proven") for c in champions.values()):

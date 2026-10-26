@@ -14,9 +14,10 @@ Each chart has its own set of indicators, every one followed (+1) or faded
      fitted on training history: how often trades like this one, with this
      much agreement on each chart, won. Its weights show how much each chart
      really adds, so three charts agreeing isn't simply three votes.
-   - ``weights`` (learned weights) and ``trees`` (decision trees) read every
-     indicator in ``inputs`` (the clearest of each look-alike group on all
-     three charts) and learn how they work together. See ``formulas.py``.
+   - ``weights`` (learned weights), ``trees`` (decision trees) and ``bagged``
+     (averaged trees: several sets of trees, averaged) read every indicator in
+     ``inputs`` (the clearest of each look-alike group on all three charts)
+     and learn how they work together. See ``formulas.py``.
 
 Then three exits (the "triple barrier"), whichever comes first:
 
@@ -52,8 +53,10 @@ from .charts import CHARTS, chart_of
 EXITS = ("stop", "take profit", "time limit", "day's close", "end of data")
 STOP, TAKE, TIME, CLOSE, END = range(5)
 FULL_SIZE_ABOVE = 0.15     # full size once the chance is this far above the bar
-FORMULAS = ("vote", "weights", "trees")
-FORMULA_WORDS = {"vote": "chart votes", "weights": "learned weights", "trees": "decision trees"}
+FORMULAS = ("vote", "weights", "trees", "bagged")
+FORMULA_WORDS = {"vote": "chart votes", "weights": "learned weights", "trees": "decision trees",
+                 "bagged": "averaged trees"}
+TREE_FORMULAS = ("trees", "bagged")   # kept as fitted models in champ_models/
 
 
 @dataclass
@@ -75,7 +78,7 @@ class Setup:
     coef: list[float] = field(default_factory=list)    # weights: bias, then one per feature
     centre: list[float] = field(default_factory=list)  # weights: each feature's mean...
     spread: list[float] = field(default_factory=list)  # ...and spread on training
-    model_file: str = ""                        # trees: where the fitted trees are kept
+    model_file: str = ""                        # trees/bagged: where the fitted trees are kept
 
     def __post_init__(self) -> None:
         self.sets = {tf: {f: float(w) for f, w in (self.sets.get(tf) or {}).items() if w}

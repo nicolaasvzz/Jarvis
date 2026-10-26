@@ -15,7 +15,7 @@
 # money to use: -Style refine|fewer|more|custom [-Custom "your words"] -Money 10000
 # [-Confidence 70] [-Bet 10] (percent; 0 keeps what the strategy says). Champ and
 # package also take -Only stock|crypto (default: both), and champ takes
-# -Formula all|vote|weights|trees (which formulas compete; default: all).
+# -Formula all|vote|weights|trees|bagged (which formulas compete; default: all).
 #
 # Every run of backtest, learn, lab, champ, package and check keeps a report
 # in reports\ (Jarvis's TradeBot page lists them all).
@@ -42,8 +42,8 @@ param(
     [string]$Research = 'off', # news research alongside the mode: watch, or trade it too
     [ValidateSet('both', 'stock', 'stocks', 'crypto')]
     [string]$Only = 'both',   # champ/package: stocks and crypto, or just one of them
-    [ValidateSet('all', 'vote', 'weights', 'trees')]
-    [string]$Formula = 'all'  # champ: which formulas compete (chart votes, learned weights, trees)
+    [ValidateSet('all', 'vote', 'weights', 'trees', 'bagged')]
+    [string]$Formula = 'all'  # champ: which formulas compete (votes, weights, trees, averaged trees)
 )
 
 $ErrorActionPreference = 'Stop'

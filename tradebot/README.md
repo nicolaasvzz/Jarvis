@@ -214,7 +214,7 @@ firmly the others must agree), on training data only, the builder fits:
   always close by the day's close. The target is capped by what the 4-hour
   chart says a few hours usually move;
 - *the formula* that says how sure to be: the chance of reaching the target
-  before the stop. Three kinds compete (`champ.formulas`, or `-Formula`):
+  before the stop. Four kinds compete (`champ.formulas`, or `-Formula`):
   - **chart votes**: a logistic model on the three chart scores alone. Its
     weights show what each chart really adds (the report says, for example,
     "4h x1.6, 30m x0.9");
@@ -226,6 +226,11 @@ firmly the others must agree), on training data only, the builder fits:
     levels deep, so they can learn combinations ("RSI high only matters when
     volatility is low"). Each leaf needs at least 300 past trades. How many
     trees to keep is picked on the last part of training.
+  - **averaged trees**: five sets of those trees, each fitted on a different
+    random 70% of training with its own seed, their chances averaged (bagging,
+    the idea behind random forests). One set of trees swings from run to run on
+    the same data; the average swings much less. A fixed recipe, so it counts
+    as one formula, not five tries.
 
   The learned formulas only ever see training data. `champ.skip_families` (or
   `--skip-families volume`) leaves a whole family of indicators out, e.g. to
@@ -313,7 +318,7 @@ one-line summary and a good/bad tone. Jarvis's TradeBot page lists them all.
 
 **Data.** Once a day it scans everything Alpaca trades (about 13,500 US
 stocks and ETFs, plus crypto pairs) and keeps the most-traded:
-`lab.stocks` (200) priced at $5 or more, and `lab.crypto` (20). It
+`lab.stocks` (400) priced at $5 or more, and `lab.crypto` (20). It
 downloads two years of 10-minute candles and longer daily ones, cached in
 `data_cache/alpaca`, and later runs only fetch what's new. Every indicator
 is computed on every timeframe into `data_cache/features`, capped at

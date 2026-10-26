@@ -227,7 +227,7 @@ class SetupTrader:
                     continue
                 try:
                     setup = Setup.from_dict(champ["setup"])
-                    if setup.formula == "trees":
+                    if setup.formula in ("trees", "bagged"):
                         setup.trees()  # load the fitted trees now, not mid-trade
                 except (KeyError, TypeError, ValueError) as exc:
                     self.say(f"Can't trade {cls}: {' '.join(str(exc).split())[:200]}")
