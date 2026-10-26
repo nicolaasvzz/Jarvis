@@ -25,10 +25,12 @@ so do their hours. For each:
    the formula that says how sure to be, then the confidence bar (a little
    above break-even). Three formulas compete (``champ.formulas``):
    - *chart votes*: a four-number model on the three chart scores;
-   - *learned weights* and *decision trees*: they read every indicator kept on
-     the three charts (the clearest of each look-alike group) and learn how
-     they work together; the trees can learn combinations ("this only matters
-     when that"). See ``formulas.py``.
+   - *learned weights*, *decision trees* and *averaged trees*: they read every
+     indicator kept on the three charts (the clearest of each look-alike
+     group) and learn how they work together; the trees can learn
+     combinations ("this only matters when that"), and the averaged trees
+     average several sets of them so one run's luck counts for less. See
+     ``formulas.py``.
 3. **Judge.** Every candidate is tested on ``test_windows`` stretches of time
    after training. To be **proven** it must make money on training, in most
    test windows (3 of 4) and in all of them together, and its daily results
@@ -68,7 +70,7 @@ from .catalog import FAMILIES, family_of
 from .charts import CHARTS, all_columns, chart_of, decision_features
 from .charts import VERSION as CHARTS_VERSION
 from .features import FeatureStore, ns
-from .formulas import fit_trees, fit_weights, input_names, leaning_on
+from .formulas import fit_bagged, fit_trees, fit_weights, input_names, leaning_on
 from .lab import greedy, proxy
 from .package import Trades, metrics, portfolio, score_of
 from .prepare import LabConfig, scan_universe, synthetic_bars, synthetic_crypto, synthetic_symbols
@@ -79,6 +81,7 @@ from .setups import (
     FORMULA_WORDS,
     FORMULAS,
     TIME,
+    TREE_FORMULAS,
     Setup,
     barrier,
     daily_t,
@@ -341,7 +344,7 @@ class Candidates:
         elif setup.formula == "weights":
             key = ("weights", tuple(setup.coef), tuple(setup.inputs))
         else:
-            key = ("trees", id(setup.trees()), tuple(setup.inputs))
+            key = (setup.formula, id(setup.trees()), tuple(setup.inputs))
         if key not in self.cache:
             self.cache[key] = setup.chance(self.d, self.a1, self.a4, self.a30, self.x_for(setup))
         return self.cache[key]
@@ -794,7 +797,7 @@ class ChampBuilder:
             try:
                 prev_setup = Setup.from_dict(previous["setup"])
                 self.store.col_index(prev_setup.features)
-                if prev_setup.formula == "trees":
+                if prev_setup.formula in TREE_FORMULAS:
                     prev_setup.trees()
             except (KeyError, ValueError, TypeError) as exc:
                 lessons.append(f"The previous champion couldn't be re-tested ({exc}).")
@@ -1032,8 +1035,10 @@ class ChampBuilder:
                      f"{len(names)} indicators...")
             args = (f_all[fit_m], y[fit_m], f_all[check_m], y[check_m], f_all, y)
             try:
+                seed = self.rng.randrange(1 << 30)
                 done = (fit_weights(*args) if kind == "weights"
-                        else fit_trees(*args, seed=self.rng.randrange(1 << 30)))
+                        else fit_trees(*args, seed=seed) if kind == "trees"
+                        else fit_bagged(*args, seed=seed))
             except ImportError:
                 lessons.append(f"Skipped {FORMULA_WORDS[kind]}: scikit-learn isn't installed "
                                "(press Update Jarvis and the bot).")
@@ -1063,7 +1068,7 @@ class ChampBuilder:
                               inputs=dict(inputs), **params,
                               name=f"{FORMULA_WORDS[kind]}: {bar:.0%} sure "
                                    f"(break-even {even:.0%})")
-                if kind == "trees":
+                if kind in TREE_FORMULAS:
                     setup._trees = done["model"]
                 out.append(setup)
         return out
@@ -1147,7 +1152,7 @@ class ChampBuilder:
             size = SMALL_SIZE
         final = self.evaluate(cls, setup, best["cands"], w, parts=("final",))
         setup = setup.with_(size=size)
-        if setup.formula == "trees":  # keep the fitted trees next to champ.json
+        if setup.formula in TREE_FORMULAS:  # keep the fitted trees next to champ.json
             path = self.results_file.parent / "champ_models" / f"{cls}.pkl"
             save_trees(setup.trees(), path)
             setup = setup.with_(model_file=str(path))

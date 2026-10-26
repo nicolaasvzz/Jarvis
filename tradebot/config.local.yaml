@@ -38,7 +38,7 @@ lab:
   feed: iex                # free real-time stock data; 'sip' needs a paid Alpaca data plan
   timeframes: [10m, 30m, 1h, 4h, 1d]
   intraday_days: 730       # two years of 10-minute candles
-  stocks: 200              # the most-traded US stocks/ETFs (of ~11,000 on Alpaca)
+  stocks: 400              # the most-traded US stocks/ETFs (of ~11,000 on Alpaca)
   crypto: 20               # the most-traded crypto pairs against USD
   min_price: 5
   max_feature_gb: 8        # disk cap for the indicator store
@@ -51,7 +51,7 @@ champ:
   classes: [stock, crypto] # what the builder learns
   trade: [stock, crypto]   # what the trader trades (real money can use just one)
   per_chart: 35            # indicators kept per chart: the clearest of each look-alike group
-  formulas: [vote, weights, trees]  # compete: chart votes, learned weights, decision trees
+  formulas: [vote, weights, trees, bagged]  # compete: votes, weights, trees, averaged trees
   max_hours: 6             # longest normal trade; news can stretch it (below)
   test_windows: 4          # stretches of time after training a setup must win in (3 of 4)
   news_extension: true     # agreeing news may keep a trade open longer...

@@ -10,7 +10,7 @@ from investment_bot.config import BotConfig
 from investment_bot.lab import champ as champ_module
 from investment_bot.lab.champ import ChampBuilder, look_alike_pool, prepare_charts
 from investment_bot.lab.charts import NY, candles, clean, decision_features
-from investment_bot.lab.formulas import fit_trees, fit_weights
+from investment_bot.lab.formulas import fit_bagged, fit_trees, fit_weights
 from investment_bot.lab.setup_trader import SetupTrader, latest_close
 from investment_bot.lab.setups import (
     CLOSE,
@@ -196,13 +196,14 @@ def test_builder_masters_three_charts_per_class_and_counts_every_try(tmp_path):
         # the three formulas competed (with enough past trades to fit the learned ones),
         # and the champion's own trees can be loaded again
         competed = [r["Formula"] for r in entry["formulas"]]
-        if cls == "crypto" or len(competed) == 3:
-            assert competed == ["chart votes", "learned weights", "decision trees"]
+        if cls == "crypto" or len(competed) == 4:
+            assert competed == ["chart votes", "learned weights", "decision trees",
+                                "averaged trees"]
         else:
             assert competed == ["chart votes"]
             assert any("Too few possible trades" in line for line in entry["lessons"])
         assert champ["formula"] == setup.formula
-        if setup.formula == "trees":
+        if setup.formula in ("trees", "bagged"):
             assert Path(setup.model_file).exists() and setup.trees() is not None
         if setup.formula != "vote":
             assert setup.inputs and entry["formula_info"][setup.formula]["leans_on"]
@@ -284,6 +285,28 @@ def test_trees_learn_a_combination_that_weights_cannot():
     assert trees["check_loss"] < trees["base_loss"] - 0.02          # trees found it
     assert weights["check_loss"] > weights["base_loss"] - 0.005     # a straight line can't
     assert 10 <= trees["trees"] <= 400
+
+
+def test_averaged_trees_are_the_average_of_several_and_survive_saving(tmp_path):
+    f, y = _interaction(12000, 3)
+    fit, check = slice(0, 8000), slice(8000, None)
+    bagged = fit_bagged(f[fit], y[fit], f[check], y[check], f, y, seed=5, members=3)
+    model = bagged["model"]
+    assert len(model.models) == 3 and len(bagged["trees"]) == 3
+    assert bagged["check_loss"] < bagged["base_loss"] - 0.02          # it found the pattern
+    each = np.array([m.predict_proba(f[:50])[:, 1] for m in model.models])
+    np.testing.assert_allclose(model.predict_proba(f[:50])[:, 1], each.mean(0))
+    assert not np.allclose(each[0], each[1])                          # really different sets
+    path = tmp_path / "champ_models" / "stock.pkl"
+    save_trees(model, path)
+    setup = Setup(TREND, formula="bagged", inputs={f"x{i}@1h": 1.0 for i in range(2)},
+                  model_file=str(path))
+    d = np.ones(50, dtype=np.int8)
+    x = f[:50, :2]
+    a1, a4, a30 = f[:50, 2], f[:50, 3], f[:50, 4]
+    rows = setup.formula_inputs(x, d, a1, a4, a30)
+    np.testing.assert_allclose(setup.chance(d, a1, a4, a30, x),
+                               model.predict_proba(rows)[:, 1], atol=1e-6)
 
 
 def test_learned_formulas_survive_being_saved(tmp_path):
