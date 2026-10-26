@@ -548,6 +548,9 @@ def cmd_champ(args: argparse.Namespace) -> None:
     config = BotConfig.load(args.config)
     if args.only:
         config = apply_overrides(config, {"champ.classes": [args.only.rstrip("s")]})
+    if args.skip_families:
+        config = apply_overrides(config, {"champ.skip_families": [
+            f.strip() for f in args.skip_families.split(",") if f.strip()]})
     if args.formulas and args.formulas != "all":
         config = apply_overrides(config, {"champ.formulas": [
             f.strip() for f in args.formulas.split(",") if f.strip()]})
@@ -587,6 +590,7 @@ def cmd_trade_setup(args: argparse.Namespace) -> None:
     from .data.alpaca_data import AlpacaData
     from .lab.prepare import LabConfig
     from .lab.setup_trader import SetupTrader
+    from .session import keep_awake
 
     style = _style(args)
     config = BotConfig.load(args.config)
@@ -600,6 +604,7 @@ def cmd_trade_setup(args: argparse.Namespace) -> None:
     trader = SetupTrader(config, broker, data, say=say, dry_run=args.dry_run, style=style,
                          money=args.money, only=args.only)
     where = "PAPER" if "paper" in broker.base_url else "LIVE (real money)"
+    keep_awake()  # a trader that sleeps misses its stops: ask Windows not to sleep meanwhile
     console.print(f"[bold]1h setup trader[/bold] on Alpaca {where}"
                   + (" - dry run, no orders" if args.dry_run else "") + ".")
     console.print(DISCLAIMER)
@@ -793,6 +798,8 @@ def build_parser() -> argparse.ArgumentParser:
     ch.add_argument("--formulas", default=None,
                     help="Which formulas compete: all (default), or some of vote, weights, "
                          "trees, comma-separated")
+    ch.add_argument("--skip-families", default=None,
+                    help="Leave these indicator families out, comma-separated (e.g. volume)")
     ch.add_argument("--fresh", action="store_true",
                     help="Forget earlier results, and the count of setups tried")
     ch.add_argument("--prepare-only", action="store_true",

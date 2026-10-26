@@ -227,7 +227,9 @@ firmly the others must agree), on training data only, the builder fits:
     volatility is low"). Each leaf needs at least 300 past trades. How many
     trees to keep is picked on the last part of training.
 
-  The learned formulas only ever see training data. The report and Jarvis's
+  The learned formulas only ever see training data. `champ.skip_families` (or
+  `--skip-families volume`) leaves a whole family of indicators out, e.g. to
+  check whether an edge depends on IEX's thin stock volume. The report and Jarvis's
   page show what each one leans on. A champion's trees are saved in
   `champ_models/`;
 - *the confidence bar*: a little above break-even, or the one you pick.

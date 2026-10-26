@@ -2040,6 +2040,24 @@ class Jarvis:
                       f"{terminal.title}.", data={"terminal": terminal.out()})
         return terminal
 
+    async def start_up(self) -> None:
+        """What runs as Jarvis starts: the terminals in terminals.json, then the
+        controls you marked to start with Jarvis."""
+        await self.open_startup_terminals()
+        await self.run_startup_controls()
+
+    async def run_startup_controls(self) -> None:
+        """Run every command control marked `autostart`, with its last answers,
+        as if you'd pressed it (you chose that, so nothing waits for approval) —
+        e.g. a trading bot that should carry on after the PC restarts."""
+        for control in list(self.mothership.controls):
+            if not control.get("autostart") or control.get("kind") != "command":
+                continue
+            try:
+                await self.run_control(control, by="startup", inputs=control.get("last_inputs"))
+            except JarvisError as exc:
+                self.hub.emit("error", f"Couldn't start “{control.get('name')}”: {exc}")
+
     async def open_startup_terminals(self) -> None:
         """Open the terminals listed in terminals.json, running their commands.
         You wrote those commands yourself, so they don't wait for approval."""
@@ -2754,6 +2772,7 @@ class ControlIn(BaseModel):
     trusted: bool = False
     inputs: list[InputIn] = Field(default_factory=list, max_length=10)
     pinned: bool = False  # a button at the top of its project's page, not in the grid
+    autostart: bool = False  # command controls: run it whenever Jarvis starts
 
 
 class LinkIn(BaseModel):
@@ -3287,7 +3306,7 @@ async def serve(settings: Settings) -> bool:
             server.should_exit = True
 
         jarvis.restart = restart
-        startup = asyncio.get_running_loop().create_task(jarvis.open_startup_terminals())
+        startup = asyncio.get_running_loop().create_task(jarvis.start_up())
         try:
             await server.serve()
         finally:

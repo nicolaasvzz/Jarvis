@@ -63,7 +63,7 @@ champ:
 # lab's symbols from Alpaca (free, Benzinga), plus X when X_BEARER_TOKEN is set,
 # each item scored once by Gemini (GEMINI_API_KEY in .env). Reads only, no orders.
 research:
-  model: gemini-3.5-flash
+  model: gemini-3.5-flash-lite  # 3.5-flash kept answering "busy" (503) or "out of quota" (429)
   poll_minutes: 5
   first_hours: 24          # the first run reads the last day of news
   max_scored_per_cycle: 200

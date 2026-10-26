@@ -1418,6 +1418,28 @@ async def test_a_control_with_inputs_runs_with_what_you_chose(tmp_path: Path) ->
 
 
 @pytest.mark.asyncio
+async def test_a_control_marked_autostart_runs_when_jarvis_starts(tmp_path: Path) -> None:
+    empty_mothership(tmp_path)
+    jarvis = make(tmp_path, FakeWeb())
+    shells = with_fake_shells(jarvis)
+    q = J.shell_quote
+    jarvis.save_control({**LEARN, "name": "Trade", "autostart": True,
+                         "last_inputs": {"duration": "10m", "goal": "carry on"}})
+    jarvis.save_control({**LEARN, "name": "Learn"})                     # not marked
+    jarvis.save_control({"name": "Ask", "kind": "ask", "action": "hi", "autostart": True})
+    await jarvis.start_up()
+    # Only the marked command control ran, with its last answers, no approval asked.
+    assert [s.written for s in shells] == [[f"learn -For {q('10m')} -Goal {q('carry on')}\r"]]
+    assert not jarvis.approvals
+    trade = jarvis.mothership.controls[0]
+    assert trade["last_run"]
+    # A marked control that can't run says so instead of stopping Jarvis.
+    jarvis.save_control({"name": "Broken", "kind": "command", "action": "", "autostart": True})
+    await jarvis.run_startup_controls()  # Trade is still running: both report, neither raises
+    jarvis.close_all_terminals()
+
+
+@pytest.mark.asyncio
 async def test_jarvis_fills_a_controls_inputs_and_asks_first(tmp_path: Path) -> None:
     empty_mothership(tmp_path)
     press = {"functionCall": {"name": "run_control", "args": {

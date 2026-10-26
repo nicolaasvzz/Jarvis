@@ -253,6 +253,21 @@ def test_only_the_chosen_formulas_compete(tmp_path):
     assert entry["champion"]["formula"] == "trees"
 
 
+def test_a_family_can_be_left_out(tmp_path):
+    from investment_bot.lab.catalog import family_of
+
+    with pytest.raises(ValueError):
+        champ_module.ChampConfig.from_config(_config(tmp_path, skip_families=["astrology"]))
+    config = _config(tmp_path, classes=["crypto"], formulas=["vote", "weights"],
+                     skip_families=["volume"])
+    store, universe = prepare_charts(config, say=lambda _: None)
+    ChampBuilder(config, store, universe, seconds=600, say=lambda _: None, seed=4,
+                 state_file=tmp_path / "s.json").run()
+    entry = json.loads((tmp_path / "champ.json").read_text())["classes"]["crypto"]
+    used = [f for c in entry["charts"].values() for f in [*c["set"], *c["inputs"]]]
+    assert used and not [f for f in used if family_of(f) == "volume"]
+
+
 def _interaction(n: int, seed: int) -> tuple[np.ndarray, np.ndarray]:
     """Wins come from two inputs together (both up, or both down), not from either alone."""
     rng = np.random.default_rng(seed)
