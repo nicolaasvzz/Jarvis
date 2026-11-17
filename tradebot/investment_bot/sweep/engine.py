@@ -212,7 +212,7 @@ class Engine:
         lt = L.close_t
         M, H = self.m, self.h
         mo, mh, ml, mc = (M.df[k].to_numpy() for k in ("open", "high", "low", "close"))
-        hc = H.df["close"].to_numpy()
+        hh, hl, hc = (H.df[k].to_numpy() for k in ("high", "low", "close"))
 
         # structure state
         liq_hi: list[float] = []   # higher-chart highs not yet taken
@@ -235,18 +235,26 @@ class Engine:
                 self._manage(j, o_[j], h_[j], l_[j], c_[j], int(lt[j]))
 
             # 2) what this bar's close teaches the charts
+            # Higher-chart candles and swing points, in time order: each candle
+            # takes out the liquidity it ran through, then the swings it
+            # confirms join the list. (Before the lower chart's history starts,
+            # this is the only thing keeping the list honest.)
             while hb < len(hc) and H.close_t[hb] <= T:
+                if liq_hi and hh[hb] >= min(liq_hi):
+                    liq_hi = [x for x in liq_hi if x > hh[hb]]
+                if liq_lo and hl[hb] <= max(liq_lo):
+                    liq_lo = [x for x in liq_lo if x < hl[hb]]
                 if p.htf_filter:
                     if h_last["H"] and hc[hb] > h_last["H"][1]:
                         h_trend = 1
                     elif h_last["L"] and hc[hb] < h_last["L"][1]:
                         h_trend = -1
+                while hi_ < len(hev) and hev[hi_][0] <= H.close_t[hb]:
+                    _, kind, bar, price = hev[hi_]
+                    h_last[kind] = (bar, price)
+                    (liq_hi if kind == "H" else liq_lo).append(price)
+                    hi_ += 1
                 hb += 1
-            while hi_ < len(hev) and hev[hi_][0] <= T:
-                _, kind, bar, price = hev[hi_]
-                h_last[kind] = (bar, price)
-                (liq_hi if kind == "H" else liq_lo).append(price)
-                hi_ += 1
             while mb < len(mc) and M.close_t[mb] <= T:
                 if m_last["H"] and mc[mb] > m_last["H"][1]:
                     m_trend = 1
@@ -267,9 +275,9 @@ class Engine:
                 m_last[kind] = (bar, price)
                 mi_ += 1
             # liquidity this bar ran through is gone
-            if liq_hi:
+            if liq_hi and h_[j] >= min(liq_hi):
                 liq_hi = [x for x in liq_hi if x > h_[j]]
-            if liq_lo:
+            if liq_lo and l_[j] <= max(liq_lo):
                 liq_lo = [x for x in liq_lo if x < l_[j]]
             # zones price closed through are dead
             for z in zones:
