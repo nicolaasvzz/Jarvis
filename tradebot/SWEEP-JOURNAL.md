@@ -35,3 +35,28 @@ Start (the videos' rules), learn / check, avg R and t:
 - Intraday, London hours only (08–15 server): learn +0.018 but check −0.223. That's overfitting, so **rejected**.
 
 **Champions now:** swing has max target 4R. Intraday and scalp are unchanged.
+
+## Iteration 2: 21:25
+
+**Saw:** most losses are fast stop-outs, so the entries are often wrong.
+
+**Idea:** be stricter about what counts as a real setup: bigger swings for the break, stronger zones only, the higher chart's trend agreeing, entry deeper in the candle.
+
+**Tried, swing:**
+- Bigger lower-chart swings: learn better, check worse. Rejected.
+- Strong zones only (2 ATR): learn +0.21R, check −0.13R. That's overfitting, so rejected.
+- Higher-chart trend agreeing: worse on both. Rejected.
+- Deeper entry: worse on both. Rejected.
+- Bigger middle-chart swings (mtf_k 5): check −0.060→−0.025, but learn slightly worse (t −1.12→−1.15). Rejected by the rule, though it was close.
+
+**Tried, intraday:**
+- Bigger lower-chart swings (ltf_k 3): learn t −3.17→−2.71, check −4.56→−3.17. Better on both.
+- Higher-chart trend agreeing: learn t −3.17→−2.19, check −4.56→−3.06. Better on both, and slightly more so. **Kept.**
+- Next iteration tests the two together.
+
+**Champions now:**
+- swing: max target 4R
+- intraday: higher chart agrees
+- scalp: the videos' rules
+
+Still all negative.

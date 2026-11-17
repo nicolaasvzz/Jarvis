@@ -100,7 +100,9 @@ class Params:
             bits.append(f"fixed {self.fixed_r:g}R target")
         for name, val, d in (("zones", self.disp_atr, 1.2), ("stop room", self.stop_buf_atr, 0.1),
                              ("zone life", self.zone_life, 120), ("wait", self.arm_scale, 1.0),
-                             ("hold", self.hold_scale, 1.0), ("max", self.max_rr, 10.0)):
+                             ("hold", self.hold_scale, 1.0), ("max", self.max_rr, 10.0),
+                             ("swing size", self.ltf_k, 2), ("zone swings", self.mtf_k, 3),
+                             ("target swings", self.htf_k, 3)):
             if val != d:
                 bits.append(f"{name} {val:g}")
         return ", ".join(bits)
