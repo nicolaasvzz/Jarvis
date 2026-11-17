@@ -116,3 +116,32 @@ Swing is close to zero now (−0.04R), still not positive.
 **Champions now:**
 - swing: max target 4R, break body 1.2, swing sizes 3/5
 - intraday: higher chart agrees, break body 1.2, swing size 3
+
+## Iteration 5: 00:20
+
+**Saw, swing:**
+- Targets are mostly capped at 4R now, and the 3R trades lose (−0.11R).
+- Gold, USDCAD, USDZAR and GBPJPY carry it; AUDJPY and silver lose.
+- Shorts are positive (+0.07R) and longs negative (−0.10R).
+
+**Saw, intraday:**
+- Far targets (5R+) lose, while 3–4R targets win.
+- The 00–06 server hours lose and 06–15 win. A London-only filter overfit in iteration 1, so I'm leaving hours alone.
+
+**Idea:** use bigger swings for the liquidity targets too, so the target is the obvious level everyone watches (the videos' "magnet"), not a minor wiggle. For intraday, stronger zones.
+
+**Tried, swing** (champion: learn t −0.07, check +0.65):
+- Target swings 5: learn t **+0.26**, check **+0.80** (avg +0.020R and +0.078R). **Kept.** Both parts are positive now.
+- Min target 2.5R: −0.52 / +0.39. Rejected.
+- Zones 1.6 ATR: −0.25 / +0.67. Rejected.
+- Longs only: worse on both. Rejected.
+
+**Tried, intraday** (champion: −0.44 / +0.39):
+- Bigger zone swings: worse on both. Rejected.
+- Bigger target swings: worse on both. Rejected.
+- Min target 2.5R: −0.42 / +0.62. Better on both, but only just on learn.
+- Zones 1.6 ATR: **−0.04 / +0.48** (avg −0.007R and +0.102R). **Kept**, as the best worse-half. Caveat: only 57 learn and 86 check trades.
+
+**Champions now:**
+- swing: max 4R, break 1.2, swings 3/5/5, positive on both parts but small (t +0.26 and +0.80)
+- intraday: higher chart agrees, break 1.2, zones 1.6, swing size 3
