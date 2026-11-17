@@ -90,3 +90,29 @@ Every one of these beat the champion on both parts. The same rule (a strong brea
 Swing is close to zero now (−0.04R), still not positive.
 
 **Next:** combine the winners (strong break + rejected sweep + bigger swings), and look at scalp.
+
+## Iteration 4: 23:50
+
+(The timer fired several times while the machine was busy. This is one iteration.)
+
+**Saw:** with the strong-break rule, swing and intraday are near zero. The remaining stop-outs often come from tiny 2-candle "swings" being treated as structure.
+
+**Idea:** combine the rules that won separately, and give the structure more weight with bigger swings.
+
+**Tried, swing** (champion: learn t −0.43, check −0.36):
+- Rejected sweep: −0.70 / −0.10. Rejected.
+- Bigger swings (lower 3, middle 5): learn t −0.07, check **+0.65** (avg +0.067R, win 37%). **Kept.** That's the first positive check result.
+- Break body 1.6: −0.66 / −0.32. Rejected.
+- Half off at 1R: +0.08 / −0.22. Rejected (it's better on learn only).
+
+**Tried, intraday** (champion: −0.81 / −0.16):
+- Bigger lower-chart swings: learn t −0.44, check **+0.39**. **Kept.**
+- Rejected sweep: −0.99 / +0.20. Rejected.
+- Break body 1.6: −1.18 / −0.09. Rejected.
+- Half off at 1R: −1.60 / −0.68. Rejected.
+
+**Scalp:** its learn part has only 21–60 trades, because MT5 gives just ~16 months of 5-minute history. Changes can't be judged honestly on that, and the check part is clearly negative (−0.24R to −0.40R) whatever I try; costs eat 5bp stops. **Scalp is parked:** it gets no more tuning, and it won't trade.
+
+**Champions now:**
+- swing: max target 4R, break body 1.2, swing sizes 3/5
+- intraday: higher chart agrees, break body 1.2, swing size 3
