@@ -60,3 +60,33 @@ Start (the videos' rules), learn / check, avg R and t:
 - scalp: the videos' rules
 
 Still all negative.
+
+## Iteration 3: 21:50
+
+**Saw:** fast stop-outs still dominate. The "confirmation" is often a weak candle that barely closes past the swing, and then price falls straight back.
+
+**Idea (two new rules in the engine):**
+- **Strong break:** the confirmation candle's body must be at least N ATRs, a real displacement like the videos' "strong move".
+- **Rejected sweep:** the sweep only counts if its candle closes back past the level it ran (a wick through the stops, not a breakdown).
+
+**Tried, swing** (champion: learn t −1.12, check −1.00):
+- Rejected sweep: −1.03 / −0.16
+- Break body 0.8: −0.29 / −0.82
+- Break body 1.2: −0.43 / −0.36 (365 and 242 trades), the best worse-half. **Kept.**
+- Bigger swings (ltf 3, mtf 5): −0.09 / −0.80
+
+**Tried, intraday** (champion: −2.19 / −3.06):
+- Bigger lower-chart swings: −1.64 / −1.66
+- Rejected sweep: −1.75 / −2.35
+- Break body 0.8: −0.71 / −1.08
+- Break body 1.2: −0.81 / −0.16. **Kept.**
+
+Every one of these beat the champion on both parts. The same rule (a strong break) wins on both profiles, which makes me trust it more than a one-off.
+
+**Champions now:**
+- swing: max target 4R, break body 1.2
+- intraday: higher chart agrees, break body 1.2
+
+Swing is close to zero now (−0.04R), still not positive.
+
+**Next:** combine the winners (strong break + rejected sweep + bigger swings), and look at scalp.

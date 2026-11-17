@@ -84,6 +84,8 @@ class Params:
     fixed_r: float = 3.0
     arm_scale: float = 1.0    # how long to wait for the confirmation, times the profile's
     hold_scale: float = 1.0   # how long a trade may stay open, times the profile's
+    sweep_reject: bool = False  # the sweep only counts if its candle closes back past the level
+    break_body_atr: float = 0.0 # the confirmation candle's body must be at least this many ATRs
 
     def label(self) -> str:
         bits = [f"rr>={self.min_rr:g}"]
@@ -92,6 +94,10 @@ class Params:
         bits.append(f"half at {self.partial_r:g}R" if self.partial_r else "no partial")
         if self.htf_filter:
             bits.append("higher chart agrees")
+        if self.sweep_reject:
+            bits.append("sweep closes back")
+        if self.break_body_atr:
+            bits.append(f"break body {self.break_body_atr:g} ATR")
         if self.sides:
             bits.append("longs only" if self.sides == 1 else "shorts only")
         if (self.hour_from, self.hour_to) != (0, 24):
@@ -339,14 +345,16 @@ class Engine:
                     a = arm[side] = {
                         "zone": z, "start": j, "ref": ref[1] if ref else None,
                         "liq": liq[1] if liq else None, "ext": ext, "ext_i": j,
-                        "swept": liq is not None and (ext < liq[1] if side == 1 else ext > liq[1]),
+                        "swept": liq is not None and (ext - liq[1]) * side < 0
+                        and (not p.sweep_reject or (c_[j] - liq[1]) * side > 0),
                     }
                     continue  # confirmation comes on a later bar
                 # armed: track the extreme, the sweep and the latest swing to break
                 ext = l_[j] if side == 1 else h_[j]
                 if (ext - a["ext"]) * side < 0:
                     a["ext"], a["ext_i"] = ext, j
-                if a["liq"] is not None and (ext - a["liq"]) * side < 0:
+                if a["liq"] is not None and (ext - a["liq"]) * side < 0 and (
+                        not p.sweep_reject or (c_[j] - a["liq"]) * side > 0):
                     a["swept"] = True
                 for kind, bar, price in new_l:
                     if kind == ("H" if side == 1 else "L") and bar >= a["start"]:
@@ -354,6 +362,8 @@ class Engine:
                 if a["ref"] is None or (p.require_sweep and not a["swept"]):
                     continue
                 if (c_[j] - a["ref"]) * side <= 0 or not in_hours:
+                    continue
+                if p.break_body_atr and (c_[j] - o_[j]) * side < p.break_body_atr * L.atr[j]:
                     continue
                 # confirmed: build the order
                 order = self._order(side, j, a, o_, h_, l_, c_, liq_hi if side == 1 else liq_lo)
