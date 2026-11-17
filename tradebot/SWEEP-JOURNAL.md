@@ -190,3 +190,29 @@ No intraday change.
 **Kept:** nothing.
 
 **Note:** this is the first round where the ideas that looked best on learn all faded on check. That's the sign that the easy, real improvements are used up, and that pushing further would start fitting noise. The keep rule is doing its job.
+
+## Iteration 8: 01:50
+
+**Idea:**
+- Rollover hours (21–24 server time) have wide spreads and lost money in the swing breakdown, so skip them.
+- Enter slightly deeper.
+- Retry the rejected-sweep rule on the new champions.
+- Let swing trades run longer (a few were cut by the time limit while still winning).
+
+**Tried, swing** (champion: learn t +0.63, check +1.36):
+- Skip 21–24h: +0.86 / +1.20. Rejected: worse on check.
+- Enter 25% down: −0.02 / +1.52. Rejected: worse on learn.
+- Rejected sweep: +0.50 / +1.23. Rejected.
+- Hold 2x: **+0.66 / +1.43**. **Kept.** Only marginally better (it changes a few time exits), but it's in line with "let winners reach the target".
+
+**Tried, intraday** (champion: −0.04 / +0.48):
+- Min 3.5R: −0.37 / +0.68
+- Skip 21–24h: −0.12 / +0.65
+- Rejected sweep: −0.44 / +1.20
+- Enter 25% down: −0.48 / −0.41
+
+All four are better on check but none on learn, so all rejected. Intraday has only ~55 learn trades, too few to move with confidence.
+
+**Champions now:**
+- swing: min 3.5R, max 4R, half at 2R, break 1.2, swings 3/5/5, hold 2x
+- intraday: unchanged
