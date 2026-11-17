@@ -210,6 +210,8 @@ or not, entry depth, partial or not) over every symbol's MT5 history:
 - The last 40%, never used for the choice, must beat the luck bar, win 3 of its
   4 quarters, show a profit factor of 1.2+ and have 30+ trades.
 - Every try ever made counts towards the luck bar.
+- `--cached` (or `-Mode sweep-prove -Cached yes`) backtests only what is already
+  downloaded, with no terminal needed.
 - The videos' exact rules are always reported next to the winner.
 - Costs are at least 1 basis point each way, and a stop counts before a target
   inside the same candle.

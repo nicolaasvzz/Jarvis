@@ -126,17 +126,28 @@ def prove(symbols: list[str] | None = None, profiles: list[str] | None = None,
     tries = int(state.get("tries", 0)) + len(plist) * len(profiles)
     bar = max(luck_bar(tries), 1.65)
 
-    say("Connecting to MT5 and topping up the candle cache...")
-    mt5 = data.connect()
+    tfs = {tf for p in profiles for tf in (PROFILES[p].htf, PROFILES[p].mtf, PROFILES[p].ltf)}
     specs: dict[str, dict[str, Any]] = {}
-    for sym in symbols:
-        sp = data.spec(mt5, sym)
-        if sp is None:
-            say(f"  {sym}: not offered by this broker, skipped")
-            continue
-        specs[sym] = sp.to_dict()
-        for tf in {tf for p in profiles for tf in (PROFILES[p].htf, PROFILES[p].mtf, PROFILES[p].ltf)}:
-            data.cached(mt5, sym, tf, refresh=refresh)
+    if not refresh:
+        # Offline: only what's already downloaded, no terminal needed.
+        have = {sym for pr in profiles for sym in data.offline_symbols(
+            {PROFILES[pr].htf, PROFILES[pr].mtf, PROFILES[pr].ltf})}
+        for sym in symbols:
+            if sym in have:
+                specs[sym] = {"point": data.offline_point(sym)}
+        say(f"Offline: using the {len(specs)} symbols already downloaded "
+            f"({', '.join(specs) or 'none'}).")
+    else:
+        say("Connecting to MT5 and topping up the candle cache...")
+        mt5 = data.connect()
+        for sym in symbols:
+            sp = data.spec(mt5, sym)
+            if sp is None:
+                say(f"  {sym}: not offered by this broker, skipped")
+                continue
+            specs[sym] = sp.to_dict()
+            for tf in tfs:
+                data.cached(mt5, sym, tf, refresh=True)
     say(f"{len(specs)} symbols. {len(plist)} versions x {len(profiles)} profiles; "
         f"{tries} tries in all, so the luck bar is t={bar:.2f}.")
 

@@ -47,7 +47,9 @@ param(
     [string]$Profiles = 'all', # sweep: swing, intraday, scalp, or a comma list
     [string]$Risk = '1',      # sweep-trade: percent of the account a trade risks
     [ValidateSet('no', 'yes')]
-    [string]$Unproven = 'no'  # sweep-trade: demo only, also trade profiles that haven't proven themselves
+    [string]$Unproven = 'no', # sweep-trade: demo only, also trade profiles that haven't proven themselves
+    [ValidateSet('no', 'yes')]
+    [string]$Cached = 'no'    # sweep-prove: backtest only what's already downloaded (no terminal, fast)
 )
 
 $ErrorActionPreference = 'Stop'
@@ -109,6 +111,7 @@ if ($Mode -like 'sweep*') {
 switch ($Mode) {
     'sweep-prove' {
         Write-Host '=== Sweep setup backtest on MT5 history (the first run downloads candles; minutes) ===' -ForegroundColor Cyan
+        if ($Cached -eq 'yes') { $sweepArgs += '--cached' }
         & $venvPython -m investment_bot sweep-prove -c $config @sweepArgs
     }
     'sweep-trade' {

@@ -9,6 +9,7 @@ the same clock.
 """
 from __future__ import annotations
 
+import json
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -115,5 +116,41 @@ def spec(mt5, symbol: str) -> Spec | None:
     s = mt5.symbol_info(symbol)
     if s is None:
         return None
-    return Spec(symbol, s.point, s.digits, s.trade_contract_size, s.volume_min, s.volume_step,
-                s.volume_max, s.trade_tick_size, s.trade_tick_value, s.trade_stops_level)
+    sp = Spec(symbol, s.point, s.digits, s.trade_contract_size, s.volume_min, s.volume_step,
+              s.volume_max, s.trade_tick_size, s.trade_tick_value, s.trade_stops_level)
+    _save_spec(sp)
+    return sp
+
+
+SPECS = CACHE / "specs.json"
+
+
+def _save_spec(sp: Spec) -> None:
+    try:
+        CACHE.mkdir(parents=True, exist_ok=True)
+        known = json.loads(SPECS.read_text(encoding="utf-8")) if SPECS.exists() else {}
+        known[sp.symbol] = sp.to_dict()
+        SPECS.write_text(json.dumps(known, indent=1), encoding="utf-8")
+    except (OSError, ValueError):
+        pass
+
+
+def offline_point(symbol: str) -> float:
+    """The price step of a symbol, without the terminal: from the last time it was
+    seen, or a good guess (it only converts the candles' spread to a price)."""
+    try:
+        known = json.loads(SPECS.read_text(encoding="utf-8"))
+        if symbol in known:
+            return float(known[symbol]["point"])
+    except (OSError, ValueError):
+        pass
+    if symbol.endswith("JPY"):
+        return 0.001
+    if len(symbol) == 6 and symbol.isalpha() and not symbol.startswith(("XA", "XP")):
+        return 0.00001
+    return 0.01
+
+
+def offline_symbols(tfs: set[str]) -> list[str]:
+    """Symbols whose candles are all already in the cache for these charts."""
+    return [s for s in UNIVERSE if all((CACHE / f"{s}_{tf}.pkl").exists() for tf in tfs)]

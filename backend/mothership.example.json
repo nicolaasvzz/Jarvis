@@ -6,7 +6,7 @@
       "group": "TradeBot",
       "project": "p-tradebot",
       "kind": "command",
-      "action": ".\run-local.ps1 -Mode sweep-prove -Profiles {profiles}",
+      "action": ".\\run-local.ps1 -Mode sweep-prove -Profiles {profiles} -Cached {cached}",
       "description": "Backtests the strategy from the 'Simple R2K - R10M' videos on MetaTrader 5 history: the higher chart sets the target (the nearest swing high or low price hasn't taken), the middle chart's demand and supply zones and structure give the direction, and the lower chart triggers when price sweeps a recent low or high inside a zone and then breaks the last swing the other way. Only trades paying 3x the risk or more. The first 60% of history picks the best of 16 versions; the last 40% must prove it (beat the luck bar, win 3 of 4 quarters, profit factor 1.2+). MetaTrader 5 must be open and logged in. Writes a report.",
       "trusted": false,
       "pinned": true,
@@ -32,6 +32,22 @@
             {
               "label": "Scalp: 1h target, 15m zones, 5m trigger (minutes to hours)",
               "value": "scalp"
+            }
+          ]
+        },
+        {
+          "name": "cached",
+          "label": "History",
+          "kind": "choice",
+          "default": "yes",
+          "options": [
+            {
+              "label": "What's already downloaded (fast, no terminal needed)",
+              "value": "yes"
+            },
+            {
+              "label": "Download and top up first (slow the first time)",
+              "value": "no"
             }
           ]
         }
