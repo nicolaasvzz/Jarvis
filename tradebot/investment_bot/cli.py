@@ -713,6 +713,24 @@ def cmd_sweep_prove(args: argparse.Namespace) -> None:
     write_status(config)
 
 
+def cmd_sweep_bench(args: argparse.Namespace) -> None:
+    import json as _json
+
+    from .sweep.bench import bench
+
+    trial = _json.loads(args.try_) if args.try_ else None
+    profiles = [p.strip() for p in args.profiles.split(",")] if args.profiles else None
+    bench(trial, profiles, say=_plain)
+
+
+def cmd_sweep_final(args: argparse.Namespace) -> None:
+    from .sweep.bench import final
+
+    final(say=_plain)
+    config, _ = _load_with_memory(args.config)
+    write_status(config)
+
+
 def cmd_sweep_trade(args: argparse.Namespace) -> None:
     from .sweep.trader import TraderConfig, trade
 
@@ -866,6 +884,16 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--profiles", default=None, help="swing,intraday,scalp (default: all)")
     sp.add_argument("--cached", action="store_true", help="Use the candle cache as it is")
     sp.set_defaults(func=cmd_sweep_prove)
+
+    sb = sub.add_parser("sweep-bench", parents=[common],
+                        help="Measure the sweep champions (and a trial change) on the learn and check parts")
+    sb.add_argument("--try", dest="try_", default="", help='A change per profile, as JSON: {"swing": {"sides": 1}}')
+    sb.add_argument("--profiles", default=None, help="swing,intraday,scalp (default: all, or the trial's)")
+    sb.set_defaults(func=cmd_sweep_bench)
+
+    sf = sub.add_parser("sweep-final", parents=[common],
+                        help="The locked final test of the sweep champions (writes sweep.json)")
+    sf.set_defaults(func=cmd_sweep_final)
 
     sw = sub.add_parser("sweep-trade", parents=[common],
                         help="Trade the sweep setup on the MT5 terminal (demo)")

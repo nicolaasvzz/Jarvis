@@ -77,6 +77,13 @@ class Params:
     htf_filter: bool = False  # also need the higher chart's structure to agree
     cost_bp: float = 1.0      # least cost each way, in basis points of the price
     stop_slip: float = 0.25   # stops fill this share of the cost worse
+    sides: int = 0            # 0 both ways, 1 longs only, -1 shorts only
+    hour_from: int = 0        # only trigger on candles closing in these server hours
+    hour_to: int = 24
+    target_mode: str = "liquidity"  # "liquidity" (the videos) or "fixed" (fixed_r times the risk)
+    fixed_r: float = 3.0
+    arm_scale: float = 1.0    # how long to wait for the confirmation, times the profile's
+    hold_scale: float = 1.0   # how long a trade may stay open, times the profile's
 
     def label(self) -> str:
         bits = [f"rr>={self.min_rr:g}"]
@@ -85,6 +92,17 @@ class Params:
         bits.append(f"half at {self.partial_r:g}R" if self.partial_r else "no partial")
         if self.htf_filter:
             bits.append("higher chart agrees")
+        if self.sides:
+            bits.append("longs only" if self.sides == 1 else "shorts only")
+        if (self.hour_from, self.hour_to) != (0, 24):
+            bits.append(f"hours {self.hour_from}-{self.hour_to}")
+        if self.target_mode == "fixed":
+            bits.append(f"fixed {self.fixed_r:g}R target")
+        for name, val, d in (("zones", self.disp_atr, 1.2), ("stop room", self.stop_buf_atr, 0.1),
+                             ("zone life", self.zone_life, 120), ("wait", self.arm_scale, 1.0),
+                             ("hold", self.hold_scale, 1.0), ("max", self.max_rr, 10.0)):
+            if val != d:
+                bits.append(f"{name} {val:g}")
         return ", ".join(bits)
 
 
@@ -210,6 +228,8 @@ class Engine:
         o_, h_, l_, c_ = (L.df[k].to_numpy() for k in ("open", "high", "low", "close"))
         n = len(c_)
         lt = L.close_t
+        arm_bars = max(2, int(round(pf.arm_bars * p.arm_scale)))
+        hours = (p.hour_from, p.hour_to) != (0, 24)
         M, H = self.m, self.h
         mo, mh, ml, mc = (M.df[k].to_numpy() for k in ("open", "high", "low", "close"))
         hh, hl, hc = (H.df[k].to_numpy() for k in ("high", "low", "close"))
@@ -291,12 +311,15 @@ class Engine:
                 li_ += 1
 
             # 3) the trigger, on the close
+            in_hours = not hours or p.hour_from <= (T // 3600) % 24 < p.hour_to
             for side in (1, -1):
+                if p.sides and side != p.sides:
+                    continue
                 trend_ok = m_trend == side and (not p.htf_filter or h_trend == side)
                 a = arm[side]
                 if a is not None:
                     dead = (side == 1 and c_[j] < a["zone"]["lo"]) or (side == -1 and c_[j] > a["zone"]["hi"])
-                    if dead or not trend_ok or j - a["start"] > pf.arm_bars:
+                    if dead or not trend_ok or j - a["start"] > arm_bars:
                         a["zone"]["used"] = True
                         arm[side] = a = None
                 if a is None:
@@ -328,7 +351,7 @@ class Engine:
                         a["ref"] = price
                 if a["ref"] is None or (p.require_sweep and not a["swept"]):
                     continue
-                if (c_[j] - a["ref"]) * side <= 0:
+                if (c_[j] - a["ref"]) * side <= 0 or not in_hours:
                     continue
                 # confirmed: build the order
                 order = self._order(side, j, a, o_, h_, l_, c_, liq_hi if side == 1 else liq_lo)
@@ -353,15 +376,19 @@ class Engine:
         risk = (entry - stop) * side
         if risk <= 0:
             return None
-        ahead = [x for x in liq if (x - c_[j]) * side > 0]
-        if not ahead:
-            return None
-        target = min(ahead) if side == 1 else max(ahead)
-        rr = (target - entry) * side / risk
-        if rr < p.min_rr:
-            return None
-        if rr > p.max_rr:
-            target = entry + side * p.max_rr * risk
+        if p.target_mode == "fixed":
+            target = entry + side * p.fixed_r * risk
+            rr = p.fixed_r
+        else:
+            ahead = [x for x in liq if (x - c_[j]) * side > 0]
+            if not ahead:
+                return None
+            target = min(ahead) if side == 1 else max(ahead)
+            rr = (target - entry) * side / risk
+            if rr < p.min_rr:
+                return None
+            if rr > p.max_rr:
+                target = entry + side * p.max_rr * risk
         why = (f"{'demand' if side == 1 else 'supply'} zone {a['zone']['lo']:.5g}-{a['zone']['hi']:.5g}, "
                f"{'swept' if a['swept'] else 'no sweep'}, broke {a['ref']:.5g}, "
                f"target {'high' if side == 1 else 'low'} {target:.5g} ({min(rr, p.max_rr):.1f}R)")
@@ -412,7 +439,7 @@ class Engine:
         if (best - pos["target"]) * s >= 0:
             self._close(pos, pos["target"], t, "target")
             return
-        if j - pos["fill_i"] >= self.pf.max_hold:
+        if j - pos["fill_i"] >= self.pf.max_hold * self.p.hold_scale:
             self._close(pos, c if s == 1 else c + cost, t, "time")
 
     def _close(self, pos: dict[str, Any], px: float, t: int, reason: str) -> None:
