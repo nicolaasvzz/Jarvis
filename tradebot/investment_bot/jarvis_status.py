@@ -361,6 +361,64 @@ def _money(value: float) -> float:
     return round(float(value), 2) + 0.0  # + 0.0 turns -0.0 into 0.0
 
 
+def _sweep(now: datetime) -> dict[str, Any]:
+    """The sweep setup (the videos' strategy) on MT5: what's proven and the demo account."""
+    out: dict[str, Any] = {}
+    proof = _read(Path("sweep.json"))
+    trader = _read(Path("sweep_trader.json"))
+    acct = trader.get("account") or {}
+    if acct:
+        out["MT5 equity"] = _money(acct.get("equity", 0))
+        out["MT5 account"] = f"{acct.get('server', '')} {'demo' if acct.get('demo') else 'REAL'} "                              f"({acct.get('currency', '')}, 1:{acct.get('leverage', '')})"
+        out["MT5 algo trading"] = "on" if trader.get("algo_trading") else "OFF (turn on in MT5)"
+        out["MT5 halted"] = bool(trader.get("halted"))
+        out["MT5 open trades"] = len(trader.get("positions") or {})
+        out["MT5 waiting orders"] = len(trader.get("orders") or {})
+        closed = trader.get("closed") or []
+        out["MT5 closed trades"] = len(closed)
+        out["MT5 P&L (closed)"] = _money(sum(float(c.get("pnl", 0)) for c in closed))
+    for name, x in (proof.get("profiles") or {}).items():
+        b = x.get("best") or {}
+        t = b.get("test") or {}
+        out[f"Sweep {name}"] = ("PROVEN: " if x.get("proven") else "not proven: ") + (
+            b.get("label", "") if x.get("proven") else "; ".join(x.get("why_not") or []))
+        out[f"Sweep {name} test avg R"] = t.get("avg_r", 0.0)
+        out[f"Sweep {name} trades/week"] = t.get("per_week", 0.0)
+    if proof.get("profiles"):
+        out["Sweep backtest"] = [
+            {"Profile": n, "Charts": x.get("words", ""), "Proven": "yes" if x.get("proven") else "no",
+             "Test trades": (x.get("best") or {}).get("test", {}).get("trades", 0),
+             "Win %": (x.get("best") or {}).get("test", {}).get("win_pct", 0.0),
+             "Avg R": (x.get("best") or {}).get("test", {}).get("avg_r", 0.0),
+             "t": (x.get("best") or {}).get("test", {}).get("t", 0.0),
+             "Video rules avg R": (x.get("video_rules") or {}).get("test", {}).get("avg_r", 0.0),
+             "Version": (x.get("best") or {}).get("label", "")}
+            for n, x in proof["profiles"].items()]
+    curve = trader.get("equity") or []
+    if len(curve) > 1:
+        out["MT5 equity curve"] = [[t, float(e)] for t, e in curve[-300:]]
+    if trader.get("positions"):
+        out["MT5 open trades (sweep)"] = [
+            {"Symbol": v["symbol"], "Profile": v["profile"], "Side": "LONG" if v["side"] == 1 else "SHORT",
+             "Lots": v["lots"], "Entry": v["entry"], "Stop": v["stop"], "Target": v["target"],
+             "P&L": _money(v.get("profit", 0)), "Half off": v.get("half", False), "Why": v.get("why", "")}
+            for v in trader["positions"].values()]
+    if trader.get("orders"):
+        out["MT5 waiting orders (sweep)"] = [
+            {"Symbol": v["symbol"], "Profile": v["profile"], "Side": "BUY" if v["side"] == 1 else "SELL",
+             "Limit": v["entry"], "Stop": v["stop"], "Target": v["target"], "Lots": v["lots"],
+             "Placed": v.get("placed", "")} for v in trader["orders"].values()]
+    if trader.get("closed"):
+        out["MT5 closed trades (sweep)"] = [
+            {"Closed": c.get("closed", ""), "Symbol": c["symbol"], "Profile": c["profile"],
+             "Side": "LONG" if c["side"] == 1 else "SHORT", "P&L": _money(c.get("pnl", 0)),
+             "Why": c.get("why", "")} for c in trader["closed"][-50:]]
+    if trader.get("log"):
+        out["MT5 log (sweep)"] = [{"At": l["at"], "Symbol": l["symbol"], "What": l["what"]}
+                                  for l in trader["log"][-40:]]
+    return out
+
+
 def build_status(config: BotConfig, now: datetime | None = None) -> dict[str, Any]:
     now = now or datetime.now()
     live = config.live_settings
@@ -368,6 +426,10 @@ def build_status(config: BotConfig, now: datetime | None = None) -> dict[str, An
     tune = TuneConfig.from_config(config)
     memory = _read(Path(tune.memory_file))
     out: dict[str, Any] = {"Updated": now.isoformat(timespec="seconds")}
+    try:
+        out.update(_sweep(now))  # the sweep setup on MT5 comes first: it's the bot now
+    except (OSError, ValueError, KeyError, TypeError):
+        pass
 
     # ---- tiles: the numbers at a glance ----
     positions = state.get("positions") or []

@@ -72,3 +72,8 @@ research.json
 research.json.tmp
 news_trader.json
 news_trader.json.tmp
+
+# Sweep setup on MT5
+sweep.json
+sweep_trader.json
+sweep_trader.tmp
