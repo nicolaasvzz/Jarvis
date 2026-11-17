@@ -145,3 +145,27 @@ Swing is close to zero now (−0.04R), still not positive.
 **Champions now:**
 - swing: max 4R, break 1.2, swings 3/5/5, positive on both parts but small (t +0.26 and +0.80)
 - intraday: higher chart agrees, break 1.2, zones 1.6, swing size 3
+
+## Iteration 6: 00:50
+
+**Saw:** on swing, trades whose target is only 3R lose (−0.11R) and 4R trades win. A 3R target is often a minor level between price and the real liquidity.
+
+**Idea:** only take swing trades whose liquidity target pays at least 3.5R, test letting winners run (no partial) or a later partial, and for intraday cap targets (5R+ lost there).
+
+**Tried, swing** (champion: learn t +0.26, check +0.80):
+- Min target 3.5R: **+0.63 / +1.36** (avg +0.053R and +0.141R, win 36–39%). **Kept.**
+- No partial: +0.41 / −0.33. Rejected: banking half at 2R matters.
+- Half off at 3R: +0.47 / +0.16. Rejected.
+- Max 5R: +0.36 / +1.00. Better on both, but less than 3.5R.
+
+**Tried, intraday** (champion: −0.04 / +0.48):
+- Max 5R: +0.48 / +0.03. Better on learn, worse on check. Rejected.
+- Max 4R: +0.14 / −0.34. Rejected.
+- Min target 2.5R: −0.43 / +0.63. Rejected.
+- No partial: −0.82 / +0.82. Rejected.
+
+No intraday change.
+
+**Champions now:**
+- swing: min 3.5R, max 4R, half at 2R, break 1.2, swings 3/5/5. Learn +0.053R (t 0.63), check +0.141R (t 1.36). Getting there, but the final test needs t of 1.65 or more.
+- intraday: unchanged
