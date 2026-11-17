@@ -86,6 +86,7 @@ class Params:
     hold_scale: float = 1.0   # how long a trade may stay open, times the profile's
     sweep_reject: bool = False  # the sweep only counts if its candle closes back past the level
     break_body_atr: float = 0.0 # the confirmation candle's body must be at least this many ATRs
+    discount: bool = False    # buy only below the middle of the higher chart's last swing range (sell above)
 
     def label(self) -> str:
         bits = [f"rr>={self.min_rr:g}"]
@@ -96,6 +97,8 @@ class Params:
             bits.append("higher chart agrees")
         if self.sweep_reject:
             bits.append("sweep closes back")
+        if self.discount:
+            bits.append("buy cheap / sell dear")
         if self.break_body_atr:
             bits.append(f"break body {self.break_body_atr:g} ATR")
         if self.sides:
@@ -365,6 +368,10 @@ class Engine:
                     continue
                 if p.break_body_atr and (c_[j] - o_[j]) * side < p.break_body_atr * L.atr[j]:
                     continue
+                if p.discount and h_last["H"] and h_last["L"]:
+                    mid = (h_last["H"][1] + h_last["L"][1]) / 2
+                    if (c_[j] - mid) * side > 0:
+                        continue
                 # confirmed: build the order
                 order = self._order(side, j, a, o_, h_, l_, c_, liq_hi if side == 1 else liq_lo)
                 a["zone"]["used"] = True

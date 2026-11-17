@@ -169,3 +169,24 @@ No intraday change.
 **Champions now:**
 - swing: min 3.5R, max 4R, half at 2R, break 1.2, swings 3/5/5. Learn +0.053R (t 0.63), check +0.141R (t 1.36). Getting there, but the final test needs t of 1.65 or more.
 - intraday: unchanged
+
+## Iteration 7: 01:20
+
+**Idea:**
+- **Buy cheap, sell dear** (a new rule, the SMC "premium/discount"): buy only below the middle of the higher chart's last swing range, and sell only above it.
+- Also: more zones (weaker displacement), longer-lived zones, and a longer wait for the confirmation. All of these would mean more trades, which would lift t if the edge holds.
+
+**Tried, swing** (champion: learn t +0.63, check +1.36):
+- Buy cheap / sell dear: learn **+1.58** (avg +0.21R) but check +0.40. Rejected: it helps learn only.
+- Zones 1.0 ATR: −0.42 / +0.44. Rejected.
+- Zone life 300: +0.39 / +1.36. Rejected.
+- Wait 2x: learn +1.59, check +0.70. Rejected: it helps learn only.
+
+**Tried, intraday** (champion: −0.04 / +0.48):
+- Buy cheap / sell dear: only 8 and 16 trades. Rejected.
+- Zone life 300: no change.
+- Wait 2x: +0.24 / −0.31. Rejected.
+
+**Kept:** nothing.
+
+**Note:** this is the first round where the ideas that looked best on learn all faded on check. That's the sign that the easy, real improvements are used up, and that pushing further would start fitting noise. The keep rule is doing its job.
