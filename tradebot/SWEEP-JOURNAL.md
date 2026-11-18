@@ -600,3 +600,20 @@ All worse on both parts.
 Better on learn, collapses on check.
 
 **Kept:** nothing. Tick volume adds nothing beyond the strong-break body rule.
+
+## Round 25: 14:26
+
+**Idea (a new engine rule): a fast turn.** A real stop-run reverses quickly. If the break comes long after the sweep's extreme, the sweep was more likely a slow grind lower. So the break must come within N lower-chart candles of the extreme.
+
+**Tried, swing** (champion: learn t +1.02, check +1.66):
+- Within 6: +1.02 / +1.20 (avg up, but only 114 and 92 trades)
+- Within 12: +0.50 / +1.39
+- Within 24: +0.72 / **+1.85**
+
+None better on both. Rejected.
+
+**Tried, intraday** (champion: +0.28 / +0.96):
+- Within 8: +1.08 / +0.62
+- Within 16 (4 hours): **+0.64 / +1.23** (avg +0.166R and +0.319R); forex +0.432, metals +1.230, indices −0.344. Better in 2 groups and worse in 1. **Kept.** Note: indices got clearly worse.
+
+**Champion now:** intraday = higher chart agrees, strong break 1.2, zones 1.6, skip volatility over 1.5x, no Fridays, turn within 16 candles.
