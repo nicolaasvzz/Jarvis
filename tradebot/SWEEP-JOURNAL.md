@@ -310,3 +310,33 @@ The last 20% of each profile's history, never looked at during the night, tested
 - The intraday warning in iteration 9 (swing's recipe made intraday worse) was the tell.
 
 **Conclusion:** after an honest night of hand improvement, the sweep setup from the videos has no proven edge on 21 MT5 markets. It must not trade real money. The demo trader only trades proven profiles, so it will trade nothing unless forward-testing is switched on deliberately.
+
+---
+
+# Part 2: Wed 18 Nov, 07:50 → 11:30
+
+The user asked for more rounds. **What changes from last night:**
+- **A stricter keep rule.** A change must be better on both learn and check, **and** its check average must not get worse in 2 or more of the 3 market groups (forex, metals, indices). Last night's gains didn't hold, so this asks that a change be broad, not carried by one corner.
+- **The locked final 20% has been seen once** (04:50), so a second look at the end of this part is weaker evidence. A pass would justify a demo forward test, not real money.
+
+## Round 12: 07:55
+
+**Saw:** after the half comes off at 1.5R, the rest sits with its stop at the entry, so a trade that ran to +3R and reversed gives back everything on the second half. Separately, unusually volatile stretches seem to produce wild sweeps that don't respect zones.
+
+**Ideas (two new engine rules):**
+- **Trail to swings:** after the partial, the stop follows each new lower-chart swing low (or high for a short) once it's behind price.
+- **Skip high volatility:** no new setups while ATR is more than N times its 200-candle average.
+
+**Tried, swing** (champion: learn t +1.02, check +1.66, check by group: forex +0.051, metals +0.102, indices +0.433):
+- Trail to swings: learn +0.91 (worse), check **+1.97** (forex +0.090, metals +0.225, indices +0.338). Rejected: worse on learn. Close, though; this is the first rule that helped forex and metals on check together.
+- Skip vol > 2x: +1.01 / +1.61. Rejected.
+- Skip vol > 1.5x: +0.85 / +1.46. Rejected.
+
+**Tried, intraday** (champion: −0.04 / +0.48; forex +0.014, metals +0.839, indices −0.144):
+- Trail to swings: +0.07 / −0.10. Rejected.
+- Skip vol > 2x: no change (it almost never triggers).
+- Skip vol > 1.5x: **+0.06 / +0.51**; forex +0.025, metals unchanged, indices −0.132. Better in 2 of 3 groups and none worse. **Kept.** It's small.
+
+**Champions now:**
+- swing: unchanged
+- intraday: + skip vol > 1.5x

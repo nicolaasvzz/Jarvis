@@ -87,6 +87,8 @@ class Params:
     sweep_reject: bool = False  # the sweep only counts if its candle closes back past the level
     break_body_atr: float = 0.0 # the confirmation candle's body must be at least this many ATRs
     discount: bool = False    # buy only below the middle of the higher chart's last swing range (sell above)
+    trail_swings: bool = False  # after the partial, trail the stop to each new lower-chart swing
+    max_vol_ratio: float = 0.0  # skip setups when ATR is more than this many times its 200-candle average (0 = off)
 
     def label(self) -> str:
         bits = [f"rr>={self.min_rr:g}"]
@@ -99,6 +101,10 @@ class Params:
             bits.append("sweep closes back")
         if self.discount:
             bits.append("buy cheap / sell dear")
+        if self.trail_swings:
+            bits.append("trail to swings")
+        if self.max_vol_ratio:
+            bits.append(f"skip vol > {self.max_vol_ratio:g}x")
         if self.break_body_atr:
             bits.append(f"break body {self.break_body_atr:g} ATR")
         if self.sides:
@@ -240,6 +246,10 @@ class Engine:
         n = len(c_)
         lt = L.close_t
         arm_bars = max(2, int(round(pf.arm_bars * p.arm_scale)))
+        self._trail: dict[int, float | None] = {1: None, -1: None}
+        if p.max_vol_ratio:
+            avg = pd.Series(L.atr).rolling(200, min_periods=50).mean().to_numpy()
+            vol_ratio = np.where(avg > 0, L.atr / np.where(avg > 0, avg, 1), 1.0)
         hours = (p.hour_from, p.hour_to) != (0, 24)
         M, H = self.m, self.h
         mo, mh, ml, mc = (M.df[k].to_numpy() for k in ("open", "high", "low", "close"))
@@ -320,6 +330,8 @@ class Engine:
                 l_last[kind] = (bar, price)
                 new_l.append((kind, bar, price))
                 li_ += 1
+            self._trail = {1: l_last["L"][1] if l_last["L"] else None,
+                           -1: l_last["H"][1] if l_last["H"] else None}
 
             # 3) the trigger, on the close
             in_hours = not hours or p.hour_from <= (T // 3600) % 24 < p.hour_to
@@ -367,6 +379,8 @@ class Engine:
                 if (c_[j] - a["ref"]) * side <= 0 or not in_hours:
                     continue
                 if p.break_body_atr and (c_[j] - o_[j]) * side < p.break_body_atr * L.atr[j]:
+                    continue
+                if p.max_vol_ratio and vol_ratio[j] > p.max_vol_ratio:
                     continue
                 if p.discount and h_last["H"] and h_last["L"]:
                     mid = (h_last["H"][1] + h_last["L"][1]) / 2
@@ -449,6 +463,10 @@ class Engine:
             self._close(pos, px - s * self.p.stop_slip * cost, t, "breakeven" if pos["half"] else "stop")
             return
         best = h if s == 1 else lo + cost
+        if self.p.trail_swings and pos["half"]:
+            sw = getattr(self, "_trail", {}).get(s)
+            if sw is not None and (sw - pos["stop"]) * s > 0 and (sw - (c if s == 1 else c + cost)) * s < 0:
+                pos["stop"] = sw   # the latest swing behind price, known before this candle
         if self.p.partial_r and not pos["half"]:
             level = pos["entry"] + s * self.p.partial_r * risk
             if (best - level) * s >= 0 and (pos["target"] - level) * s > 0:

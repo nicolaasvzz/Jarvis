@@ -130,6 +130,15 @@ def breakdown(trades: list[dict[str, Any]], key: Callable[[dict[str, Any]], Any]
     return sorted(rows, key=lambda r: r["sum_r"])
 
 
+def group_of(symbol: str) -> str:
+    """forex, metals or indices: a change should hold up in more than one of them."""
+    if symbol.startswith(("XAU", "XAG", "XPT", "XPD")):
+        return "metals"
+    if len(symbol) == 6 and symbol.isalpha():
+        return "forex"
+    return "indices"
+
+
 def _rr(t: dict[str, Any]) -> float:
     risk = abs(t["entry"] - t["stop"])
     return abs(t["target"] - t["entry"]) / risk if risk else 0.0
@@ -158,6 +167,8 @@ def bench(trial: dict[str, dict[str, Any]] | None = None, profiles: list[str] | 
             seen = [t for t in tr if t["exit_time"] < b]          # the final part never leaves here
             row = {"version": (f"TRIAL {i} " if i else "CHAMP ") + v.label(),
                    "learn": stats(seen, t0, a), "check": stats(seen, a, b)}
+            row["check_groups"] = {g: stats([t for t in seen if group_of(t["symbol"]) == g], a, b)
+                                   for g in ("forex", "metals", "indices")}
             if detail and i == 0:
                 learn_part = [t for t in seen if t["exit_time"] < a]
                 row["by_symbol"] = breakdown(learn_part, lambda t: t["symbol"])
@@ -173,6 +184,9 @@ def bench(trial: dict[str, dict[str, Any]] | None = None, profiles: list[str] | 
             say(f"{p:<8} {row['version'][:110]}")
             say(f"         learn: {L['trades']} tr, win {L['win_pct']}%, avg {L['avg_r']:+.3f}R, t {L['t']:+.2f} | "
                 f"check: {C['trades']} tr, win {C['win_pct']}%, avg {C['avg_r']:+.3f}R, t {C['t']:+.2f}")
+            if row.get("check_groups"):
+                say("         check by group: " + ", ".join(
+                    f"{g} {x['avg_r']:+.3f}R ({x['trades']})" for g, x in row["check_groups"].items()))
     Path(BENCH_FILE).write_text(json.dumps(out, indent=1, default=str), encoding="utf-8")
     return out
 
