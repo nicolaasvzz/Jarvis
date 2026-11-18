@@ -60,6 +60,14 @@ first; once approved, changes come in through a reviewed pull request.
   history; `investment-bot learned --reset` forgets it; `backtest --no-tune`
   skips one round.
 
+- **The sweep setup, on MetaTrader 5 (the bot now).** One fixed setup from the
+  "Simple R2K - R10M" videos, with no indicator soup: the higher chart sets the
+  target, the middle chart gives the zones and direction, and the lower chart
+  triggers after a liquidity sweep and a break of structure. It only takes
+  trades paying 3x the risk, a few a week across 21 markets. It's backtested
+  honestly on MT5 history and only trades once proven, on the demo first. See
+  [The sweep setup](#the-sweep-setup-mt5).
+
 - **A champ-set builder that reads three charts.** It masters the 4-hour,
   1-hour and 30-minute charts separately (the clearest indicators of each,
   look-alikes counted once), then builds one setup that trades only on the
@@ -165,6 +173,74 @@ cloudflared tunnel --url http://localhost:8000
 Point your dashboard's `INVESTMENT_BOT_URL` at the URL it prints. Quick
 tunnels get a new random URL each restart; a named tunnel (free Cloudflare
 account) gives you a permanent one.
+
+## The sweep setup (MT5)
+
+The old approach (hundreds of indicators, learned weights, decision trees) never
+proved itself: every candidate stayed under the luck bar, and the auto-tuned
+ensemble lost in every backtest. This approach is one fixed setup, coded from
+the two strategy videos in "Simple R2K - R10M before June 16 2029".
+
+**For a long (a short is the mirror image):**
+
+1. **Target, higher chart:** the nearest swing high above price that price
+   hasn't taken yet. That's where stops sit, so price is drawn to it.
+2. **Zones, middle chart:** its structure must point up (the last close broke a
+   swing high). A demand zone is the candle a strong move started from.
+3. **Trigger, lower chart:** price comes into a fresh demand zone and sweeps a
+   recent swing low (the liquidity grab), then closes above the last swing high
+   (the confirmation). A limit order goes at the top of the candle the turn
+   started from. The stop sits just under the sweep and the target is the
+   higher chart's high, taken only if it pays 3x the risk or more.
+4. **Management:** half comes off at 2R and the stop moves to the entry. The
+   rest goes to the target, the stop or the time limit.
+
+**Three versions, same rules:**
+
+| Profile | Charts | Typical hold |
+|---|---|---|
+| swing | daily / 4h / 1h | days to weeks |
+| intraday | 4h / 1h / 15m | hours to 2 days |
+| scalp | 1h / 15m / 5m | minutes to hours |
+
+**Proving it.** `sweep-prove` runs 16 versions (target multiple, sweep needed
+or not, entry depth, partial or not) over every symbol's MT5 history:
+
+- The first 60% picks the best version.
+- The last 40%, never used for the choice, must beat the luck bar, win 3 of its
+  4 quarters, show a profit factor of 1.2+ and have 30+ trades.
+- Every try ever made counts towards the luck bar.
+- `--cached` (or `-Mode sweep-prove -Cached yes`) backtests only what is already
+  downloaded, with no terminal needed.
+- The videos' exact rules are always reported next to the winner.
+- Costs are at least 1 basis point each way, and a stop counts before a target
+  inside the same candle.
+
+**Trading it.** `sweep-trade` attaches to the running MetaTrader 5 terminal. It
+never logs in, so your password never touches the bot.
+
+- It only trades proven profiles. On a demo account, `--also-unproven` (or
+  `-Unproven yes`) forward-tests the others too.
+- Orders carry their stop and target on the broker's server.
+- Each trade risks 1% of the account. A trade is skipped if even the smallest
+  lot would risk over 3%.
+- At most 3 trades are open at once, and everything halts after a 10% drop.
+
+```powershell
+.un-local.ps1 -Mode sweep-prove                       # backtest (first run downloads history: slow)
+.un-local.ps1 -Mode sweep-trade                       # trade proven profiles on the MT5 terminal
+.un-local.ps1 -Mode sweep-trade -Unproven yes -Risk 1 # demo: forward-test everything
+```
+
+**Before trading:**
+
+1. Open MetaTrader 5 and log in.
+2. Turn on **Algo Trading** in the toolbar.
+3. Don't run the backtest and the trader at the same moment: the terminal
+   serves one busy client at a time.
+
+Results go to `sweep.json` and `sweep_trader.json`, and the top of Jarvis's
+TradeBot page shows them.
 
 ## The champ-set builder
 

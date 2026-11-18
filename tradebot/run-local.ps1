@@ -26,7 +26,7 @@
 # First run creates a .venv and installs dependencies; later runs reuse it.
 
 param(
-    [ValidateSet('terminal', 'api', 'once', 'backtest', 'learn', 'lab', 'champ', 'package', 'check', 'research', 'research-trade')]
+    [ValidateSet('terminal', 'api', 'once', 'backtest', 'learn', 'lab', 'champ', 'package', 'check', 'research', 'research-trade', 'sweep-prove', 'sweep-trade')]
     [string]$Mode = 'terminal',
     [int]$Port = 8000,
     [string]$For = '1h',      # learn/lab: how long, e.g. 10m, 8h, 2d (champ: the most, default 3d)
@@ -43,7 +43,13 @@ param(
     [ValidateSet('both', 'stock', 'stocks', 'crypto')]
     [string]$Only = 'both',   # champ/package: stocks and crypto, or just one of them
     [ValidateSet('all', 'vote', 'weights', 'trees', 'bagged')]
-    [string]$Formula = 'all'  # champ: which formulas compete (votes, weights, trees, averaged trees)
+    [string]$Formula = 'all', # champ: which formulas compete (votes, weights, trees, averaged trees)
+    [string]$Profiles = 'all', # sweep: swing, intraday, scalp, or a comma list
+    [string]$Risk = '1',      # sweep-trade: percent of the account a trade risks
+    [ValidateSet('no', 'yes')]
+    [string]$Unproven = 'no', # sweep-trade: demo only, also trade profiles that haven't proven themselves
+    [ValidateSet('no', 'yes')]
+    [string]$Cached = 'no'    # sweep-prove: backtest only what's already downloaded (no terminal, fast)
 )
 
 $ErrorActionPreference = 'Stop'
@@ -91,7 +97,31 @@ if ($Only -ne 'both') { $onlyArgs = @('--only', $Only) }
 $formulaArgs = @()
 if ($Formula -ne 'all') { $formulaArgs = @('--formulas', $Formula) }
 
+# The sweep modes talk to the MetaTrader 5 terminal through its Python package.
+$sweepArgs = @()
+if ($Mode -like 'sweep*') {
+    & $venvPython -c "import MetaTrader5" 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host '=== Installing the MetaTrader5 package (one time) ===' -ForegroundColor Cyan
+        & $venvPython -m pip install --quiet MetaTrader5
+    }
+    if ($Profiles -ne 'all' -and $Profiles.Trim()) { $sweepArgs += @('--profiles', ($Profiles -replace '[^a-z,]', '')) }
+}
+
 switch ($Mode) {
+    'sweep-prove' {
+        Write-Host '=== Sweep setup backtest on MT5 history (the first run downloads candles; minutes) ===' -ForegroundColor Cyan
+        if ($Cached -eq 'yes') { $sweepArgs += '--cached' }
+        & $venvPython -m investment_bot sweep-prove -c $config @sweepArgs
+    }
+    'sweep-trade' {
+        $riskNum = $Risk -replace '[^0-9.]', ''
+        if (-not $riskNum) { $riskNum = '1' }
+        $tradeArgs = @('--risk', $riskNum)
+        if ($Unproven -eq 'yes') { $tradeArgs += '--also-unproven' }
+        Write-Host '=== Sweep setup on the MT5 terminal (Ctrl-C stops; orders keep their stops on the server) ===' -ForegroundColor Cyan
+        & $venvPython -m investment_bot sweep-trade -c $config @sweepArgs @tradeArgs
+    }
     'terminal' {
         Write-Host '=== Paper trading (Ctrl-C to stop; state is saved) ===' -ForegroundColor Cyan
         & $venvPython -m investment_bot trade -c $config @news

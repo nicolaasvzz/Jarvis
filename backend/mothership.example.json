@@ -1,6 +1,132 @@
 {
   "controls": [
     {
+      "id": "c-sweep-prove",
+      "name": "Sweep setup: backtest",
+      "group": "TradeBot",
+      "project": "p-tradebot",
+      "kind": "command",
+      "action": ".\\run-local.ps1 -Mode sweep-prove -Profiles {profiles} -Cached {cached}",
+      "description": "Backtests the strategy from the 'Simple R2K - R10M' videos on MetaTrader 5 history: the higher chart sets the target (the nearest swing high or low price hasn't taken), the middle chart's demand and supply zones and structure give the direction, and the lower chart triggers when price sweeps a recent low or high inside a zone and then breaks the last swing the other way. Only trades paying 3x the risk or more. The first 60% of history picks the best of 16 versions; the last 40% must prove it (beat the luck bar, win 3 of 4 quarters, profit factor 1.2+). MetaTrader 5 must be open and logged in. Writes a report.",
+      "trusted": false,
+      "pinned": true,
+      "inputs": [
+        {
+          "name": "profiles",
+          "label": "Which version",
+          "kind": "choice",
+          "default": "all",
+          "options": [
+            {
+              "label": "All three (swing, intraday, scalp)",
+              "value": "all"
+            },
+            {
+              "label": "Swing: daily target, 4h zones, 1h trigger (days to weeks)",
+              "value": "swing"
+            },
+            {
+              "label": "Intraday: 4h target, 1h zones, 15m trigger (hours to 2 days)",
+              "value": "intraday"
+            },
+            {
+              "label": "Scalp: 1h target, 15m zones, 5m trigger (minutes to hours)",
+              "value": "scalp"
+            }
+          ]
+        },
+        {
+          "name": "cached",
+          "label": "History",
+          "kind": "choice",
+          "default": "yes",
+          "options": [
+            {
+              "label": "What's already downloaded (fast, no terminal needed)",
+              "value": "yes"
+            },
+            {
+              "label": "Download and top up first (slow the first time)",
+              "value": "no"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "c-sweep-trade",
+      "name": "Sweep setup: trade the MT5 demo",
+      "group": "TradeBot",
+      "project": "p-tradebot",
+      "kind": "command",
+      "action": ".\run-local.ps1 -Mode sweep-trade -Profiles {profiles} -Risk {risk} -Unproven {unproven}",
+      "description": "Trades the sweep setup on the MetaTrader 5 terminal: limit orders with the stop and target on the broker's server, half off at 2x the risk with the stop moved to the entry, at most 3 trades open, everything halts after a 10% drop. Only proven versions trade unless you allow forward-testing the unproven ones (demo accounts only). MetaTrader 5 must be open, logged in, with Algo Trading switched on.",
+      "trusted": false,
+      "pinned": true,
+      "inputs": [
+        {
+          "name": "profiles",
+          "label": "Which version",
+          "kind": "choice",
+          "default": "all",
+          "options": [
+            {
+              "label": "All three (swing, intraday, scalp)",
+              "value": "all"
+            },
+            {
+              "label": "Swing: daily target, 4h zones, 1h trigger (days to weeks)",
+              "value": "swing"
+            },
+            {
+              "label": "Intraday: 4h target, 1h zones, 15m trigger (hours to 2 days)",
+              "value": "intraday"
+            },
+            {
+              "label": "Scalp: 1h target, 15m zones, 5m trigger (minutes to hours)",
+              "value": "scalp"
+            }
+          ]
+        },
+        {
+          "name": "risk",
+          "label": "Risk per trade",
+          "kind": "choice",
+          "default": "1",
+          "options": [
+            {
+              "label": "0.5% of the account",
+              "value": "0.5"
+            },
+            {
+              "label": "1% of the account",
+              "value": "1"
+            },
+            {
+              "label": "2% of the account",
+              "value": "2"
+            }
+          ]
+        },
+        {
+          "name": "unproven",
+          "label": "Unproven versions",
+          "kind": "choice",
+          "default": "no",
+          "options": [
+            {
+              "label": "Proven only",
+              "value": "no"
+            },
+            {
+              "label": "Forward-test unproven ones too (demo only)",
+              "value": "yes"
+            }
+          ]
+        }
+      ]
+    },
+    {
       "id": "c-bot-champ",
       "name": "Champ-set builder",
       "group": "TradeBot",

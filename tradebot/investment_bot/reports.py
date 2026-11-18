@@ -32,6 +32,8 @@ KINDS = {
     "champ": "Champ-set builder",
     "check": "Test mode",
     "trading": "Paper trading",
+    "sweep": "Sweep setup backtest",
+    "sweep-trading": "Sweep setup on the MT5 demo",
 }
 
 Tone = str  # "good", "bad" or "neutral"

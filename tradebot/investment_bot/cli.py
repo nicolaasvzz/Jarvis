@@ -697,6 +697,55 @@ def cmd_strategies(_args: argparse.Namespace) -> None:
     console.print(table)
 
 
+def _plain(line: str) -> None:
+    # ASCII only: Jarvis's terminal is cp1252.
+    console.print(str(line).encode("ascii", "replace").decode(), markup=False, highlight=False,
+                  soft_wrap=True)
+
+
+def cmd_sweep_prove(args: argparse.Namespace) -> None:
+    from .sweep.prove import prove
+
+    syms = [s.strip().upper() for s in args.symbols.split(",")] if args.symbols else None
+    profiles = [p.strip() for p in args.profiles.split(",")] if args.profiles else None
+    prove(syms, profiles, say=_plain, refresh=not args.cached)
+    config, _ = _load_with_memory(args.config)
+    write_status(config)
+
+
+def cmd_sweep_bench(args: argparse.Namespace) -> None:
+    import json as _json
+
+    from .sweep.bench import bench
+
+    trial = _json.loads(args.try_) if args.try_ else None
+    profiles = [p.strip() for p in args.profiles.split(",")] if args.profiles else None
+    bench(trial, profiles, say=_plain)
+
+
+def cmd_sweep_final(args: argparse.Namespace) -> None:
+    from .sweep.bench import final
+
+    final(say=_plain)
+    config, _ = _load_with_memory(args.config)
+    write_status(config)
+
+
+def cmd_sweep_trade(args: argparse.Namespace) -> None:
+    from .sweep.trader import TraderConfig, trade
+
+    cfg = TraderConfig(risk=args.risk / 100, also_unproven=args.also_unproven)
+    if args.symbols:
+        cfg.symbols = tuple(s.strip().upper() for s in args.symbols.split(","))
+    if args.profiles:
+        cfg.profiles = tuple(p.strip() for p in args.profiles.split(","))
+    _plain(f"Sweep setup on MetaTrader 5: {len(cfg.symbols)} symbols, {', '.join(cfg.profiles)}; "
+           f"risking {cfg.risk:.1%} a trade, at most {cfg.max_open} open, halts at a "
+           f"{cfg.halt_drawdown:.0%} drop.")
+    config, _ = _load_with_memory(args.config)
+    trade(cfg, once=args.once, say=_plain, after_save=lambda: write_status(config))
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="investment-bot",
@@ -829,6 +878,31 @@ def build_parser() -> argparse.ArgumentParser:
 
     st = sub.add_parser("status", parents=[common], help="Rewrite jarvis_status.json for Jarvis")
     st.set_defaults(func=cmd_status)
+
+    sp = sub.add_parser("sweep-prove", parents=[common],
+                        help="Backtest the sweep setup (the videos' strategy) on MT5 history")
+    sp.add_argument("--profiles", default=None, help="swing,intraday,scalp (default: all)")
+    sp.add_argument("--cached", action="store_true", help="Use the candle cache as it is")
+    sp.set_defaults(func=cmd_sweep_prove)
+
+    sb = sub.add_parser("sweep-bench", parents=[common],
+                        help="Measure the sweep champions (and a trial change) on the learn and check parts")
+    sb.add_argument("--try", dest="try_", default="", help='A change per profile, as JSON: {"swing": {"sides": 1}}')
+    sb.add_argument("--profiles", default=None, help="swing,intraday,scalp (default: all, or the trial's)")
+    sb.set_defaults(func=cmd_sweep_bench)
+
+    sf = sub.add_parser("sweep-final", parents=[common],
+                        help="The locked final test of the sweep champions (writes sweep.json)")
+    sf.set_defaults(func=cmd_sweep_final)
+
+    sw = sub.add_parser("sweep-trade", parents=[common],
+                        help="Trade the sweep setup on the MT5 terminal (demo)")
+    sw.add_argument("--profiles", default=None, help="swing,intraday,scalp (default: all)")
+    sw.add_argument("--risk", type=float, default=1.0, help="Percent of the account a trade risks")
+    sw.add_argument("--also-unproven", action="store_true",
+                    help="Demo accounts only: forward-test profiles that haven't proven themselves")
+    sw.add_argument("--once", action="store_true", help="One pass over the latest candles, then exit")
+    sw.set_defaults(func=cmd_sweep_trade)
 
     ls = sub.add_parser("strategies", help="List available strategies")
     ls.set_defaults(func=cmd_strategies)
