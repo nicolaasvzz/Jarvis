@@ -527,3 +527,22 @@ Both worse.
 - The volatility filter is about neutral (learn 0.17→0.16 without it). It stays by the rule, but it isn't a finding.
 
 **Champion now:** intraday = higher chart agrees, strong break 1.2, zones 1.6, skip volatility over 1.5x, no Fridays.
+
+## Round 21: 12:39
+
+**Idea (a new engine rule): a real break, measured differently.** The strong-break rule looks at the candle's body. A break can also be measured by how far the close lands past the swing it breaks (N ATRs), which is closer to "price really left the level". Tried alone and paired with a looser body rule.
+
+**Tried, swing** (champion: learn t +1.02, check +1.66):
+- Close 0.3 ATR past: +0.78 / +0.91
+- Close 0.6 ATR past: **+1.33** / +0.99
+- Close 0.6 ATR past, body 0.8: **+1.57** / +1.17
+
+All better on learn and worse on check. Rejected.
+
+**Tried, intraday** (champion: +0.28 / +0.96):
+- Close 0.3 ATR past: −0.20 / **+1.43**, all three groups better
+- Close 0.6 ATR past: −0.14 / +1.28
+
+Better on check, worse on learn. Rejected.
+
+**Kept:** nothing. Each profile improves on a different half here, which is what noise looks like.
