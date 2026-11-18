@@ -382,3 +382,22 @@ The user asked for more rounds. **What changes from last night:**
 **Kept:** nothing.
 
 **Learned:** waiting for the pullback into the new zone (the videos' entry) is clearly better than entering on the break. The swing version gives up about 0.1R a trade without it. This is one of the videos' rules that the data backs.
+
+## Round 15: 09:17
+
+**Idea (a new engine rule): equal-level targets.** The videos stress that stops pile up above obvious highs. Double tops and double bottoms (two untaken levels close together) should be stronger magnets than a single swing, so aim only at levels with another untaken level within N higher-chart ATRs.
+
+**Tried, swing** (champion: learn t +1.02, check +1.66):
+- 0.25 ATR: −0.70 / +0.47
+- 0.5 ATR: −0.97 / +0.26
+- 1 ATR: −0.57 / +0.59
+
+All much worse. Skipping the nearest single level means aiming further away, which lets in more far-target trades (425–463 instead of 335). Those are exactly the ones that lose.
+
+**Tried, intraday** (champion: +0.17 / +0.90):
+- 0.25 ATR: +0.83 / +0.19
+- 0.5 ATR: +1.13 / +0.02
+
+Big gains on learn, collapses on check: the overfitting pattern again. Rejected.
+
+**Kept:** nothing.

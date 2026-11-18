@@ -93,6 +93,7 @@ class Params:
     skip_days: tuple = ()       # weekdays (server time, 0 = Monday) on which no new setups are taken
     sweep_in_zone: bool = False # the sweep's extreme must stay inside the zone (a wick into it, not through it)
     enter_on_close: bool = False  # enter at the confirmation candle's close instead of waiting for a pullback
+    cluster_atr: float = 0.0  # target only "equal highs/lows": another untaken level within this many higher-chart ATRs
 
     def label(self) -> str:
         bits = [f"rr>={self.min_rr:g}"]
@@ -107,6 +108,8 @@ class Params:
             bits.append("buy cheap / sell dear")
         if self.trail_swings:
             bits.append("trail to swings" + (f" after {self.trail_after_r:g}R" if self.trail_after_r else ""))
+        if self.cluster_atr:
+            bits.append(f"equal-level targets ({self.cluster_atr:g} ATR)")
         if self.sweep_in_zone:
             bits.append("sweep inside zone")
         if self.enter_on_close:
@@ -300,6 +303,7 @@ class Engine:
                         h_trend = 1
                     elif h_last["L"] and hc[hb] < h_last["L"][1]:
                         h_trend = -1
+                self._h_atr = float(H.atr[hb])
                 while hi_ < len(hev) and hev[hi_][0] <= H.close_t[hb]:
                     _, kind, bar, price = hev[hi_]
                     h_last[kind] = (bar, price)
@@ -428,6 +432,9 @@ class Engine:
             rr = p.fixed_r
         else:
             ahead = [x for x in liq if (x - c_[j]) * side > 0]
+            if p.cluster_atr:
+                tol = p.cluster_atr * getattr(self, "_h_atr", 0.0)
+                ahead = [x for x in ahead if sum(abs(y - x) <= tol for y in liq) >= 2]
             if not ahead:
                 return None
             target = min(ahead) if side == 1 else max(ahead)
