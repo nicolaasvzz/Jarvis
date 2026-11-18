@@ -564,3 +564,20 @@ Better on check, worse on learn. Rejected.
 **Kept:** nothing.
 
 **Learned:** most of the setups that work come from **deep** sweeps. Half of swing's trades sweep more than 2 ATRs past the level. The idea of a neat little wick is wrong for this setup: the big stop-runs are the ones that reverse.
+
+## Round 23: 13:09
+
+**Idea (a new engine rule, following round 22): require a deep sweep.** If deep stop-runs are the ones that reverse, demand that the sweep runs at least N ATRs past the level.
+
+**Tried, swing** (champion: learn t +1.02, check +1.66):
+- At least 1 ATR: +0.86 / +1.54 (forex +0.166, but metals −0.162)
+- At least 2 ATR: +0.53 / +0.93
+- At least 3 ATR: +1.19 / −0.18
+
+**Tried, intraday** (champion: +0.28 / +0.96):
+- At least 1 ATR: +0.05 / +0.60
+- At least 2 ATR: +1.12 / +0.47
+
+**Kept:** nothing.
+
+**Learned:** deep sweeps aren't better on their own. Shallow-only (round 22) and deep-only both lose to taking every sweep. Sweep depth isn't where the edge is. The strong break after the sweep is.

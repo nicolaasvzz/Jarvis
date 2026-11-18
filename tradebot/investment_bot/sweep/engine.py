@@ -99,6 +99,7 @@ class Params:
     ma_filter: int = 0        # buy only when the higher chart closed above its N-candle average (sell below); 0 = off
     break_past_atr: float = 0.0  # the confirmation must close at least this many ATRs past the swing it breaks
     sweep_max_atr: float = 0.0   # the sweep may run at most this many ATRs past the level it takes (0 = any)
+    sweep_min_atr: float = 0.0   # the sweep must run at least this many ATRs past the level it takes
 
     def label(self) -> str:
         bits = [f"rr>={self.min_rr:g}"]
@@ -113,6 +114,8 @@ class Params:
             bits.append("buy cheap / sell dear")
         if self.trail_swings:
             bits.append("trail to swings" + (f" after {self.trail_after_r:g}R" if self.trail_after_r else ""))
+        if self.sweep_min_atr:
+            bits.append(f"sweep at least {self.sweep_min_atr:g} ATR deep")
         if self.sweep_max_atr:
             bits.append(f"sweep at most {self.sweep_max_atr:g} ATR deep")
         if self.break_past_atr:
@@ -421,6 +424,8 @@ class Engine:
                 if p.break_body_atr and (c_[j] - o_[j]) * side < p.break_body_atr * L.atr[j]:
                     continue
                 if p.break_past_atr and (c_[j] - a["ref"]) * side < p.break_past_atr * L.atr[j]:
+                    continue
+                if p.sweep_min_atr and (a["liq"] is None or (a["liq"] - a["ext"]) * side < p.sweep_min_atr * L.atr[j]):
                     continue
                 if p.sweep_max_atr and a["liq"] is not None and (a["liq"] - a["ext"]) * side > p.sweep_max_atr * L.atr[j]:
                     continue
