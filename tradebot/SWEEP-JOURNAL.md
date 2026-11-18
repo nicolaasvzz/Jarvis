@@ -731,3 +731,33 @@ The gap is about 10x. Rule tweaks on swing can't close it, and swing is frozen a
 - Each new family is developed on the **first 70% of time on all 45 markets** (learn = first 40%, check = next 30%). The **last 30% of time on all 45 markets** is locked for that family, and gets **one** look, when it's ready.
 - A change is kept only if it's better on both learn and check, and doesn't get worse in 2 of the 3 groups.
 - Every round is written here, including what failed.
+
+## Part 4 round 1: 19:57
+
+**Idea:** daily trend following across all 45 markets (`sweep/trend.py`). Buy a close above the last N days' high and short a close below the last N days' low. Hold until a close through the last M days' low (or high), with a hard stop 3 ATR away. One position per market. Decisions are made on the close and filled at the next open. Costs: the candle's real spread or 1bp, whichever is bigger, per side; a quarter of that again on stops; **2% a year financing** while holding. Every trade is marked to market daily, so the portfolio's worst drop is the real one. Tests: no-peek, each daily path adds up to the trade's result, costs only hurt, risk sized to the drop cap.
+
+**Split:** calendar time from 2000-01-01. Learn runs to mid-2010, check to late 2018, and late 2018 to now is locked. Daily data for indices only starts in 2012 (the rest in 2019–22), so learn has **no indices**.
+
+**Tried** (risk set so the worst drop is 25%):
+
+| Version | Part | Trades/yr | Avg R | t | PF | Yearly at 25% drop |
+|---|---|---|---|---|---|---|
+| 50/20 (classic) | learn | 88 | −0.132 | −2.20 | 0.77 | −2.0% |
+| | check | 142 | −0.169 | −3.49 | 0.69 | −3.4% |
+| 20/10 (fast) | learn | 171 | −0.099 | −3.41 | 0.76 | −2.2% |
+| | check | 270 | −0.098 | −3.30 | 0.77 | −3.3% |
+| 100/50 (slow) | learn | 47 | −0.178 | −2.05 | 0.75 | −1.5% |
+| | check | 77 | −0.256 | −2.65 | 0.67 | −3.3% |
+
+**Where the loss comes from** (50/20, avg R, learn / check):
+- as tested: −0.132 / −0.169
+- without spread: −0.097 / −0.161
+- also without financing: +0.016 / −0.055
+- with no costs at all: +0.024 / −0.047
+
+**Verdict: rejected.** Even with zero costs there is no edge here. Financing alone costs about 0.11R a trade, because trades last weeks. Trend following made its name on diversified futures (bonds, commodities, rates), and those are almost absent from this broker's list. On currency pairs and a few metals since 2000, breakouts don't pay.
+
+**What it teaches for the next rounds:**
+1. Any multi-week hold has to earn more than about 2% a year of its position size just to cover financing. That rules out slow, low-edge ideas.
+2. A 12-month time-series momentum version (monthly rebalanced, volatility-scaled) is the last trend idea worth one round. If it's flat too, the trend family is closed.
+3. Index ideas (mean reversion) can't be judged on learn, since indices have no data before 2012. They'll need their own split: learn 2012–2016, check 2016–2019, locked 2019 onward.
