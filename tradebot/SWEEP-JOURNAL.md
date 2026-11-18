@@ -546,3 +546,21 @@ All better on learn and worse on check. Rejected.
 Better on check, worse on learn. Rejected.
 
 **Kept:** nothing. Each profile improves on a different half here, which is what noise looks like.
+
+## Round 22: 12:54
+
+**Idea (a new engine rule): a shallow sweep only.** A stop-run should poke just past the level and snap back. A sweep that runs 2+ ATRs past it may be a real breakdown, not a grab. So limit how deep the sweep may go.
+
+**Tried, swing** (champion: learn t +1.02, check +1.66):
+- At most 0.5 ATR deep: −0.84 / +1.29 (only 44 and 35 trades)
+- At most 1 ATR deep: −0.22 / +0.76
+- At most 2 ATR deep: +0.53 / +1.08
+
+**Tried, intraday** (champion: +0.28 / +0.96):
+- At most 0.5 ATR deep: +0.13 / +1.50 (8 and 13 trades)
+- At most 1 ATR deep: +0.32 / +0.54
+- At most 2 ATR deep: −0.98 / +1.04
+
+**Kept:** nothing.
+
+**Learned:** most of the setups that work come from **deep** sweeps. Half of swing's trades sweep more than 2 ATRs past the level. The idea of a neat little wick is wrong for this setup: the big stop-runs are the ones that reverse.

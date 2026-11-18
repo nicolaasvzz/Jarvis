@@ -98,6 +98,7 @@ class Params:
     partial_at_zone: bool = False  # take the half at the first opposing zone (if 1R+ away) instead of partial_r
     ma_filter: int = 0        # buy only when the higher chart closed above its N-candle average (sell below); 0 = off
     break_past_atr: float = 0.0  # the confirmation must close at least this many ATRs past the swing it breaks
+    sweep_max_atr: float = 0.0   # the sweep may run at most this many ATRs past the level it takes (0 = any)
 
     def label(self) -> str:
         bits = [f"rr>={self.min_rr:g}"]
@@ -112,6 +113,8 @@ class Params:
             bits.append("buy cheap / sell dear")
         if self.trail_swings:
             bits.append("trail to swings" + (f" after {self.trail_after_r:g}R" if self.trail_after_r else ""))
+        if self.sweep_max_atr:
+            bits.append(f"sweep at most {self.sweep_max_atr:g} ATR deep")
         if self.break_past_atr:
             bits.append(f"close {self.break_past_atr:g} ATR past the swing")
         if self.ma_filter:
@@ -418,6 +421,8 @@ class Engine:
                 if p.break_body_atr and (c_[j] - o_[j]) * side < p.break_body_atr * L.atr[j]:
                     continue
                 if p.break_past_atr and (c_[j] - a["ref"]) * side < p.break_past_atr * L.atr[j]:
+                    continue
+                if p.sweep_max_atr and a["liq"] is not None and (a["liq"] - a["ext"]) * side > p.sweep_max_atr * L.atr[j]:
                     continue
                 if p.max_vol_ratio and vol_ratio[j] > p.max_vol_ratio:
                     continue
