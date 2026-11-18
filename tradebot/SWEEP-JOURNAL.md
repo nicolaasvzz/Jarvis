@@ -1025,3 +1025,22 @@ The gap is about 10x. Rule tweaks on swing can't close it, and swing is frozen a
 - On this broker's 45 markets since 2000, after real costs, **no active trading rule tried here beats simply holding**, and **holding a diversified pair made about 6–7% a year at a 25% drop** in neutral years.
 - Reaching 18% a year in dollars at a 25% drop needed a boom (2022–26) on top of that.
 - **Next rounds:** few untried ideas remain that this data can test fairly. The rounds continue until 08:00, as agreed.
+
+## Part 4 round 14: 23:12
+
+**Idea:** a timeframe not yet tried, **intraday snap-backs in US indices** (`sweep/snap.py`). During the cash session (signal candles 16:00–21:00 server time), when one hourly candle falls by more than 2 typical hourly moves (the standard deviation of the last 100), buy at the next open and sell 3 candles later. It's never held overnight, so there's **no financing**, the cost that sank the multi-day ideas. Long only. One trade per market at a time. Costs are the spread or 1bp per side. Markets: US500, US30, US2000, USTEC. Tests: it signals only inside the session, holds exactly 3 hours, finds a planted bounce, no-peek. The split is the index split. (The learn part's hourly data effectively starts in 2015, as noted in round 8.)
+
+| Version | Part | Trades | Avg a trade | PF | t (daily) | Yearly at 25% drop |
+|---|---|---|---|---|---|---|
+| 2 sd, hold 3h | learn | 560 | −0.040% | 0.76 | −1.34 | −3.8% |
+| | check | 1160 | −0.058% | 0.79 | −2.00 | −5.6% |
+| 3 sd, hold 3h | learn | 238 | −0.089% | 0.54 | −1.85 | −4.6% |
+| | check | 481 | +0.001% | 1.00 | +0.02 | −0.5% |
+| 2 sd, hold 1h | learn | 660 | −0.044% | 0.66 | −2.33 | −3.8% |
+| | check | 1357 | −0.030% | 0.84 | −1.63 | −5.6% |
+| 2 sd, 3h, **no costs** (diagnostic) | learn | 560 | −0.025% | 0.84 | −0.86 | −3.1% |
+| | check | 1160 | −0.053% | 0.80 | −1.83 | −5.5% |
+
+**Verdict: rejected.** It loses even with no costs. Big hourly drops in US indices **keep going** for the next few hours rather than bouncing (t −1.83 on check without costs). That's the opposite of the daily picture in round 3, where dips bounced over days in 2012–18.
+
+**Next:** that suggests the mirror, **intraday momentum** (follow a big hourly move for a few hours, both ways). Honest caveat: the idea comes from this round's check numbers. Its check result will therefore be partly hindsight, and only learn plus a locked look can judge it.
