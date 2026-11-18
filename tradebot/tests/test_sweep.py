@@ -147,3 +147,31 @@ def test_jarvis_status_shows_the_sweep_setup(tmp_path, monkeypatch):
     assert out["Sweep swing"].startswith("not proven")
     assert out["Sweep backtest"][0]["Test trades"] == 50
     assert len(out["MT5 equity curve"]) == 2
+
+
+def test_unproven_demo_trades_the_tuned_version(tmp_path, monkeypatch):
+    """Forward-testing an unproven profile uses the workbench's version, not the defaults."""
+    import json
+    from types import SimpleNamespace
+
+    from investment_bot.sweep import trader as tr
+    from investment_bot.sweep.engine import DEFAULT
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "sweep_champions.json").write_text(
+        json.dumps({"swing": {"break_body_atr": 1.2, "htf_sweep_bars": 20}}), encoding="utf-8")
+    fake = SimpleNamespace(ACCOUNT_TRADE_MODE_DEMO=0,
+                           account_info=lambda: SimpleNamespace(trade_mode=0))
+    monkeypatch.setattr(tr.data, "connect", lambda: fake)
+    t = tr.SweepTrader(tr.TraderConfig(also_unproven=True, profiles=("swing", "intraday")),
+                       say=lambda _: None)
+    plans = t.plans()
+    assert plans["swing"].break_body_atr == 1.2 and plans["swing"].htf_sweep_bars == 20
+    assert plans["intraday"] == DEFAULT   # no tuned version saved: the defaults
+
+    fake.account_info = lambda: SimpleNamespace(trade_mode=2)   # a real-money account
+    try:
+        t.plans()
+        raise AssertionError("unproven profiles must not trade a real account")
+    except RuntimeError:
+        pass
