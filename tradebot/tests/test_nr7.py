@@ -34,3 +34,17 @@ def test_no_peeking_at_the_future():
         part = run("TEST", df.iloc[:k].reset_index(drop=True), NRParams(), 0.01)
         last = int(df["time"].iat[k - 1])
         assert part == [x for x in full if x["exit_time"] < last]
+
+
+def test_hourly_candles_decide_which_side_came_first():
+    from investment_bot.sweep.nr7 import first_touch
+    day = 946684800
+    h1 = pd.DataFrame({"time": day + np.arange(24) * 3600, "high": [100.5] * 24, "low": [99.5] * 24})
+    h1.loc[3, "high"] = 101.2           # the high is broken first (03:00) ...
+    h1.loc[10, "low"] = 98.8            # ... and the low later the same day
+    assert first_touch(h1, day, 101.0, 99.0) == (1, True)
+    h1.loc[10, "low"] = 99.5            # no later low: filled long, not stopped that day
+    assert first_touch(h1, day, 101.0, 99.0) == (1, False)
+    h1.loc[3, "low"] = 98.8             # one hourly candle touches both: can't tell
+    assert first_touch(h1, day, 101.0, 99.0) is None
+    assert first_touch(None, day, 101.0, 99.0) is None

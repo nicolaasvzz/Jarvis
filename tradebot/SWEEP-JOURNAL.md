@@ -1131,3 +1131,20 @@ The gap is about 10x. Rule tweaks on swing can't close it, and swing is frozen a
 **Why this result can't be trusted either way:** with no costs over learn + check, **26% of the 15,466 trades are stopped on their entry day** (−1.01R each). The other 74% average **+0.35R**. Many entry-day stops are days that touched both sides, which I booked as losses because daily candles can't tell which came first. With a stop only one quiet day's range away, that assumption alone could turn a winner into a loser.
 
 **Verdict: undecided, not kept.** Next round resolves the order of each touch-both-sides day from **hourly candles** (which side was hit first). That's a correctness fix to the simulation, not tuning: the rule stays exactly the same.
+
+## Part 4 round 20: 00:42
+
+**Idea:** settle round 19. On each day that touched both breakout levels, use **hourly candles** to see which side was hit first and whether the stop followed the same day (`nr7.first_touch`). The rule is unchanged. If one hourly candle touched both, or there's no hourly data, it stays worst-case. Test: the high broken first then the low means filled long and stopped; no later low means not stopped; one candle touching both means can't tell.
+
+**What the hourly candles showed** (both-sides days, learn + check):
+
+| Outcome | Days |
+|---|---|
+| confirmed stopped the same day | 1,962 |
+| one hourly candle touched both (can't tell) | 162 |
+| no hourly data (mostly 2000–2010) | 1,974 |
+| **filled and NOT stopped** | **0** |
+
+**My mistake in round 19:** a day that touches both levels **always** stops the trade, whichever side fills first, because the second touch *is* the stop. The worst-case booking was simply correct, and the hourly data confirms it in every checkable case. Results are unchanged (NR7 hold 2d: learn −0.267R, t −9.42; check −0.113R, t −3.86; without costs still −0.246 / −0.073).
+
+**Verdict: rejected.** With a stop just one quiet day's range away, about a quarter of breakouts reverse through the stop on day one. The +0.35R of the other trades doesn't cover that. (The hourly resolver stays in the code; it makes the simulation exact where hourly data exists.)
