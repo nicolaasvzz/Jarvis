@@ -96,6 +96,14 @@ class Params:
     cluster_atr: float = 0.0  # target only "equal highs/lows": another untaken level within this many higher-chart ATRs
     zone_touches: int = 1     # how many separate visits a zone gets (price must leave it in between)
     partial_at_zone: bool = False  # take the half at the first opposing zone (if 1R+ away) instead of partial_r
+    ma_filter: int = 0        # buy only when the higher chart closed above its N-candle average (sell below); 0 = off
+    break_past_atr: float = 0.0  # the confirmation must close at least this many ATRs past the swing it breaks
+    sweep_max_atr: float = 0.0   # the sweep may run at most this many ATRs past the level it takes (0 = any)
+    sweep_min_atr: float = 0.0   # the sweep must run at least this many ATRs past the level it takes
+    break_vol: float = 0.0       # the confirmation candle's tick volume must be this many times its 20-candle average
+    turn_bars: int = 0           # the break must come within this many lower-chart candles of the sweep's extreme (0 = any)
+    break_close_pos: float = 0.0 # the break candle must close in the top (bottom) share of its range, e.g. 0.75
+    htf_sweep_bars: int = 0      # a long needs a higher-chart low taken within this many higher-chart candles (a short, a high)
 
     def label(self) -> str:
         bits = [f"rr>={self.min_rr:g}"]
@@ -110,6 +118,22 @@ class Params:
             bits.append("buy cheap / sell dear")
         if self.trail_swings:
             bits.append("trail to swings" + (f" after {self.trail_after_r:g}R" if self.trail_after_r else ""))
+        if self.htf_sweep_bars:
+            bits.append(f"higher-chart sweep within {self.htf_sweep_bars}")
+        if self.break_close_pos:
+            bits.append(f"break closes near its extreme ({self.break_close_pos:g})")
+        if self.turn_bars:
+            bits.append(f"turn within {self.turn_bars} candles")
+        if self.break_vol:
+            bits.append(f"break on {self.break_vol:g}x volume")
+        if self.sweep_min_atr:
+            bits.append(f"sweep at least {self.sweep_min_atr:g} ATR deep")
+        if self.sweep_max_atr:
+            bits.append(f"sweep at most {self.sweep_max_atr:g} ATR deep")
+        if self.break_past_atr:
+            bits.append(f"close {self.break_past_atr:g} ATR past the swing")
+        if self.ma_filter:
+            bits.append(f"higher-chart {self.ma_filter} average agrees")
         if self.partial_at_zone:
             bits.append("half at opposing zone")
         if self.zone_touches > 1:
@@ -271,9 +295,16 @@ class Engine:
             avg = pd.Series(L.atr).rolling(200, min_periods=50).mean().to_numpy()
             vol_ratio = np.where(avg > 0, L.atr / np.where(avg > 0, avg, 1), 1.0)
         hours = (p.hour_from, p.hour_to) != (0, 24)
+        last_sweep = {1: -10**12, -1: -10**12}   # when a higher-chart low (1) / high (-1) was last taken
+        htf_secs = TF_SECONDS[pf.htf]
+        if p.break_vol and "tick_volume" in L.df:
+            tv = L.df["tick_volume"].to_numpy().astype(float)
+            tv_avg = pd.Series(tv).shift(1).rolling(20, min_periods=10).mean().to_numpy()
         M, H = self.m, self.h
         mo, mh, ml, mc = (M.df[k].to_numpy() for k in ("open", "high", "low", "close"))
         hh, hl, hc = (H.df[k].to_numpy() for k in ("high", "low", "close"))
+        h_ma = (pd.Series(hc).rolling(p.ma_filter, min_periods=p.ma_filter).mean().to_numpy()
+                if p.ma_filter else None)
 
         # structure state
         liq_hi: list[float] = []   # higher-chart highs not yet taken
@@ -303,8 +334,10 @@ class Engine:
             while hb < len(hc) and H.close_t[hb] <= T:
                 if liq_hi and hh[hb] >= min(liq_hi):
                     liq_hi = [x for x in liq_hi if x > hh[hb]]
+                    last_sweep[-1] = int(H.close_t[hb])
                 if liq_lo and hl[hb] <= max(liq_lo):
                     liq_lo = [x for x in liq_lo if x < hl[hb]]
+                    last_sweep[1] = int(H.close_t[hb])
                 if p.htf_filter:
                     if h_last["H"] and hc[hb] > h_last["H"][1]:
                         h_trend = 1
@@ -339,8 +372,10 @@ class Engine:
             # liquidity this bar ran through is gone
             if liq_hi and h_[j] >= min(liq_hi):
                 liq_hi = [x for x in liq_hi if x > h_[j]]
+                last_sweep[-1] = T
             if liq_lo and l_[j] <= max(liq_lo):
                 liq_lo = [x for x in liq_lo if x < l_[j]]
+                last_sweep[1] = T
             # zones price closed through are dead
             for z in zones:
                 if (z["side"] == 1 and c_[j] < z["lo"]) or (z["side"] == -1 and c_[j] > z["hi"]):
@@ -409,12 +444,33 @@ class Engine:
                     continue
                 if p.break_body_atr and (c_[j] - o_[j]) * side < p.break_body_atr * L.atr[j]:
                     continue
+                if p.break_past_atr and (c_[j] - a["ref"]) * side < p.break_past_atr * L.atr[j]:
+                    continue
+                if p.turn_bars and j - a["ext_i"] > p.turn_bars:
+                    continue
+                if p.htf_sweep_bars and T - last_sweep[side] > p.htf_sweep_bars * htf_secs:
+                    continue
+                if p.break_close_pos:
+                    rng = h_[j] - l_[j]
+                    pos_ = ((c_[j] - l_[j]) if side == 1 else (h_[j] - c_[j])) / rng if rng > 0 else 0.0
+                    if pos_ < p.break_close_pos:
+                        continue
+                if p.break_vol and "tick_volume" in L.df and not (tv_avg[j] > 0 and tv[j] >= p.break_vol * tv_avg[j]):
+                    continue
+                if p.sweep_min_atr and (a["liq"] is None or (a["liq"] - a["ext"]) * side < p.sweep_min_atr * L.atr[j]):
+                    continue
+                if p.sweep_max_atr and a["liq"] is not None and (a["liq"] - a["ext"]) * side > p.sweep_max_atr * L.atr[j]:
+                    continue
                 if p.max_vol_ratio and vol_ratio[j] > p.max_vol_ratio:
                     continue
                 if p.sweep_in_zone and (a["ext"] - (a["zone"]["lo"] if side == 1 else a["zone"]["hi"])) * side < 0:
                     continue
                 if p.skip_days and (T // 86400 + 3) % 7 in p.skip_days:
                     continue
+                if h_ma is not None:
+                    k = hb - 1   # the last higher-chart candle closed by now
+                    if k < 0 or np.isnan(h_ma[k]) or (hc[k] - h_ma[k]) * side <= 0:
+                        continue
                 if p.discount and h_last["H"] and h_last["L"]:
                     mid = (h_last["H"][1] + h_last["L"][1]) / 2
                     if (c_[j] - mid) * side > 0:

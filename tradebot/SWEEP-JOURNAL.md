@@ -457,3 +457,243 @@ This is the **second look** at the locked 20%, so it's weaker evidence than the 
 - Swing didn't change, because none of the 10 new rules passed for it.
 
 **Verdict after both parts (17 rounds, about 20 new rules):** the sweep setup has no edge that survives unseen data on these 21 markets. The method did its job twice: it refused to call anything proven. The bot stays parked, with no real money.
+
+---
+
+# Part 3: Wed 18 Nov, 12:00 → 16:00 (15-minute rounds)
+
+**A new final test.** The locked 20% has been looked at twice, so a third look would mean little. The final test at 15:40 runs instead on **24 fresh markets never used for any decision**, over their whole history: 16 more forex crosses, 6 more indices, platinum and palladium (`data.FRESH`, `sweep-fresh`). Tuning stays on the original 21 markets' learn and check parts, with the same strict keep rule.
+
+## Round 18: 12:00
+
+**Idea (a new engine rule): a moving-average trend filter.** Buy only when the higher chart's last close is above its 50- or 200-candle average, and sell only below it. It's a far simpler trend read than swing structure, which hurt swing as a filter in round 2.
+
+**Tried, swing** (champion: learn t +1.02, check +1.66):
+- 50 average: −0.42 / +1.05
+- 200 average: +0.38 / +0.86
+
+Both worse, with about half the trades.
+
+**Tried, intraday** (champion: +0.17 / +0.90):
+- 50 average: −0.30 / +0.16
+- 200 average: −1.14 / +0.40
+
+Both worse.
+
+**Kept:** nothing. The setup does better taking trades against the bigger trend than filtering them out. That fits the first video: trade toward the obvious liquidity even when the higher chart is bearish.
+
+## Round 19: 12:09 (what does each kept rule really do?)
+
+**Idea:** take each of swing's kept rules out, one at a time (an ablation). If removing a rule changes nothing, it was probably noise. If removing it hurts a lot, it's carrying the version.
+
+| Swing without… | Learn t | Check t | Check avg R |
+|---|---|---|---|
+| (champion) | +1.02 | +1.66 | +0.149 |
+| **strong break** | +0.17 | **−0.27** | −0.015 |
+| bigger swing size (ltf 3) | +0.82 | +0.92 | +0.073 |
+| bigger zone swings (mtf 5) | +0.22 | +1.00 | +0.099 |
+| target swings 4 | +0.34 | +1.40 | +0.134 |
+| min 3.5R | +0.52 | +1.24 | +0.107 |
+| 4R cap | +0.94 | +1.10 | +0.103 |
+| half at 1.5R (back to 2R) | +0.98 | +1.47 | +0.156 |
+| hold 2x | +0.99 | +1.73 | +0.157 |
+
+**What it shows:**
+- The **strong-break rule carries the whole version.** Without it, swing is back below zero.
+- The structure swings and the 3.5R minimum each add a real slice.
+- "Hold 2x" and "half at 1.5R" are about neutral. They were marginal keeps and are probably noise. Under the rule they stay, since removing them isn't better on both parts, but they shouldn't be counted as findings.
+
+**Kept:** nothing changed.
+
+## Round 20: 12:24 (intraday ablation)
+
+**Idea:** the same take-each-rule-out test for intraday, where I trust the small filters least.
+
+| Intraday without… | Learn t | Check t | Check avg R | Groups (forex / metals / indices) |
+|---|---|---|---|---|
+| (champion) | +0.17 | +0.90 | +0.233 | +0.187 / +1.230 / −0.159 |
+| no-Fridays | +0.06 | +0.51 | +0.110 | |
+| volatility filter | +0.16 | +1.03 | +0.259 | |
+| both filters | −0.04 | +0.48 | +0.102 | |
+| zones 1.6 | +0.43 | +0.12 | +0.019 | |
+| **bigger swing size (back to 2)** | **+0.28** | **+0.96** | +0.217 | +0.204 / +1.004 / −0.081 |
+| **strong break** | −1.08 | −1.14 | −0.150 | |
+| higher chart agrees | −0.55 | −0.42 | −0.079 | |
+
+**What it shows:**
+- The strong break again carries the version: without it, intraday is clearly negative, the same as swing.
+- The higher-chart-agrees filter is real for intraday.
+- **Dropping the bigger swing size** is better on both parts and in 2 of 3 groups (metals down). **Kept.** The version is simpler and takes more trades (68 and 93).
+- The volatility filter is about neutral (learn 0.17→0.16 without it). It stays by the rule, but it isn't a finding.
+
+**Champion now:** intraday = higher chart agrees, strong break 1.2, zones 1.6, skip volatility over 1.5x, no Fridays.
+
+## Round 21: 12:39
+
+**Idea (a new engine rule): a real break, measured differently.** The strong-break rule looks at the candle's body. A break can also be measured by how far the close lands past the swing it breaks (N ATRs), which is closer to "price really left the level". Tried alone and paired with a looser body rule.
+
+**Tried, swing** (champion: learn t +1.02, check +1.66):
+- Close 0.3 ATR past: +0.78 / +0.91
+- Close 0.6 ATR past: **+1.33** / +0.99
+- Close 0.6 ATR past, body 0.8: **+1.57** / +1.17
+
+All better on learn and worse on check. Rejected.
+
+**Tried, intraday** (champion: +0.28 / +0.96):
+- Close 0.3 ATR past: −0.20 / **+1.43**, all three groups better
+- Close 0.6 ATR past: −0.14 / +1.28
+
+Better on check, worse on learn. Rejected.
+
+**Kept:** nothing. Each profile improves on a different half here, which is what noise looks like.
+
+## Round 22: 12:54
+
+**Idea (a new engine rule): a shallow sweep only.** A stop-run should poke just past the level and snap back. A sweep that runs 2+ ATRs past it may be a real breakdown, not a grab. So limit how deep the sweep may go.
+
+**Tried, swing** (champion: learn t +1.02, check +1.66):
+- At most 0.5 ATR deep: −0.84 / +1.29 (only 44 and 35 trades)
+- At most 1 ATR deep: −0.22 / +0.76
+- At most 2 ATR deep: +0.53 / +1.08
+
+**Tried, intraday** (champion: +0.28 / +0.96):
+- At most 0.5 ATR deep: +0.13 / +1.50 (8 and 13 trades)
+- At most 1 ATR deep: +0.32 / +0.54
+- At most 2 ATR deep: −0.98 / +1.04
+
+**Kept:** nothing.
+
+**Learned:** most of the setups that work come from **deep** sweeps. Half of swing's trades sweep more than 2 ATRs past the level. The idea of a neat little wick is wrong for this setup: the big stop-runs are the ones that reverse.
+
+## Round 23: 13:09
+
+**Idea (a new engine rule, following round 22): require a deep sweep.** If deep stop-runs are the ones that reverse, demand that the sweep runs at least N ATRs past the level.
+
+**Tried, swing** (champion: learn t +1.02, check +1.66):
+- At least 1 ATR: +0.86 / +1.54 (forex +0.166, but metals −0.162)
+- At least 2 ATR: +0.53 / +0.93
+- At least 3 ATR: +1.19 / −0.18
+
+**Tried, intraday** (champion: +0.28 / +0.96):
+- At least 1 ATR: +0.05 / +0.60
+- At least 2 ATR: +1.12 / +0.47
+
+**Kept:** nothing.
+
+**Learned:** deep sweeps aren't better on their own. Shallow-only (round 22) and deep-only both lose to taking every sweep. Sweep depth isn't where the edge is. The strong break after the sweep is.
+
+## Round 24: 13:24 (finished 14:23: the machine was asleep or stalled for about an hour)
+
+**Idea (a new engine rule): volume on the break.** A real break should come with a burst of activity. The confirmation candle's tick volume must be at least N times its 20-candle average. (MT5 forex volume is tick count, not traded size, but it still rises with activity.)
+
+**Tried, swing** (champion: learn t +1.02, check +1.66):
+- 1.2x volume: +0.92 / +0.71
+- 1.5x volume: +0.23 / +1.08
+- 2x volume: +0.96 / +1.10
+
+All worse on both parts.
+
+**Tried, intraday** (champion: +0.28 / +0.96):
+- 1.2x volume: +0.49 / −0.52
+- 1.5x volume: +0.92 / −0.70
+
+Better on learn, collapses on check.
+
+**Kept:** nothing. Tick volume adds nothing beyond the strong-break body rule.
+
+## Round 25: 14:26
+
+**Idea (a new engine rule): a fast turn.** A real stop-run reverses quickly. If the break comes long after the sweep's extreme, the sweep was more likely a slow grind lower. So the break must come within N lower-chart candles of the extreme.
+
+**Tried, swing** (champion: learn t +1.02, check +1.66):
+- Within 6: +1.02 / +1.20 (avg up, but only 114 and 92 trades)
+- Within 12: +0.50 / +1.39
+- Within 24: +0.72 / **+1.85**
+
+None better on both. Rejected.
+
+**Tried, intraday** (champion: +0.28 / +0.96):
+- Within 8: +1.08 / +0.62
+- Within 16 (4 hours): **+0.64 / +1.23** (avg +0.166R and +0.319R); forex +0.432, metals +1.230, indices −0.344. Better in 2 groups and worse in 1. **Kept.** Note: indices got clearly worse.
+
+**Champion now:** intraday = higher chart agrees, strong break 1.2, zones 1.6, skip volatility over 1.5x, no Fridays, turn within 16 candles.
+
+## Round 26: 14:39
+
+**Idea (a new engine rule): the break candle closes near its extreme.** A strong break closes near its high (for a long) rather than leaving a long upper wick, so require the close to sit in the top 30% or top 20% of the candle's range.
+
+**Tried, swing** (champion: learn t +1.02, check +1.66):
+- Top 30%: +0.85 / +1.25
+- Top 20%: 0.00 / +0.66
+
+**Tried, intraday** (champion: +0.64 / +1.23):
+- Top 30%: +0.21 / +0.86
+- Top 20%: +0.31 / +0.84
+
+**Kept:** nothing. All worse on both parts. A big body is what matters (round 3). Where the candle closes within its range adds nothing.
+
+## Round 27: 14:54
+
+**Ideas:**
+- Swing: a looser fast-turn rule (36 or 48 candles), since 24 helped check but not learn in round 25.
+- Intraday: now that the fast-turn rule is in, are the Friday and volatility filters still needed? A simpler version would be preferable.
+
+**Tried, swing** (champion: learn t +1.02, check +1.66):
+- Within 36: +0.89 / +1.76. Rejected.
+- Within 48: identical to the champion (no setup takes longer).
+
+**Tried, intraday** (champion: +0.64 / +1.23):
+
+| Intraday without… | Learn t | Check t |
+|---|---|---|
+| no-Fridays | +0.16 | +0.86 |
+| volatility filter | +0.56 | +1.29 |
+| both filters | +0.01 | +0.76 |
+
+The Friday filter still holds its weight on this data. The volatility filter is close to neutral (slightly better on check, slightly worse on learn), so under the rule it stays.
+
+**Kept:** nothing.
+
+## Round 28: 15:09
+
+**Idea (a new engine rule, from the second video): a higher-chart sweep too.** In the video the trade came right after the all-time high was taken, a stop-run on the big chart. So a long needs a higher-chart low (a daily low, for swing) to have been taken within the last N higher-chart candles. A short needs a high.
+
+**Tried, swing** (champion: learn t +1.02, check +1.66):
+- Within 3 candles: 1 and 2 trades. Far too strict.
+- Within 10 daily candles: learn **+1.28**, check +1.29.
+  - Average per trade nearly doubled: **+0.224R and +0.287R**, win 48% and 51%, positive in all three groups (forex +0.219, metals +0.308, indices +0.391).
+  - But only 71 and 45 trades, so check t is lower than the champion's. Rejected by the rule.
+
+**Tried, intraday** (champion: +0.64 / +1.23): within 3 gave 0 and 1 trades, and within 10 gave 11 and 10 trades. Too few to judge.
+
+**Kept:** nothing. Swing with a recent daily sweep is the highest-quality subset found all day (about +0.25R a trade, positive everywhere). It's also too rare to prove anything: about 1 trade a month across 21 markets. Worth remembering if more markets are ever added.
+
+## Round 29: 15:24
+
+**Idea:** round 28's higher-chart sweep was the best quality but too rare at 10 days. Widen the window so a recent daily stop-run counts within 20 or 40 daily candles (about 1 or 2 months).
+
+**Tried, swing** (champion: learn t +1.02, check +1.66; forex +0.051, metals +0.102, indices +0.433):
+- Within 20: learn **+1.34**, check **+2.18**; avg **+0.154R and +0.287R**, win 44% and 54%; forex +0.214, metals +0.505, indices +0.321. Better on both parts, and better in 2 groups with 1 worse. **Kept.**
+- Within 40: +1.36 / +1.67, but forex and indices both worse. Rejected.
+
+**Caveat:** I picked 20 out of four windows tried (3, 10, 20, 40). That's a small search, but a search. The fresh-market test at 15:40 is the judge.
+
+**Champion now:** swing = min 3.5R, max 4R, half at 1.5R, strong break 1.2, swings 3/5/4, hold 2x, and a daily low (or high) taken within the last 20 days.
+
+## FINAL, part 3: 24 fresh markets, 15:39
+
+The champions tested once on 24 markets never used for any decision (16 forex crosses, 6 indices, platinum and palladium), over their whole history:
+
+| Profile | Trades | Win | Avg R | t | Quarters (sum R) | By group | Verdict |
+|---|---|---|---|---|---|---|---|
+| **swing** | 325 | 43.1% | **+0.084** | +1.05 | **+6.8, +3.8, +2.4, +14.4** | forex +0.096, metals −0.078, indices +0.086 | not proven (t under 1.65; PF 1.14, needs 1.2) |
+| intraday | 153 | 20.3% | −0.463 | −3.77 | +3.6, −4.2, −32.1, −38.2 | all negative | not proven |
+
+**What it means:**
+- **Swing is positive on markets it has never seen, in all four quarters.** That's the first out-of-sample result of the whole project that points the right way. It's still too weak to call proven: +0.08R a trade with t 1.05 could be luck, and the profit factor is 1.14.
+- About **+0.08R a trade at 1% risk is roughly +0.1% per trade** before any slippage beyond the cost model. It's real money only at scale, and only if it holds.
+- **Intraday failed badly** on fresh markets (−0.46R). Its filters (Fridays, volatility, fast turn) were fitted to the original 21 markets. The intraday version should be dropped.
+
+**Recommendation:**
+- Forward-test **swing only** on the MT5 demo (`sweep-trade --profiles swing --also-unproven`). That's about 2–3 trades a week across the markets.
+- Revisit after 3 months, or about 30 trades. No real money until the live demo results match.
