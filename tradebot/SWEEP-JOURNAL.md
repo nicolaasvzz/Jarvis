@@ -310,3 +310,150 @@ The last 20% of each profile's history, never looked at during the night, tested
 - The intraday warning in iteration 9 (swing's recipe made intraday worse) was the tell.
 
 **Conclusion:** after an honest night of hand improvement, the sweep setup from the videos has no proven edge on 21 MT5 markets. It must not trade real money. The demo trader only trades proven profiles, so it will trade nothing unless forward-testing is switched on deliberately.
+
+---
+
+# Part 2: Wed 18 Nov, 07:50 → 11:30
+
+The user asked for more rounds. **What changes from last night:**
+- **A stricter keep rule.** A change must be better on both learn and check, **and** its check average must not get worse in 2 or more of the 3 market groups (forex, metals, indices). Last night's gains didn't hold, so this asks that a change be broad, not carried by one corner.
+- **The locked final 20% has been seen once** (04:50), so a second look at the end of this part is weaker evidence. A pass would justify a demo forward test, not real money.
+
+## Round 12: 07:55
+
+**Saw:** after the half comes off at 1.5R, the rest sits with its stop at the entry, so a trade that ran to +3R and reversed gives back everything on the second half. Separately, unusually volatile stretches seem to produce wild sweeps that don't respect zones.
+
+**Ideas (two new engine rules):**
+- **Trail to swings:** after the partial, the stop follows each new lower-chart swing low (or high for a short) once it's behind price.
+- **Skip high volatility:** no new setups while ATR is more than N times its 200-candle average.
+
+**Tried, swing** (champion: learn t +1.02, check +1.66, check by group: forex +0.051, metals +0.102, indices +0.433):
+- Trail to swings: learn +0.91 (worse), check **+1.97** (forex +0.090, metals +0.225, indices +0.338). Rejected: worse on learn. Close, though; this is the first rule that helped forex and metals on check together.
+- Skip vol > 2x: +1.01 / +1.61. Rejected.
+- Skip vol > 1.5x: +0.85 / +1.46. Rejected.
+
+**Tried, intraday** (champion: −0.04 / +0.48; forex +0.014, metals +0.839, indices −0.144):
+- Trail to swings: +0.07 / −0.10. Rejected.
+- Skip vol > 2x: no change (it almost never triggers).
+- Skip vol > 1.5x: **+0.06 / +0.51**; forex +0.025, metals unchanged, indices −0.132. Better in 2 of 3 groups and none worse. **Kept.** It's small.
+
+**Champions now:**
+- swing: unchanged
+- intraday: + skip vol > 1.5x
+
+## Round 13: 08:17
+
+**Saw:** trailing in round 12 helped swing on check but cost on learn. It probably trails too early and gets shaken out by normal pullbacks on the way to 4R.
+
+**Ideas (two new engine rules):**
+- **Trail only after N R:** start trailing once price has gone 2.5R or 3R our way.
+- **Skip a weekday:** no new setups on Fridays (weekend gaps, position squaring) or on Mondays (gap noise).
+
+**Tried, swing** (champion: learn t +1.02, check +1.66):
+- Trail after 2.5R: +0.96 / +1.65. Rejected.
+- Trail after 3R: +1.15 / +1.56. Rejected.
+- Skip Fridays: learn **+1.27**, check +1.64. A hair worse on check, so rejected.
+- Skip Mondays: +0.65 / +1.64. Rejected.
+
+**Tried, intraday** (champion: +0.06 / +0.51; forex +0.025, metals +0.839, indices −0.132):
+- Skip Fridays: **+0.17 / +0.90** (avg +0.040R and +0.233R); forex +0.187, metals +1.230, indices −0.159. Better in 2 groups and worse in 1, so it passes. **Kept.** Caveats: only 45 and 68 trades, and weekday filters are a classic way to fit noise. Swing's check part was flat on the same idea, which is mildly reassuring but not strong.
+- Skip Mondays: −0.24 / +0.20. Rejected.
+- Trail after 3R: worse. Rejected.
+
+**Champions now:**
+- swing: unchanged
+- intraday: + no Friday setups
+
+## Round 14: 08:47
+
+**Ideas (two new engine rules):**
+- **Sweep inside the zone:** the sweep's wick must stay inside the demand or supply zone, a cleaner grab than one that runs through.
+- **Enter on the break:** buy at the confirmation candle's close instead of waiting for the pullback. That means no missed winners, at a worse price.
+
+**Tried, swing** (champion: learn t +1.02, check +1.66):
+- Sweep inside zone: +0.67 / +1.18. Worse on both.
+- Enter on the break: +0.14 / +0.49 (forex −0.071, metals −0.138). Much worse.
+- Enter on the break with min 3R: +0.42 / +0.20. Worse.
+
+**Tried, intraday** (champion: +0.17 / +0.90):
+- Sweep inside zone: 0.00 / **+1.29**. Rejected: worse on learn.
+- Enter on the break: −0.07 / −0.02. Worse.
+
+**Kept:** nothing.
+
+**Learned:** waiting for the pullback into the new zone (the videos' entry) is clearly better than entering on the break. The swing version gives up about 0.1R a trade without it. This is one of the videos' rules that the data backs.
+
+## Round 15: 09:17
+
+**Idea (a new engine rule): equal-level targets.** The videos stress that stops pile up above obvious highs. Double tops and double bottoms (two untaken levels close together) should be stronger magnets than a single swing, so aim only at levels with another untaken level within N higher-chart ATRs.
+
+**Tried, swing** (champion: learn t +1.02, check +1.66):
+- 0.25 ATR: −0.70 / +0.47
+- 0.5 ATR: −0.97 / +0.26
+- 1 ATR: −0.57 / +0.59
+
+All much worse. Skipping the nearest single level means aiming further away, which lets in more far-target trades (425–463 instead of 335). Those are exactly the ones that lose.
+
+**Tried, intraday** (champion: +0.17 / +0.90):
+- 0.25 ATR: +0.83 / +0.19
+- 0.5 ATR: +1.13 / +0.02
+
+Big gains on learn, collapses on check: the overfitting pattern again. Rejected.
+
+**Kept:** nothing.
+
+## Round 16: 10:17
+
+(The 09:47 timer fired while the machine was busy. This is one round.)
+
+**Idea (a new engine rule): second-touch entries.** Until now a zone got one visit. If the setup didn't confirm in time, the zone was thrown away. Many traders say a zone that held once and is revisited is still good. Allow 2 or 3 separate visits, with price leaving the zone in between.
+
+**Tried, swing** (champion: learn t +1.02, check +1.66):
+- 2 visits: +0.44 / +0.82 (501 and 380 trades). Worse.
+- 3 visits: +0.24 / +1.12. Worse.
+
+**Tried, intraday** (champion: +0.17 / +0.90):
+- 2 visits: +1.24 / +0.34
+- 3 visits: +1.25 / −0.01
+
+Better on learn, collapses on check. Rejected.
+
+**Kept:** nothing.
+
+**Learned:** fresh zones only (the videos' rule) is right. Second visits add trades, and they're worse trades.
+
+## Round 17: 10:47
+
+**Idea (a new engine rule): take the half at the opposing zone.** The second video takes 50% off at the first opposing demand or supply zone, not at a fixed R. If that zone is at least 1R away and before the target, half comes off there; otherwise at 1.5R as before.
+
+**Tried, swing** (champion: learn t +1.02, check +1.66):
+- Half at opposing zone: +1.08 / +1.12 (forex +0.010, metals +0.011). Worse on check. Rejected.
+- Trail to swings, re-measured on the final champion as a control: +0.91 / +1.97, the same as round 12. Still worse on learn.
+
+**Tried, intraday** (champion: +0.17 / +0.90):
+- Half at opposing zone: −0.08 / +0.92. Rejected.
+
+**Kept:** nothing.
+
+**Part 2 so far:**
+- 6 rounds and 10 new rules.
+- Kept for intraday: skip high volatility, and no Friday setups.
+- Swing: no change in part 2.
+- Confirmed the videos are right on two points: wait for the pullback into the new zone, and use each zone only once.
+
+## FINAL, part 2: the locked test again, 11:17
+
+This is the **second look** at the locked 20%, so it's weaker evidence than the first. I already knew the first result. No decision this morning used that data or that result.
+
+| Profile | Final trades | Win | Avg R | t | Quarters | vs first look |
+|---|---|---|---|---|---|---|
+| swing | 170 | 33.5% | −0.106 | −0.99 | +0.9, −15.7, −10.7, +7.5 | unchanged (no swing change this morning) |
+| intraday | 45 | 28.9% | **−0.278** | −1.34 | −3.1, −6.5, +0.6, −3.5 | **worse** (was −0.118) |
+| scalp (parked) | 1219 | 24.9% | −0.354 | −8.04 | all negative | unchanged |
+
+**What it means:**
+- The only two changes kept this morning (intraday: skip high volatility, no Friday setups) passed the stricter rule, including the market-group check. They still made intraday **worse** on unseen data: −0.12R became −0.28R.
+- With ~45–70 intraday trades per part, small filters mostly move noise around. Even the group check can't save decisions made on samples that small.
+- Swing didn't change, because none of the 10 new rules passed for it.
+
+**Verdict after both parts (17 rounds, about 20 new rules):** the sweep setup has no edge that survives unseen data on these 21 markets. The method did its job twice: it refused to call anything proven. The bot stays parked, with no real money.

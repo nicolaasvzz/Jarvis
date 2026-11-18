@@ -87,6 +87,15 @@ class Params:
     sweep_reject: bool = False  # the sweep only counts if its candle closes back past the level
     break_body_atr: float = 0.0 # the confirmation candle's body must be at least this many ATRs
     discount: bool = False    # buy only below the middle of the higher chart's last swing range (sell above)
+    trail_swings: bool = False  # after the partial, trail the stop to each new lower-chart swing
+    max_vol_ratio: float = 0.0  # skip setups when ATR is more than this many times its 200-candle average (0 = off)
+    trail_after_r: float = 0.0  # with trail_swings: only start trailing once price has gone this many R our way
+    skip_days: tuple = ()       # weekdays (server time, 0 = Monday) on which no new setups are taken
+    sweep_in_zone: bool = False # the sweep's extreme must stay inside the zone (a wick into it, not through it)
+    enter_on_close: bool = False  # enter at the confirmation candle's close instead of waiting for a pullback
+    cluster_atr: float = 0.0  # target only "equal highs/lows": another untaken level within this many higher-chart ATRs
+    zone_touches: int = 1     # how many separate visits a zone gets (price must leave it in between)
+    partial_at_zone: bool = False  # take the half at the first opposing zone (if 1R+ away) instead of partial_r
 
     def label(self) -> str:
         bits = [f"rr>={self.min_rr:g}"]
@@ -99,6 +108,22 @@ class Params:
             bits.append("sweep closes back")
         if self.discount:
             bits.append("buy cheap / sell dear")
+        if self.trail_swings:
+            bits.append("trail to swings" + (f" after {self.trail_after_r:g}R" if self.trail_after_r else ""))
+        if self.partial_at_zone:
+            bits.append("half at opposing zone")
+        if self.zone_touches > 1:
+            bits.append(f"{self.zone_touches} visits per zone")
+        if self.cluster_atr:
+            bits.append(f"equal-level targets ({self.cluster_atr:g} ATR)")
+        if self.sweep_in_zone:
+            bits.append("sweep inside zone")
+        if self.enter_on_close:
+            bits.append("enter on the break")
+        if self.skip_days:
+            bits.append("skip days " + "/".join("MTWTFSS"[d] for d in self.skip_days))
+        if self.max_vol_ratio:
+            bits.append(f"skip vol > {self.max_vol_ratio:g}x")
         if self.break_body_atr:
             bits.append(f"break body {self.break_body_atr:g} ATR")
         if self.sides:
@@ -130,6 +155,7 @@ class Order:
     expires_i: int
     zone: tuple[float, float]
     why: str = ""
+    partial_px: float = 0.0   # where half comes off, when set by the opposing zone
 
 
 @dataclass
@@ -240,6 +266,10 @@ class Engine:
         n = len(c_)
         lt = L.close_t
         arm_bars = max(2, int(round(pf.arm_bars * p.arm_scale)))
+        self._trail: dict[int, float | None] = {1: None, -1: None}
+        if p.max_vol_ratio:
+            avg = pd.Series(L.atr).rolling(200, min_periods=50).mean().to_numpy()
+            vol_ratio = np.where(avg > 0, L.atr / np.where(avg > 0, avg, 1), 1.0)
         hours = (p.hour_from, p.hour_to) != (0, 24)
         M, H = self.m, self.h
         mo, mh, ml, mc = (M.df[k].to_numpy() for k in ("open", "high", "low", "close"))
@@ -280,6 +310,7 @@ class Engine:
                         h_trend = 1
                     elif h_last["L"] and hc[hb] < h_last["L"][1]:
                         h_trend = -1
+                self._h_atr = float(H.atr[hb])
                 while hi_ < len(hev) and hev[hi_][0] <= H.close_t[hb]:
                     _, kind, bar, price = hev[hi_]
                     h_last[kind] = (bar, price)
@@ -320,6 +351,8 @@ class Engine:
                 l_last[kind] = (bar, price)
                 new_l.append((kind, bar, price))
                 li_ += 1
+            self._trail = {1: l_last["L"][1] if l_last["L"] else None,
+                           -1: l_last["H"][1] if l_last["H"] else None}
 
             # 3) the trigger, on the close
             in_hours = not hours or p.hour_from <= (T // 3600) % 24 < p.hour_to
@@ -331,12 +364,20 @@ class Engine:
                 if a is not None:
                     dead = (side == 1 and c_[j] < a["zone"]["lo"]) or (side == -1 and c_[j] > a["zone"]["hi"])
                     if dead or not trend_ok or j - a["start"] > arm_bars:
-                        a["zone"]["used"] = True
+                        z0 = a["zone"]
+                        z0["visits"] = z0.get("visits", 0) + 1
+                        z0["away"] = False
+                        if dead or z0["visits"] >= p.zone_touches:
+                            z0["used"] = True
                         arm[side] = a = None
                 if a is None:
                     if not trend_ok:
                         continue
+                    for z in zones:   # a revisit needs price to have left the zone first
+                        if z.get("visits") and ((side == 1 and l_[j] > z["hi"]) or (side == -1 and h_[j] < z["lo"])):
+                            z["away"] = True
                     touched = [z for z in zones if z["side"] == side and not z["used"]
+                               and (not z.get("visits") or z.get("away"))
                                and ((side == 1 and l_[j] <= z["hi"] and c_[j] >= z["lo"])
                                     or (side == -1 and h_[j] >= z["lo"] and c_[j] <= z["hi"]))]
                     if not touched:
@@ -368,11 +409,18 @@ class Engine:
                     continue
                 if p.break_body_atr and (c_[j] - o_[j]) * side < p.break_body_atr * L.atr[j]:
                     continue
+                if p.max_vol_ratio and vol_ratio[j] > p.max_vol_ratio:
+                    continue
+                if p.sweep_in_zone and (a["ext"] - (a["zone"]["lo"] if side == 1 else a["zone"]["hi"])) * side < 0:
+                    continue
+                if p.skip_days and (T // 86400 + 3) % 7 in p.skip_days:
+                    continue
                 if p.discount and h_last["H"] and h_last["L"]:
                     mid = (h_last["H"][1] + h_last["L"][1]) / 2
                     if (c_[j] - mid) * side > 0:
                         continue
                 # confirmed: build the order
+                self._zones_now = zones
                 order = self._order(side, j, a, o_, h_, l_, c_, liq_hi if side == 1 else liq_lo)
                 a["zone"]["used"] = True
                 arm[side] = None
@@ -389,7 +437,7 @@ class Engine:
         cand = [i for i in range(start, j) if (c_[i] - o_[i]) * side < 0]
         e = cand[-1] if cand else start
         top, bot = (h_[e], l_[e]) if side == 1 else (l_[e], h_[e])
-        entry = top - p.entry_frac * (top - bot)
+        entry = c_[j] if p.enter_on_close else top - p.entry_frac * (top - bot)
         entry = min(entry, c_[j]) if side == 1 else max(entry, c_[j])
         stop = a["ext"] - side * p.stop_buf_atr * self.l.atr[j]
         risk = (entry - stop) * side
@@ -400,6 +448,9 @@ class Engine:
             rr = p.fixed_r
         else:
             ahead = [x for x in liq if (x - c_[j]) * side > 0]
+            if p.cluster_atr:
+                tol = p.cluster_atr * getattr(self, "_h_atr", 0.0)
+                ahead = [x for x in ahead if sum(abs(y - x) <= tol for y in liq) >= 2]
             if not ahead:
                 return None
             target = min(ahead) if side == 1 else max(ahead)
@@ -411,8 +462,15 @@ class Engine:
         why = (f"{'demand' if side == 1 else 'supply'} zone {a['zone']['lo']:.5g}-{a['zone']['hi']:.5g}, "
                f"{'swept' if a['swept'] else 'no sweep'}, broke {a['ref']:.5g}, "
                f"target {'high' if side == 1 else 'low'} {target:.5g} ({min(rr, p.max_rr):.1f}R)")
+        part = 0.0
+        if p.partial_at_zone:
+            near = [z["lo"] if side == 1 else z["hi"] for z in getattr(self, "_zones_now", [])
+                    if z["side"] == -side and not z["used"]]
+            near = [x for x in near if (x - entry) * side >= risk and (target - x) * side > 0]
+            if near:
+                part = min(near) if side == 1 else max(near)
         return Order(side, float(entry), float(stop), float(target), j, j + self.pf.entry_valid,
-                     (a["zone"]["lo"], a["zone"]["hi"]), why)
+                     (a["zone"]["lo"], a["zone"]["hi"]), why, float(part))
 
     # -- the order and the trade, through one bar --
     def _manage(self, j: int, o: float, h: float, lo: float, c: float, t: int) -> None:
@@ -449,11 +507,18 @@ class Engine:
             self._close(pos, px - s * self.p.stop_slip * cost, t, "breakeven" if pos["half"] else "stop")
             return
         best = h if s == 1 else lo + cost
+        pos["peak"] = max(pos.get("peak", pos["entry"]) * s, best * s) * s
+        far_enough = (pos["peak"] - pos["entry"]) * s >= self.p.trail_after_r * risk
+        if self.p.trail_swings and pos["half"] and far_enough:
+            sw = getattr(self, "_trail", {}).get(s)
+            if sw is not None and (sw - pos["stop"]) * s > 0 and (sw - (c if s == 1 else c + cost)) * s < 0:
+                pos["stop"] = sw   # the latest swing behind price, known before this candle
         if self.p.partial_r and not pos["half"]:
-            level = pos["entry"] + s * self.p.partial_r * risk
+            od_part = pos["order"].partial_px
+            level = od_part if od_part else pos["entry"] + s * self.p.partial_r * risk
             if (best - level) * s >= 0 and (pos["target"] - level) * s > 0:
                 pos["half"] = True
-                pos["banked"] = 0.5 * self.p.partial_r
+                pos["banked"] = 0.5 * (level - pos["entry"]) * s / risk
                 pos["stop"] = pos["entry"]
         if (best - pos["target"]) * s >= 0:
             self._close(pos, pos["target"], t, "target")
