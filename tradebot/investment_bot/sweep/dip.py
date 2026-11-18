@@ -45,6 +45,7 @@ class DipParams:
     atr_n: int = 20
     cost_bp: float = 1.0
     finance_pa: float = 0.02
+    sides: int = 1           # 1 = buy dips only; 0 = also sell short sharp rises (the mirror rule)
 
     def label(self) -> str:
         d = DipParams()
@@ -72,7 +73,7 @@ def run(symbol: str, df: pd.DataFrame, p: DipParams, point: float) -> list[dict[
     t = df["time"].to_numpy("int64")
     spread = df["spread"].to_numpy(float) * point if "spread" in df else np.zeros(n)
     a = atr(df, p.atr_n)
-    ma = pd.Series(c).rolling(p.ma_n).mean().to_numpy() if p.ma_n else np.full(n, -np.inf)
+    ma = pd.Series(c).rolling(p.ma_n).mean().to_numpy() if p.ma_n else np.full(n, np.nan)
     xma = pd.Series(c).rolling(p.exit_ma).mean().to_numpy()
     r_ = rsi(c, p.rsi_n)
 
@@ -81,14 +82,15 @@ def run(symbol: str, df: pd.DataFrame, p: DipParams, point: float) -> list[dict[
 
     out: list[dict[str, Any]] = []
     pos: dict[str, Any] | None = None
-    want = leave = False
+    want = 0
+    leave = False
 
     def close(i: int, price: float, why: str, extra: float = 0.0) -> None:
         nonlocal pos
-        risk = pos["risk"]
-        r = (price - pos["entry"]) / risk - pos["paid"] - (cost(i, price) + extra) / risk
+        risk, s = pos["risk"], pos["side"]
+        r = s * (price - pos["entry"]) / risk - pos["paid"] - (cost(i, price) + extra) / risk
         pos["path"].append([int(t[i]), r - pos["mark"]])
-        out.append({"symbol": symbol, "profile": "dip", "side": 1, "entry": pos["entry"],
+        out.append({"symbol": symbol, "profile": "dip", "side": s, "entry": pos["entry"],
                     "stop": pos["stop"], "fill_time": pos["fill_time"], "exit_time": int(t[i]),
                     "exit_price": float(price), "r": float(r), "reason": why, "path": pos["path"]})
         pos = None
@@ -100,25 +102,32 @@ def run(symbol: str, df: pd.DataFrame, p: DipParams, point: float) -> list[dict[
         if pos is None and want and a[i - 1] > 0:
             risk = p.stop_atr * a[i - 1]
             paid = cost(i, o[i]) / risk
-            pos = {"entry": o[i], "risk": risk, "stop": o[i] - risk, "fill_time": int(t[i]),
+            pos = {"side": want, "entry": o[i], "risk": risk, "stop": o[i] - want * risk,
+                   "fill_time": int(t[i]),
                    "paid": paid, "mark": -paid, "path": [[int(t[i]), -paid]], "bars": 0}
-        want = False
+        want = 0
         if pos is not None:
-            if o[i] <= pos["stop"]:
+            s = pos["side"]
+            if s * (o[i] - pos["stop"]) <= 0:
                 close(i, o[i], "stop", 0.25 * cost(i, o[i]))
-            elif lo[i] <= pos["stop"]:
+            elif (s > 0 and lo[i] <= pos["stop"]) or (s < 0 and h[i] >= pos["stop"]):
                 close(i, pos["stop"], "stop", 0.25 * cost(i, pos["stop"]))
         if pos is not None:
             pos["bars"] += 1
             days = max(1, (int(t[i]) - int(t[i - 1])) // DAY)
             pos["paid"] += p.finance_pa / 365 * days * c[i] / pos["risk"]
-            mark = (c[i] - pos["entry"]) / pos["risk"] - pos["paid"]
+            mark = pos["side"] * (c[i] - pos["entry"]) / pos["risk"] - pos["paid"]
             pos["path"].append([int(t[i]), mark - pos["mark"]])
             pos["mark"] = mark
-            if c[i] > xma[i] or pos["bars"] >= p.max_days:
+            if pos["side"] * (c[i] - xma[i]) > 0 or pos["bars"] >= p.max_days:
                 leave = True
-        if pos is None and not leave and c[i] > ma[i] and r_[i] < p.rsi_in:
-            want = True
+        if pos is None and not leave:
+            up = not p.ma_n or c[i] > ma[i]
+            down = not p.ma_n or c[i] < ma[i]
+            if up and r_[i] < p.rsi_in:
+                want = 1
+            elif p.sides == 0 and down and r_[i] > 100 - p.rsi_in:
+                want = -1
     return out
 
 
@@ -130,14 +139,16 @@ def all_trades(p: DipParams, fr: dict[str, pd.DataFrame]) -> list[dict[str, Any]
 
 
 def bench(versions: list[DipParams], say: Callable[[str], None] = print,
-          fr: dict[str, pd.DataFrame] | None = None) -> list[dict[str, Any]]:
-    """Learn and check only; the locked part (after D_CHECK_END) is never shown here."""
+          fr: dict[str, pd.DataFrame] | None = None,
+          split: tuple[int, int, int] = (D0, D_LEARN_END, D_CHECK_END)) -> list[dict[str, Any]]:
+    """Learn and check only; the locked part (after the split's check end) is never shown here."""
     fr = fr if fr is not None else frames(INDICES)
+    t0, learn_end, check_end = split
     rows = []
     for v in versions:
         tr = all_trades(v, fr)
-        row = {"version": v.label(), "learn": window(tr, D0, D_LEARN_END),
-               "check": window(tr, D_LEARN_END, D_CHECK_END)}
+        row = {"version": v.label(), "learn": window(tr, t0, learn_end),
+               "check": window(tr, learn_end, check_end)}
         rows.append(row)
         for part in ("learn", "check"):
             w = row[part]

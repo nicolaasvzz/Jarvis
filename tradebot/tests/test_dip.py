@@ -39,3 +39,16 @@ def test_no_peeking_at_the_future():
         part = run("US500", df.iloc[:k].reset_index(drop=True), DipParams(), 0.01)
         last = int(df["time"].iat[k - 1])
         assert part == [x for x in full if x["exit_time"] <= last]
+
+
+def test_both_sides_mirror_and_do_not_peek():
+    df = _daily(seed=11)
+    both = run("EURUSD", df, DipParams(sides=0, ma_n=0), 0.00001)
+    assert {x["side"] for x in both} == {1, -1}
+    for x in both:
+        assert abs(sum(d for _, d in x["path"]) - x["r"]) < 1e-9
+    longs = run("EURUSD", df, DipParams(sides=1, ma_n=0), 0.00001)
+    assert len(both) >= len(longs)
+    part = run("EURUSD", df.iloc[:900].reset_index(drop=True), DipParams(sides=0, ma_n=0), 0.00001)
+    last = int(df["time"].iat[899])
+    assert part == [x for x in both if x["exit_time"] <= last]

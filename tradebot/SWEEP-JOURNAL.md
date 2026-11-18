@@ -929,3 +929,22 @@ The gap is about 10x. Rule tweaks on swing can't close it, and swing is frozen a
 **Verdict: rejected.** The two really are unrelated (correlation about 0), but adding two near-zero edges gives near zero. Swing on fresh markets was negative in 2016–18 and flat in 2018–22. Its positive full-history result (+0.084R) came mostly from other years, which fits its quarters: +6.8, +3.8, +2.4, +14.4.
 
 **The plan list is now finished:** trend, momentum, volatility sizing, ranking, index dip-buying, index holding, turn of month, non-forex trend, overnight drift, and the portfolio. **Nothing has passed check, so nothing has earned a locked look.**
+
+## Part 4 round 10: 22:21
+
+**Idea:** the plan list is done, so this idea comes from the evidence. Forex lost every time it was traded with the trend (rounds 1, 2, 5), which hints that currency pairs **revert** over short horizons. This test is round 3's dip rule **mirrored** (`dip.py` gained `sides=0`). It buys a 2-day RSI under 10 and **sells short a 2-day RSI over 90**, exits on a close back through the 5-day average or after 10 days, with a 3 ATR stop, on the 29 forex pairs with daily data, using the 2000 split. Test: both sides trade, paths add up, no-peek. (The index-only results from round 3 are unchanged.)
+
+| Version | Part | Trades/yr | Win | Avg R | t | PF | Yearly at 25% drop |
+|---|---|---|---|---|---|---|---|
+| both sides, no trend filter | learn | 659 | 58% | −0.045 | −5.69 | 0.75 | −2.5% |
+| | check | 827 | 58% | −0.035 | −3.83 | 0.81 | −3.4% |
+| both sides, with the MA200 filter | learn | 249 | 59% | −0.036 | −3.50 | 0.78 | −2.6% |
+| | check | 327 | 56% | −0.040 | −2.85 | 0.78 | −3.3% |
+| buy dips only, no filter | learn | 329 | 59% | −0.045 | −4.08 | 0.75 | −2.5% |
+| | check | 411 | 59% | −0.030 | −2.71 | 0.83 | −3.4% |
+| both sides, **no costs** (diagnostic) | learn | | | +0.007 | +1.52 | | |
+| | check | | | −0.009 | −1.57 | | |
+
+**Verdict: rejected.** With no costs there's no edge either (+0.007R, then −0.009R). The many small trades turn the spread into a steady loss.
+
+**What forex taught over four rounds:** at daily horizons since 2000, currency pairs neither trend (rounds 1, 2, 5) nor revert (this round) enough to pay their spread. They're close to a coin flip. The only forex edge funds famously earn is **carry** (holding high-interest currencies against low-interest ones). That needs the broker's swap rates, which aren't in the cached data. Measuring them would mean touching the live MT5 terminal, which part 4's rules forbid.
