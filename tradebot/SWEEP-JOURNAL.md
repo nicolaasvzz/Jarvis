@@ -288,3 +288,25 @@ Each wins on one part and loses on the other. Nothing kept.
 Nothing kept.
 
 **Kept:** nothing. Both profiles have hit their plateau: everything nearby trades learn against check. I'm stopping tuning here. One more iteration would only fit noise. The locked final test runs at the 04:45 iteration.
+
+## Iterations 12–13: 03:50 and 04:20
+
+Holding, as decided after iteration 11: no changes and no peeking at the locked part.
+
+## FINAL: the locked test, 04:50
+
+The last 20% of each profile's history, never looked at during the night, tested once:
+
+| Profile | Final trades | Win | Avg R | t | Quarters (sum R) | Verdict |
+|---|---|---|---|---|---|---|
+| swing | 170 | 33.5% | **−0.106** | −0.99 | +0.9, −15.7, −10.7, +7.5 | not proven |
+| intraday | 57 | 31.6% | −0.118 | −0.58 | +2.2, −4.0, −0.4, −4.5 | not proven |
+| scalp (videos' rules, parked) | 1219 | 24.9% | −0.354 | −8.04 | all four negative | not proven |
+
+**What it means:**
+- Swing went from −0.09R (learn) and −0.08R (check) at the start to +0.08R and +0.15R after 11 iterations, and to **−0.11R on data it had never seen**.
+- The improvements did not hold. The broad plateau in iteration 10 was real for the first 80% of history, but not beyond it.
+- The most likely reasons: the market behaved differently in the last stretch, and 11 rounds of keeping "better on both parts" still fitted the learn and check data. With ~250–350 trades per part, a +0.1R edge is within noise.
+- The intraday warning in iteration 9 (swing's recipe made intraday worse) was the tell.
+
+**Conclusion:** after an honest night of hand improvement, the sweep setup from the videos has no proven edge on 21 MT5 markets. It must not trade real money. The demo trader only trades proven profiles, so it will trade nothing unless forward-testing is switched on deliberately.
