@@ -89,6 +89,8 @@ class Params:
     discount: bool = False    # buy only below the middle of the higher chart's last swing range (sell above)
     trail_swings: bool = False  # after the partial, trail the stop to each new lower-chart swing
     max_vol_ratio: float = 0.0  # skip setups when ATR is more than this many times its 200-candle average (0 = off)
+    trail_after_r: float = 0.0  # with trail_swings: only start trailing once price has gone this many R our way
+    skip_days: tuple = ()       # weekdays (server time, 0 = Monday) on which no new setups are taken
 
     def label(self) -> str:
         bits = [f"rr>={self.min_rr:g}"]
@@ -102,7 +104,9 @@ class Params:
         if self.discount:
             bits.append("buy cheap / sell dear")
         if self.trail_swings:
-            bits.append("trail to swings")
+            bits.append("trail to swings" + (f" after {self.trail_after_r:g}R" if self.trail_after_r else ""))
+        if self.skip_days:
+            bits.append("skip days " + "/".join("MTWTFSS"[d] for d in self.skip_days))
         if self.max_vol_ratio:
             bits.append(f"skip vol > {self.max_vol_ratio:g}x")
         if self.break_body_atr:
@@ -382,6 +386,8 @@ class Engine:
                     continue
                 if p.max_vol_ratio and vol_ratio[j] > p.max_vol_ratio:
                     continue
+                if p.skip_days and (T // 86400 + 3) % 7 in p.skip_days:
+                    continue
                 if p.discount and h_last["H"] and h_last["L"]:
                     mid = (h_last["H"][1] + h_last["L"][1]) / 2
                     if (c_[j] - mid) * side > 0:
@@ -463,7 +469,9 @@ class Engine:
             self._close(pos, px - s * self.p.stop_slip * cost, t, "breakeven" if pos["half"] else "stop")
             return
         best = h if s == 1 else lo + cost
-        if self.p.trail_swings and pos["half"]:
+        pos["peak"] = max(pos.get("peak", pos["entry"]) * s, best * s) * s
+        far_enough = (pos["peak"] - pos["entry"]) * s >= self.p.trail_after_r * risk
+        if self.p.trail_swings and pos["half"] and far_enough:
             sw = getattr(self, "_trail", {}).get(s)
             if sw is not None and (sw - pos["stop"]) * s > 0 and (sw - (c if s == 1 else c + cost)) * s < 0:
                 pos["stop"] = sw   # the latest swing behind price, known before this candle

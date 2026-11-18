@@ -340,3 +340,26 @@ The user asked for more rounds. **What changes from last night:**
 **Champions now:**
 - swing: unchanged
 - intraday: + skip vol > 1.5x
+
+## Round 13: 08:17
+
+**Saw:** trailing in round 12 helped swing on check but cost on learn. It probably trails too early and gets shaken out by normal pullbacks on the way to 4R.
+
+**Ideas (two new engine rules):**
+- **Trail only after N R:** start trailing once price has gone 2.5R or 3R our way.
+- **Skip a weekday:** no new setups on Fridays (weekend gaps, position squaring) or on Mondays (gap noise).
+
+**Tried, swing** (champion: learn t +1.02, check +1.66):
+- Trail after 2.5R: +0.96 / +1.65. Rejected.
+- Trail after 3R: +1.15 / +1.56. Rejected.
+- Skip Fridays: learn **+1.27**, check +1.64. A hair worse on check, so rejected.
+- Skip Mondays: +0.65 / +1.64. Rejected.
+
+**Tried, intraday** (champion: +0.06 / +0.51; forex +0.025, metals +0.839, indices −0.132):
+- Skip Fridays: **+0.17 / +0.90** (avg +0.040R and +0.233R); forex +0.187, metals +1.230, indices −0.159. Better in 2 groups and worse in 1, so it passes. **Kept.** Caveats: only 45 and 68 trades, and weekday filters are a classic way to fit noise. Swing's check part was flat on the same idea, which is mildly reassuring but not strong.
+- Skip Mondays: −0.24 / +0.20. Rejected.
+- Trail after 3R: worse. Rejected.
+
+**Champions now:**
+- swing: unchanged
+- intraday: + no Friday setups
