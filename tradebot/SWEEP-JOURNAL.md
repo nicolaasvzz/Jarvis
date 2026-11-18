@@ -667,3 +667,15 @@ The Friday filter still holds its weight on this data. The volatility filter is 
 **Tried, intraday** (champion: +0.64 / +1.23): within 3 gave 0 and 1 trades, and within 10 gave 11 and 10 trades. Too few to judge.
 
 **Kept:** nothing. Swing with a recent daily sweep is the highest-quality subset found all day (about +0.25R a trade, positive everywhere). It's also too rare to prove anything: about 1 trade a month across 21 markets. Worth remembering if more markets are ever added.
+
+## Round 29: 15:24
+
+**Idea:** round 28's higher-chart sweep was the best quality but too rare at 10 days. Widen the window so a recent daily stop-run counts within 20 or 40 daily candles (about 1 or 2 months).
+
+**Tried, swing** (champion: learn t +1.02, check +1.66; forex +0.051, metals +0.102, indices +0.433):
+- Within 20: learn **+1.34**, check **+2.18**; avg **+0.154R and +0.287R**, win 44% and 54%; forex +0.214, metals +0.505, indices +0.321. Better on both parts, and better in 2 groups with 1 worse. **Kept.**
+- Within 40: +1.36 / +1.67, but forex and indices both worse. Rejected.
+
+**Caveat:** I picked 20 out of four windows tried (3, 10, 20, 40). That's a small search, but a search. The fresh-market test at 15:40 is the judge.
+
+**Champion now:** swing = min 3.5R, max 4R, half at 1.5R, strong break 1.2, swings 3/5/4, hold 2x, and a daily low (or high) taken within the last 20 days.
