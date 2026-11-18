@@ -46,12 +46,15 @@ class DipParams:
     cost_bp: float = 1.0
     finance_pa: float = 0.02
     sides: int = 1           # 1 = buy dips only; 0 = also sell short sharp rises (the mirror rule)
+    entry: str = "rsi"       # "rsi"; "volspike" = buy when 10-day volatility is spike x the 100-day
+    spike: float = 1.5
 
     def label(self) -> str:
         d = DipParams()
         diff = [f"{f.name}={getattr(self, f.name)}" for f in fields(self)
                 if getattr(self, f.name) != getattr(d, f.name)]
-        return "dip RSI2<10 over MA200" + (f" ({', '.join(diff)})" if diff else "")
+        head = "dip RSI2<10 over MA200" if self.entry == "rsi" else f"vol spike x{self.spike}"
+        return head + (f" ({', '.join(diff)})" if diff else "")
 
 
 def rsi(close: np.ndarray, n: int) -> np.ndarray:
@@ -74,8 +77,10 @@ def run(symbol: str, df: pd.DataFrame, p: DipParams, point: float) -> list[dict[
     spread = df["spread"].to_numpy(float) * point if "spread" in df else np.zeros(n)
     a = atr(df, p.atr_n)
     ma = pd.Series(c).rolling(p.ma_n).mean().to_numpy() if p.ma_n else np.full(n, np.nan)
-    xma = pd.Series(c).rolling(p.exit_ma).mean().to_numpy()
+    xma = pd.Series(c).rolling(p.exit_ma).mean().to_numpy() if p.exit_ma else np.full(n, np.nan)
     r_ = rsi(c, p.rsi_n)
+    lr = pd.Series(np.log(c)).diff()
+    vol_ratio = (lr.rolling(10).std() / lr.rolling(100).std()).to_numpy()
 
     def cost(i: int, price: float) -> float:
         return max(p.cost_bp * 1e-4 * price, spread[i])
@@ -119,12 +124,15 @@ def run(symbol: str, df: pd.DataFrame, p: DipParams, point: float) -> list[dict[
             mark = pos["side"] * (c[i] - pos["entry"]) / pos["risk"] - pos["paid"]
             pos["path"].append([int(t[i]), mark - pos["mark"]])
             pos["mark"] = mark
-            if pos["side"] * (c[i] - xma[i]) > 0 or pos["bars"] >= p.max_days:
+            if (p.exit_ma and pos["side"] * (c[i] - xma[i]) > 0) or pos["bars"] >= p.max_days:
                 leave = True
         if pos is None and not leave:
             up = not p.ma_n or c[i] > ma[i]
             down = not p.ma_n or c[i] < ma[i]
-            if up and r_[i] < p.rsi_in:
+            if p.entry == "volspike":
+                if vol_ratio[i] > p.spike and (not p.ma_n or c[i] > ma[i]):
+                    want = 1
+            elif up and r_[i] < p.rsi_in:
                 want = 1
             elif p.sides == 0 and down and r_[i] > 100 - p.rsi_in:
                 want = -1

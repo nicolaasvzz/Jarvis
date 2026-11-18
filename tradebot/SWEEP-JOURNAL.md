@@ -1148,3 +1148,20 @@ The gap is about 10x. Rule tweaks on swing can't close it, and swing is frozen a
 **My mistake in round 19:** a day that touches both levels **always** stops the trade, whichever side fills first, because the second touch *is* the stop. The worst-case booking was simply correct, and the hourly data confirms it in every checkable case. Results are unchanged (NR7 hold 2d: learn −0.267R, t −9.42; check −0.113R, t −3.86; without costs still −0.246 / −0.073).
 
 **Verdict: rejected.** With a stop just one quiet day's range away, about a quarter of breakouts reverse through the stop on day one. The +0.35R of the other trades doesn't cover that. (The hourly resolver stays in the code; it makes the simulation exact where hourly data exists.)
+
+## Part 4 round 21: 00:57
+
+**Idea:** **buy stock indices after volatility spikes** (`dip.py`, `entry="volspike"`). When an index's 10-day volatility jumps above 1.5× its 100-day volatility (a panic), buy at the next open and hold 20 days, with a 3 ATR stop. This is the "fear premium": after panics, markets have historically paid buyers for taking the risk. It differs from round 3, which reacted to a 2-day price dip and held a few days. Test: entries cluster at volatility bursts, no-peek. Twelve indices, index split.
+
+| Version | Part | Trades/yr | Win | Avg R | t | PF | Yearly at 25% drop | Quarters |
+|---|---|---|---|---|---|---|---|---|
+| spike x1.5, in uptrend (MA200) | learn | 7 | 67% | +0.442 | +1.99 | 2.45 | **+22.0%** | +2.0, +6.9, +4.6, +5.2 |
+| | check | 16 | 56% | +0.053 | +0.31 | 1.12 | +0.3% | −2.4, −14.7, +9.2, +11.6 |
+| spike x1.5, no filter | learn | 11 | 64% | +0.511 | +2.24 | 2.67 | **+28.4%** | +9.3, +10.8, +5.9, +5.1 |
+| | check | 31 | 50% | −0.008 | −0.05 | 0.98 | −0.7% | −6.3, −24.7, +10.1, +19.8 |
+| spike x2.0, no filter | learn | 3 | 72% | +0.689 | +1.97 | 4.04 | +14.7% | |
+| | check | 13 | 46% | −0.113 | −0.45 | 0.78 | −2.1% | |
+
+**Verdict: rejected.** It's the same story as round 3, more sharply: superb in 2012–18 (+22–28% a year, every quarter positive) and nothing in 2018–22. Buying the early Covid sell-off and the 2022 bear market meant buying panics that kept going (the −14.7 and −24.7 quarters). Then 2020's rebound paid some back.
+
+**What 21 rounds keep showing:** every index rule that buys weakness looks brilliant on 2012–18, one long, calm bull market, and earns nothing on 2018–22. Learn-period success on indices is a poor guide here. Only the check part has been honest.

@@ -52,3 +52,21 @@ def test_both_sides_mirror_and_do_not_peek():
     part = run("EURUSD", df.iloc[:900].reset_index(drop=True), DipParams(sides=0, ma_n=0), 0.00001)
     last = int(df["time"].iat[899])
     assert part == [x for x in both if x["exit_time"] <= last]
+
+
+def test_vol_spike_buys_after_a_volatility_jump_and_does_not_peek():
+    rng = np.random.default_rng(21)
+    n = 1200
+    vol = np.where((np.arange(n) % 300) > 280, 0.04, 0.008)     # a burst of volatility every 300 days
+    close = 100 * np.exp(np.cumsum(rng.normal(0, 1, n) * vol))
+    open_ = np.r_[close[0], close[:-1]]
+    df = pd.DataFrame({"time": 1344211200 + np.arange(n) * 86400, "open": open_,
+                       "high": np.maximum(open_, close) * 1.002, "low": np.minimum(open_, close) * 0.998,
+                       "close": close, "tick_volume": 1, "spread": 0})
+    p = DipParams(entry="volspike", ma_n=0, exit_ma=0, max_days=20, stop_atr=10)
+    tr = run("US500", df, p, 0.01)
+    phase = [((x["fill_time"] - 1344211200) // 86400) % 300 for x in tr]
+    near = sum(d > 280 or d < 15 for d in phase)             # during a burst or just after it
+    assert tr and near > len(tr) / 2                         # mostly at the bursts (a 10-day estimate is noisy)
+    part = run("US500", df.iloc[:900].reset_index(drop=True), p, 0.01)
+    assert part == [x for x in tr if x["exit_time"] <= int(df["time"].iat[899])]
