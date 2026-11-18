@@ -102,6 +102,7 @@ class Params:
     sweep_min_atr: float = 0.0   # the sweep must run at least this many ATRs past the level it takes
     break_vol: float = 0.0       # the confirmation candle's tick volume must be this many times its 20-candle average
     turn_bars: int = 0           # the break must come within this many lower-chart candles of the sweep's extreme (0 = any)
+    break_close_pos: float = 0.0 # the break candle must close in the top (bottom) share of its range, e.g. 0.75
 
     def label(self) -> str:
         bits = [f"rr>={self.min_rr:g}"]
@@ -116,6 +117,8 @@ class Params:
             bits.append("buy cheap / sell dear")
         if self.trail_swings:
             bits.append("trail to swings" + (f" after {self.trail_after_r:g}R" if self.trail_after_r else ""))
+        if self.break_close_pos:
+            bits.append(f"break closes near its extreme ({self.break_close_pos:g})")
         if self.turn_bars:
             bits.append(f"turn within {self.turn_bars} candles")
         if self.break_vol:
@@ -436,6 +439,11 @@ class Engine:
                     continue
                 if p.turn_bars and j - a["ext_i"] > p.turn_bars:
                     continue
+                if p.break_close_pos:
+                    rng = h_[j] - l_[j]
+                    pos_ = ((c_[j] - l_[j]) if side == 1 else (h_[j] - c_[j])) / rng if rng > 0 else 0.0
+                    if pos_ < p.break_close_pos:
+                        continue
                 if p.break_vol and "tick_volume" in L.df and not (tv_avg[j] > 0 and tv[j] >= p.break_vol * tv_avg[j]):
                     continue
                 if p.sweep_min_atr and (a["liq"] is None or (a["liq"] - a["ext"]) * side < p.sweep_min_atr * L.atr[j]):

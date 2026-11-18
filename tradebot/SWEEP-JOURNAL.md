@@ -617,3 +617,17 @@ None better on both. Rejected.
 - Within 16 (4 hours): **+0.64 / +1.23** (avg +0.166R and +0.319R); forex +0.432, metals +1.230, indices −0.344. Better in 2 groups and worse in 1. **Kept.** Note: indices got clearly worse.
 
 **Champion now:** intraday = higher chart agrees, strong break 1.2, zones 1.6, skip volatility over 1.5x, no Fridays, turn within 16 candles.
+
+## Round 26: 14:39
+
+**Idea (a new engine rule): the break candle closes near its extreme.** A strong break closes near its high (for a long) rather than leaving a long upper wick, so require the close to sit in the top 30% or top 20% of the candle's range.
+
+**Tried, swing** (champion: learn t +1.02, check +1.66):
+- Top 30%: +0.85 / +1.25
+- Top 20%: 0.00 / +0.66
+
+**Tried, intraday** (champion: +0.64 / +1.23):
+- Top 30%: +0.21 / +0.86
+- Top 20%: +0.31 / +0.84
+
+**Kept:** nothing. All worse on both parts. A big body is what matters (round 3). Where the candle closes within its range adds nothing.
