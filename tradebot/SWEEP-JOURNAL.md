@@ -653,3 +653,17 @@ None better on both. Rejected.
 The Friday filter still holds its weight on this data. The volatility filter is close to neutral (slightly better on check, slightly worse on learn), so under the rule it stays.
 
 **Kept:** nothing.
+
+## Round 28: 15:09
+
+**Idea (a new engine rule, from the second video): a higher-chart sweep too.** In the video the trade came right after the all-time high was taken, a stop-run on the big chart. So a long needs a higher-chart low (a daily low, for swing) to have been taken within the last N higher-chart candles. A short needs a high.
+
+**Tried, swing** (champion: learn t +1.02, check +1.66):
+- Within 3 candles: 1 and 2 trades. Far too strict.
+- Within 10 daily candles: learn **+1.28**, check +1.29.
+  - Average per trade nearly doubled: **+0.224R and +0.287R**, win 48% and 51%, positive in all three groups (forex +0.219, metals +0.308, indices +0.391).
+  - But only 71 and 45 trades, so check t is lower than the champion's. Rejected by the rule.
+
+**Tried, intraday** (champion: +0.64 / +1.23): within 3 gave 0 and 1 trades, and within 10 gave 11 and 10 trades. Too few to judge.
+
+**Kept:** nothing. Swing with a recent daily sweep is the highest-quality subset found all day (about +0.25R a trade, positive everywhere). It's also too rare to prove anything: about 1 trade a month across 21 markets. Worth remembering if more markets are ever added.
