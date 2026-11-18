@@ -481,3 +481,26 @@ Both worse, with about half the trades.
 Both worse.
 
 **Kept:** nothing. The setup does better taking trades against the bigger trend than filtering them out. That fits the first video: trade toward the obvious liquidity even when the higher chart is bearish.
+
+## Round 19: 12:09 (what does each kept rule really do?)
+
+**Idea:** take each of swing's kept rules out, one at a time (an ablation). If removing a rule changes nothing, it was probably noise. If removing it hurts a lot, it's carrying the version.
+
+| Swing without… | Learn t | Check t | Check avg R |
+|---|---|---|---|
+| (champion) | +1.02 | +1.66 | +0.149 |
+| **strong break** | +0.17 | **−0.27** | −0.015 |
+| bigger swing size (ltf 3) | +0.82 | +0.92 | +0.073 |
+| bigger zone swings (mtf 5) | +0.22 | +1.00 | +0.099 |
+| target swings 4 | +0.34 | +1.40 | +0.134 |
+| min 3.5R | +0.52 | +1.24 | +0.107 |
+| 4R cap | +0.94 | +1.10 | +0.103 |
+| half at 1.5R (back to 2R) | +0.98 | +1.47 | +0.156 |
+| hold 2x | +0.99 | +1.73 | +0.157 |
+
+**What it shows:**
+- The **strong-break rule carries the whole version.** Without it, swing is back below zero.
+- The structure swings and the 3.5R minimum each add a real slice.
+- "Hold 2x" and "half at 1.5R" are about neutral. They were marginal keeps and are probably noise. Under the rule they stay, since removing them isn't better on both parts, but they shouldn't be counted as findings.
+
+**Kept:** nothing changed.
