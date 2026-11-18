@@ -1213,3 +1213,19 @@ The gap is about 10x. Rule tweaks on swing can't close it, and swing is frozen a
 - Its improvement on indices may just fit the one 2018–22 window it was designed around.
 
 The dip family stays at round 3's version, which is an index-only effect that failed check. Robustness checks like this are what stop a hindsight fix from slipping through.
+
+## Part 4 round 25: 01:57
+
+**Idea:** improve the **cost model**, not add a strategy. Round 13 showed the flat 2% a year financing can change a verdict. It was too cheap in 2023–25, and it ignores that **shorts get paid** when rates are high. New `sweep/financing.py`: longs pay the year's US policy rate + 2.5% markup, shorts pay 2.5% − rate (negative = paid). The yearly rates are approximate public figures, with 2026 estimated, and every market is charged on the US rate (a simplification). It's wired into the monthly framework as `MomParams(finance="rates")`. Test: in 2024 a long costs far more than in 2021, a short is paid in 2024 and pays in 2021, a flat position costs nothing.
+
+**Re-judged** (yearly at a 25% drop, learn / check):
+
+| Strategy | Flat 2% | Rate-based | Change |
+|---|---|---|---|
+| gold + US500 hold (index split) | +6.5% / +6.6% | **+4.6% / +3.9%** | −2 to −3 points |
+| hold 12 indices (index split) | +14.6% / −1.6% | +12.7% / −2.4% | −1 to −2 points |
+| 12-month momentum, 45 markets | −1.2% / −2.7% | −1.7% / −2.9% | slightly worse, despite shorts earning carry in high-rate years |
+
+**What it shows:** the flat 2% was **slightly generous everywhere**. Even in zero-rate years the broker's 2.5% markup is more than 2%, and in 2023–25 a long position costs about 7.5% a year. No verdict changes, because every strategy was already below the bar. The realistic reference, holding gold + US500 on CFDs, falls to about **4–5% a year at a 25% drop**.
+
+**The lesson for the R10M plan:** for holding exposure for months, a CFD account is an expensive wrapper. A fund or ETF holds the same markets without a 2.5% + rate yearly charge. CFD bots only make sense for short holds, and every short-hold idea tested tonight was too thin to pay the spread.

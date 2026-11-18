@@ -28,6 +28,7 @@ import pandas as pd
 
 from . import data
 from .bench import group_of
+from .financing import charge
 from .prove import quarters, stats
 from .trend import CHECK_END, DAY, LEARN_END, T0, T1, curve, frames
 
@@ -43,6 +44,7 @@ class MomParams:
     sides: int = 0           # 0 both, 1 long only
     cost_bp: float = 1.0
     finance_pa: float = 0.02
+    finance: str = "flat"    # "flat" = finance_pa on any position; "rates" = by the historical rate (financing.py)
     mode: str = "momentum"   # "momentum"; "hold" (always long); "above_ma" (long over the ma_n-day average);
                              # "rank" (long the rank_k strongest markets, short the rank_k weakest)
     ma_n: int = 200
@@ -141,7 +143,8 @@ def returns(c: pd.DataFrame, sp: pd.DataFrame, p: MomParams) -> tuple[pd.Series,
     cost_frac = np.maximum(sp.reindex_like(c).fillna(0).to_numpy(), p.cost_bp * 1e-4)
     trade = (held.fillna(0) - held.shift(1).fillna(0)).abs().to_numpy()
     per = held.to_numpy() * ret.to_numpy() - trade * cost_frac \
-        - np.abs(held.fillna(0).to_numpy()) * p.finance_pa / 365 * gap[:, None]
+        - (charge(held.fillna(0).to_numpy(), c.index) if p.finance == "rates"
+           else np.abs(held.fillna(0).to_numpy()) * p.finance_pa) / 365 * gap[:, None]
     per = pd.DataFrame(per, index=c.index, columns=c.columns).where(held.notna())
     n = per.notna().sum(axis=1)
     port = per.sum(axis=1) / n.where(n > 0)
