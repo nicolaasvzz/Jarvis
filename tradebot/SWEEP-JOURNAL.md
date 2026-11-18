@@ -440,3 +440,20 @@ Better on learn, collapses on check. Rejected.
 - Kept for intraday: skip high volatility, and no Friday setups.
 - Swing: no change in part 2.
 - Confirmed the videos are right on two points: wait for the pullback into the new zone, and use each zone only once.
+
+## FINAL, part 2: the locked test again, 11:17
+
+This is the **second look** at the locked 20%, so it's weaker evidence than the first. I already knew the first result. No decision this morning used that data or that result.
+
+| Profile | Final trades | Win | Avg R | t | Quarters | vs first look |
+|---|---|---|---|---|---|---|
+| swing | 170 | 33.5% | −0.106 | −0.99 | +0.9, −15.7, −10.7, +7.5 | unchanged (no swing change this morning) |
+| intraday | 45 | 28.9% | **−0.278** | −1.34 | −3.1, −6.5, +0.6, −3.5 | **worse** (was −0.118) |
+| scalp (parked) | 1219 | 24.9% | −0.354 | −8.04 | all negative | unchanged |
+
+**What it means:**
+- The only two changes kept this morning (intraday: skip high volatility, no Friday setups) passed the stricter rule, including the market-group check. They still made intraday **worse** on unseen data: −0.12R became −0.28R.
+- With ~45–70 intraday trades per part, small filters mostly move noise around. Even the group check can't save decisions made on samples that small.
+- Swing didn't change, because none of the 10 new rules passed for it.
+
+**Verdict after both parts (17 rounds, about 20 new rules):** the sweep setup has no edge that survives unseen data on these 21 markets. The method did its job twice: it refused to call anything proven. The bot stays parked, with no real money.
