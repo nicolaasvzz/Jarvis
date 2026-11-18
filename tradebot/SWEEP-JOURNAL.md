@@ -1044,3 +1044,22 @@ The gap is about 10x. Rule tweaks on swing can't close it, and swing is frozen a
 **Verdict: rejected.** It loses even with no costs. Big hourly drops in US indices **keep going** for the next few hours rather than bouncing (t −1.83 on check without costs). That's the opposite of the daily picture in round 3, where dips bounced over days in 2012–18.
 
 **Next:** that suggests the mirror, **intraday momentum** (follow a big hourly move for a few hours, both ways). Honest caveat: the idea comes from this round's check numbers. Its check result will therefore be partly hindsight, and only learn plus a locked look can judge it.
+
+## Part 4 round 15: 23:27
+
+**Idea:** the mirror of round 14, **intraday momentum** (`snap.py`, `follow=True`). After a big hourly move during the US session (more than 2 typical moves), trade in its direction for 3 hours: short after a big drop, long after a big rise. Never overnight. Test: it trades both ways, after the same drop it's exactly the opposite of round 14's bet, no-peek. **Caveat (as flagged):** the idea came from round 14's check numbers, so learn is the fair judge.
+
+| Version | Part | Trades | Avg a trade | PF | t (daily) | Yearly at 25% drop |
+|---|---|---|---|---|---|---|
+| follow 2 sd, 3h | learn | 944 | +0.005% | 1.04 | +0.30 | +0.8% |
+| | check | 1955 | −0.003% | 0.99 | −0.15 | −1.6% |
+| follow 3 sd, 3h | learn | 379 | +0.030% | 1.23 | +0.94 | +3.7% |
+| | check | 760 | −0.044% | 0.83 | −1.26 | −6.0% |
+| follow 2 sd, 1h | learn | 1187 | −0.012% | 0.88 | −1.27 | −3.4% |
+| | check | 2399 | −0.021% | 0.87 | −1.54 | −5.0% |
+| follow 2 sd, 3h, no costs (diagnostic) | learn | 944 | +0.020% | 1.15 | +1.12 | +8.3% |
+| | check | 1955 | +0.002% | 1.01 | +0.09 | −0.3% |
+
+**Verdict: rejected.** It's flat. In 2018–22 big drops kept going but big rises reversed, so the two sides cancel. On learn there's a faint edge before costs (+0.02% a trade), which the spread takes. Round 14's "drops keep going" was a one-sided pattern of a falling-market period, not a stable intraday effect.
+
+**Tally:** 15 rounds, 14 families. Nothing passes check except the passive gold + US500 hold, which failed its locked look once costs were realistic (round 13).

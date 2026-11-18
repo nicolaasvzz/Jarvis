@@ -36,3 +36,17 @@ def test_no_peeking_at_the_future():
         part = trades("US500", h.iloc[:k].reset_index(drop=True), SnapParams(), 0.01)
         last = int(h["time"].iat[k - 1])
         assert part == [x for x in full if x["exit_time"] < last]
+
+
+def test_follow_trades_both_ways_with_the_move():
+    h = _hourly()
+    snap = trades("US500", h, SnapParams(cost_bp=0), 0.01)
+    fol = trades("US500", h, SnapParams(cost_bp=0, follow=True), 0.01)
+    assert {x["side"] for x in fol} == {1, -1}
+    shorts = {x["fill_time"]: x["ret"] for x in fol if x["side"] < 0}
+    for x in snap:      # after the same big drop, following is exactly the opposite bet
+        if x["fill_time"] in shorts:
+            assert abs(shorts[x["fill_time"]] + x["ret"]) < 1e-12
+    part = trades("US500", h.iloc[:2000].reset_index(drop=True), SnapParams(follow=True), 0.01)
+    full = trades("US500", h, SnapParams(follow=True), 0.01)
+    assert part == [x for x in full if x["exit_time"] < int(h["time"].iat[1999])]

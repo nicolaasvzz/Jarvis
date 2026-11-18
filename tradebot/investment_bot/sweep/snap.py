@@ -36,12 +36,13 @@ class SnapParams:
     hour_from: int = 16      # the cash session, by candle start hour (server time)
     hour_to: int = 21        # last candle that may signal (so the exit is before the close)
     cost_bp: float = 1.0
+    follow: bool = False     # True: trade WITH a big move (short after a big drop, long after a big rise)
 
     def label(self) -> str:
         d = SnapParams()
         diff = [f"{f.name}={getattr(self, f.name)}" for f in fields(self)
                 if getattr(self, f.name) != getattr(d, f.name)]
-        return f"snap-back {self.k} sd, hold {self.hold}h" + (f" ({', '.join(diff)})" if diff else "")
+        return f"{'follow' if self.follow else 'snap-back'} {self.k} sd, hold {self.hold}h" + (f" ({', '.join(diff)})" if diff else "")
 
 
 def trades(symbol: str, h1: pd.DataFrame, p: SnapParams, point: float) -> list[dict[str, Any]]:
@@ -55,14 +56,18 @@ def trades(symbol: str, h1: pd.DataFrame, p: SnapParams, point: float) -> list[d
     for i in range(p.vol_n, len(h1) - p.hold - 1):
         if i <= busy_until or not (p.hour_from <= hour[i] <= p.hour_to):
             continue
-        if not ret[i] < -p.k * sd[i]:
+        if ret[i] < -p.k * sd[i]:
+            side = -1 if p.follow else 1
+        elif p.follow and ret[i] > p.k * sd[i]:
+            side = 1
+        else:
             continue
         a, b = i + 1, i + 1 + p.hold
         if (t[b] - t[a]) > (p.hold + 1) * 3600:      # a session break inside: skip
             continue
         cost = (max(p.cost_bp * 1e-4 * o[a], spread[a]) + max(p.cost_bp * 1e-4 * o[b], spread[b])) / o[a]
-        r = o[b] / o[a] - 1 - cost
-        out.append({"symbol": symbol, "fill_time": int(t[a]), "exit_time": int(t[b]),
+        r = side * (o[b] / o[a] - 1) - cost
+        out.append({"symbol": symbol, "side": side, "fill_time": int(t[a]), "exit_time": int(t[b]),
                     "r": float(r / 0.01), "ret": float(r)})
         busy_until = b - 1
     return out
