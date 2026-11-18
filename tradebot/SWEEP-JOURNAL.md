@@ -916,3 +916,16 @@ The gap is about 10x. Rule tweaks on swing can't close it, and swing is frozen a
 **Verdict: rejected for the bar.** It's real but tiny after costs.
 
 **Where part 4 stands:** 8 rounds, 8 families, nothing within reach of 18% a year at a 25% drop on unseen data. Two effects were confirmed as real but small: the overnight drift, and swing's +0.08R a trade on fresh markets. On this broker, the costs of trading CFDs (spread, financing, no dividends) take most of what the known edges pay.
+
+## Part 4 round 9: 21:57
+
+**Idea:** the last item on the plan, **a portfolio of swing and a new family**. The only new effect confirmed real was the overnight drift (round 8). Two small edges that don't move together can add up to more than either alone. I tested frozen swing on the 24 fresh markets (1% risk a trade, booked on exit) plus the overnight drift. Each was scaled to the same daily volatility and the two were added, then scaled to a 25% worst drop. Overnight data really starts on 2016-01-26, so learn is 2016–18. (A research script, not bot code: `scratchpad/sweeprun/combo.py`.)
+
+| Part | Swing alone | Overnight alone | Both | Correlation |
+|---|---|---|---|---|
+| learn 2016–18 | t −1.33, −12.0%/yr | t +0.43, +3.7%/yr | t −0.65, −8.7%/yr | −0.03 |
+| check 2018–22 | t +0.17, +0.3%/yr | t +0.38, +1.6%/yr | t +0.39, +1.6%/yr | −0.01 |
+
+**Verdict: rejected.** The two really are unrelated (correlation about 0), but adding two near-zero edges gives near zero. Swing on fresh markets was negative in 2016–18 and flat in 2018–22. Its positive full-history result (+0.084R) came mostly from other years, which fits its quarters: +6.8, +3.8, +2.4, +14.4.
+
+**The plan list is now finished:** trend, momentum, volatility sizing, ranking, index dip-buying, index holding, turn of month, non-forex trend, overnight drift, and the portfolio. **Nothing has passed check, so nothing has earned a locked look.**
