@@ -206,14 +206,16 @@ def all_trades(p: TrendParams, fr: dict[str, pd.DataFrame]) -> list[dict[str, An
 
 
 def bench(versions: list[TrendParams], say: Callable[[str], None] = print,
-          fr: dict[str, pd.DataFrame] | None = None) -> list[dict[str, Any]]:
+          fr: dict[str, pd.DataFrame] | None = None,
+          split: tuple[int, int, int] = (T0, LEARN_END, CHECK_END)) -> list[dict[str, Any]]:
     """Learn and check results for each version. The locked part is never shown here."""
     fr = fr if fr is not None else frames()
+    t0, learn_end, check_end = split
     rows = []
     for v in versions:
         tr = all_trades(v, fr)
-        row = {"version": v.label(), "learn": window(tr, T0, LEARN_END),
-               "check": window(tr, LEARN_END, CHECK_END)}
+        row = {"version": v.label(), "learn": window(tr, t0, learn_end),
+               "check": window(tr, learn_end, check_end)}
         rows.append(row)
         for part in ("learn", "check"):
             w = row[part]

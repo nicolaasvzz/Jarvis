@@ -870,3 +870,24 @@ The gap is about 10x. Rule tweaks on swing can't close it, and swing is frozen a
 **Six families now, all failing check** (trend, momentum, dip-buying, index holding, ranking, turn of month).
 
 **Next:** the one consistent pattern across rounds 1, 2 and 5 is that forex drags while **metals and indices lean positive** in both learn and check. Round 7 tests trend-following on the **13 non-forex markets only**. Caveat up front: choosing that subset uses what earlier rounds showed (including check), so if it passes check, only its one locked look can say whether it's real.
+
+## Part 4 round 7: 21:27
+
+**Idea:** rounds 1, 2 and 5 all showed forex dragging while metals and indices leaned positive. So test the trend rules on the **16 non-forex markets** (12 indices plus gold, silver, platinum and palladium), using the 2012 index split so learn contains indices. (`trend.bench` now takes a split.)
+
+| Version | Part | Trades/yr | Avg R | t | Yearly at 25% drop | Metals / indices |
+|---|---|---|---|---|---|---|
+| breakout 50/20 | learn 2012–18 | 32 | −0.222 | −2.22 | −3.7% | −0.232 / −0.215 |
+| | check 2018–22 | 49 | +0.027 | +0.24 | −0.3% | +0.160 / −0.034 |
+| breakout 100/50 | learn | 14 | −0.337 | −1.61 | −1.8% | −0.467 / −0.226 |
+| | check | 24 | −0.045 | −0.26 | −3.4% | −0.216 / +0.051 |
+| 12-month momentum | learn | (index-months) | +0.027 | +0.56 | +2.3% | −0.018 / +0.042 |
+| | check | | −0.042 | −0.98 | −4.5% | +0.050 / −0.073 |
+| 12-month momentum, long only | learn | | +0.034 | +0.71 | +4.0% | −0.014 / +0.050 |
+| | check | | −0.000 | −0.03 | −0.8% | +0.078 / −0.026 |
+
+**Verdict: rejected.** The "non-forex leans positive" pattern was small and came from the 2000–2018 windows. In 2012–22 it disappears: metals and indices take turns being positive, and never in both parts at once. Leaving forex out doesn't create an edge; it only removes a drag.
+
+**Seven rounds, seven rejections.** Every daily, multi-day and multi-week idea from the plan list has now been tried. The list is done: trend, volatility sizing (built into rounds 2, 4, 5 and 6), cross-market ranking, mean reversion on indices, and holding. The portfolio-with-swing step has nothing positive to combine with.
+
+**Next:** one shorter-term, well-documented effect that daily candles can't see. The **overnight drift** in US stock indices: historically most of their gains came while the cash market was closed, between the close and the next open. Tested on hourly candles, and only if the hourly index history reaches back far enough.
