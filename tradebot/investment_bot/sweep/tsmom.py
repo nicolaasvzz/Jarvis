@@ -58,7 +58,8 @@ class MomParams:
         head = {"momentum": f"momentum {self.lookback}d", "hold": "hold long",
                 "above_ma": f"hold long over MA{self.ma_n}",
                 "rank": f"rank {self.lookback}d top/bottom {self.rank_k}",
-                "tom": f"turn of month (last {self.tom_before}, first {self.tom_after})"}[self.mode]
+                "tom": f"turn of month (last {self.tom_before}, first {self.tom_after})",
+                "halloween": "hold Nov-Apr, flat May-Oct"}[self.mode]
         return head + (f" ({', '.join(diff)})" if diff else "")
 
 
@@ -96,7 +97,11 @@ def weights(c: pd.DataFrame, p: MomParams) -> pd.DataFrame:
         on = turn_of_month(c.index, p.tom_before, p.tom_after).astype(float)
         side = (c * 0 + 1).mul(on, axis=0)
         return (side * (p.target_vol / vol)).clip(0, p.max_lev).where(c.notna() & vol.notna())
-    if p.mode == "hold":
+    if p.mode == "halloween":
+        # Decided at each month's last close for the month ahead: long for November..April.
+        ahead = (c.index.to_period("M") + 1).month
+        side = (c * 0 + 1).mul(np.isin(ahead, [11, 12, 1, 2, 3, 4]).astype(float), axis=0).where(c.notna())
+    elif p.mode == "hold":
         side = (c * 0 + 1).where(c.notna())
     elif p.mode == "above_ma":
         side = (c > c.rolling(p.ma_n).mean()).astype(float).where(c.rolling(p.ma_n).mean().notna())

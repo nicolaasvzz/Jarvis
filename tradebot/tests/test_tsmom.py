@@ -82,3 +82,14 @@ def test_turn_of_month_window_is_calendar_only():
     full, _ = returns(c, sp, MomParams(mode="tom"))
     part, _ = returns(c.iloc[:640], sp.iloc[:640], MomParams(mode="tom"))
     pd.testing.assert_series_equal(part, full.iloc[:640], check_names=False)
+
+
+def test_halloween_holds_november_to_april_only():
+    c, sp = _panel()
+    w = weights(c, MomParams(mode="halloween"))["AAAUSD"].dropna()
+    held = w.groupby(w.index.month).apply(lambda x: (x > 0).mean())
+    # A month-end close decides the month ahead, so its own last day already carries it.
+    assert held[[12, 1, 2, 3]].min() > 0.9 and held[[6, 7, 8, 9]].max() < 0.1
+    full, _ = returns(c, sp, MomParams(mode="halloween"))
+    part, _ = returns(c.iloc[:700], sp.iloc[:700], MomParams(mode="halloween"))
+    pd.testing.assert_series_equal(part, full.iloc[:700], check_names=False)

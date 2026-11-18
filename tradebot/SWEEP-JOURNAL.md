@@ -1097,3 +1097,16 @@ The gap is about 10x. Rule tweaks on swing can't close it, and swing is frozen a
 **Verdict: rejected.** The drift is smaller than one round-trip spread, and it was also weaker in 2016–21 (+0.006% a day, about 6 times smaller than 2009–16). A daily in-and-out trade can't capture an edge smaller than its own cost. Only someone already holding gold collects it for free, the same lesson as the overnight drift in round 8.
 
 **The repeating lesson:** rounds 8, 16 and 17 found real, documented time-of-day drifts (US indices overnight, gold in Asian hours). Each is 1–4bp a day, and this broker's spread is 1–3bp a side. Session-timing edges are real but too thin for a retail CFD account.
+
+## Part 4 round 18: 00:12
+
+**Idea:** the **Halloween effect** ("sell in May"): hold stock indices from November to April and stay flat May to October. It's one of the few calendar effects published as holding up out-of-sample across many countries and decades, and being flat half the year halves the financing that hurt round 4. (`tsmom.py`, mode `halloween`: decided at each month's last close for the month ahead, volatility-sized per index. Test: held Dec–Mar and not Jun–Sep, no-peek.) Twelve indices, index split, compared with plain holding (round 4).
+
+| Version | Part | Avg R (index-month) | PF | t (daily) | Yearly at 25% drop | Quarters |
+|---|---|---|---|---|---|---|
+| Nov–Apr only | learn 2012–18 | +0.053 | 2.40 | +1.75 | +13.0% | +19.8, +4.1, −2.1, +21.8 |
+| | check 2018–22 | −0.029 | 0.83 | −0.02 | −0.6% | +5.1, −39.1, +39.4, −23.5 |
+| hold all year (round 4) | learn | +0.078 | 1.99 | +1.91 | +14.6% | |
+| | check | −0.028 | 0.90 | −0.16 | −1.6% | |
+
+**Verdict: rejected.** It's worse than plain holding on learn (+13.0% against +14.6%) and only marginally better on check (−0.6% against −1.6%). The keep rule needs better on both. Its winter window also caught the February–March 2020 crash, which shows a calendar rule gives no protection from shocks. Even if it worked, the best it could be is index exposure for half the year, which round 4 showed can't reach 18%.
