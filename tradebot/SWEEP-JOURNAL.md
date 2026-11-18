@@ -987,3 +987,41 @@ The gap is about 10x. Rule tweaks on swing can't close it, and swing is frozen a
 **Verdict: rejected.** It's negative on learn even with no costs, and after costs negative everywhere. Pairs also need 6–13x leverage to reach a 25% drop, because a market-neutral position moves very little, so every cost is multiplied too. Two legs mean two spreads and two financing charges on a small edge.
 
 **Twelve rounds, twelve families, nothing passes check.** Next round takes stock rather than adding a thirteenth guess.
+
+## Part 4 round 13: 22:57, stock-take and the one locked look
+
+**All part 4 families so far** (yearly return at the size that keeps the worst drop at 25%, after costs):
+
+| Round | Family | Learn | Check | Status |
+|---|---|---|---|---|
+| 1 | daily breakout trend, 45 markets | −2.0% | −3.4% | failed check |
+| 2 | 12-month momentum, 45 markets | −1.2% | −2.7% | failed check |
+| 3 | buy index dips (RSI2) | +16.0% | −1.0% | failed check |
+| 4 | hold the 12 indices | +14.6% | −1.6% | reference only |
+| 5 | cross-market ranking | −0.6% | −2.3% | failed check |
+| 6 | turn of the month, indices | −3.4% | −0.6% | failed learn |
+| 7 | trend/momentum on metals + indices | −3.7% to +4.0% | −0.3% to −4.5% | failed check |
+| 8 | overnight drift, US indices | +1.4% | +1.5% | real, too small |
+| 9 | swing + overnight portfolio | −8.7% | +1.6% | failed |
+| 10 | two-sided mean reversion, forex | −2.5% | −3.4% | failed, no edge before costs |
+| 11 | equal-risk hold, gold + US500 | +6.5% | +6.6% | steady, but passive and hindsight |
+| 12 | pairs (market-neutral) | −4.3% | −1.6% | failed, no edge before costs |
+
+**The one locked look.** Only one candidate held up on both learn and check: round 11's equal-risk gold + US500 hold. It got its single look at the locked part (2022-08-05 to 2026-11-18), at the size chosen on learn + check (x1.91, about 1.3x the account in positions). It's recorded in `research_lab/locked_looks.json`.
+
+| | Yearly | Worst drop | t | PF | Quarters |
+|---|---|---|---|---|---|
+| as modelled (2% financing) | **+22.1%** | 14% | +2.67 | 2.25 | +3.9, +13.3, +11.4, +3.8 |
+| with 4% financing | +19.0% | 15% | | | |
+| **with 6% financing (realistic for 2023–26)** | **+16.0%** | 15% | | | |
+| with 7% financing | +14.5% | 16% | | | |
+
+**Verdict: does NOT clear the bar honestly.**
+1. **Financing was under-modelled.** The 2% a year assumption fits 2012–22, when interest rates were near zero. From 2023 to 2025 rates were about 5%, and a broker charges roughly rate + 2.5% to hold a leveraged CFD. At a realistic 6% the locked result is +16%, under 18%. (This corrects a cost; it tunes nothing. The failed families were all judged on 2018–22, when 2% was fair, so their verdicts stand.)
+2. **Hindsight.** Gold and US500 were picked in round 11 because they're the two famous winners, and the locked window (2022–26) is exactly when gold doubled and US stocks boomed. On learn and check, where luck was neutral, the same holding made +6.5% a year.
+3. **It's passive.** It earns what the two markets earn; there's no trading edge in it. A real fund (or an ETF) holds the same exposure without paying a spread or CFD financing.
+
+**What part 4 has established:**
+- On this broker's 45 markets since 2000, after real costs, **no active trading rule tried here beats simply holding**, and **holding a diversified pair made about 6–7% a year at a 25% drop** in neutral years.
+- Reaching 18% a year in dollars at a 25% drop needed a boom (2022–26) on top of that.
+- **Next rounds:** few untried ideas remain that this data can test fairly. The rounds continue until 08:00, as agreed.
