@@ -891,3 +891,28 @@ The gap is about 10x. Rule tweaks on swing can't close it, and swing is frozen a
 **Seven rounds, seven rejections.** Every daily, multi-day and multi-week idea from the plan list has now been tried. The list is done: trend, volatility sizing (built into rounds 2, 4, 5 and 6), cross-market ranking, mean reversion on indices, and holding. The portfolio-with-swing step has nothing positive to combine with.
 
 **Next:** one shorter-term, well-documented effect that daily candles can't see. The **overnight drift** in US stock indices: historically most of their gains came while the cash market was closed, between the close and the next open. Tested on hourly candles, and only if the hourly index history reaches back far enough.
+
+## Part 4 round 8: 21:42
+
+**Idea:** the **overnight drift** in US stock indices (`sweep/overnight.py`). Historically most US index gains came while the cash market was closed. Hourly candles show the cash session in server time: volume jumps at about 16:30 and drops after 23:00. The rule: buy at the close of the 22:00 candle (the US close), sell at the open of the next trading day's 16:00 candle (just before the cash open), flat all day. The times are calendar only, so nothing peeks. Costs are the spread or 1bp per side, plus financing per calendar night (3 over a weekend). Markets: US500, US30, US2000 (hourly from Aug 2012) and USTEC (from 2022). Tests: each night runs close-to-next-open exactly, no-peek, and weekends cost more. The split is the index split.
+
+**Data caveat:** the learn part has nights only from about mid-2015. Before that the hourly candles have no 22:00 candle, because the server used different session hours. Learn is effectively 2015–18.
+
+| Version | Part | Nights | Avg a night | PF | t (daily) | Yearly at 25% drop |
+|---|---|---|---|---|---|---|
+| long the night, exit 16:00 | learn | 1559 | +0.011% | 1.08 | +0.43 | +1.4% |
+| | check | 3220 | +0.010% | 1.04 | +0.38 | +1.5% |
+| exit 17:00 (after the opening half-hour) | learn | 1559 | +0.028% | 1.18 | +1.28 | +6.7% |
+| | check | 3223 | +0.013% | 1.04 | +0.45 | +1.7% |
+| **control: short the night** | learn | 1559 | −0.070% | 0.62 | **−3.76** | −4.5% |
+| | check | 3220 | −0.073% | 0.77 | **−2.67** | −5.9% |
+| no costs (diagnostic) | learn | 1559 | +0.033% | 1.25 | +1.71 | +10.4% |
+| | check | 3220 | +0.022% | 1.08 | +0.83 | +4.6% |
+
+**What it shows:**
+- **The drift is real.** Shorting the night loses decisively in both parts (t −3.8 and −2.7), and holding it long makes +0.02–0.03% a night before costs. It's the clearest real effect of the night.
+- **It's too small to trade on this broker.** The spread (about 2bp a round trip) plus financing eat about two thirds of it, leaving 1.4–1.7% a year at a 25% drop. A fund holding stocks earns the night for free, because it never pays a spread to get in and out.
+
+**Verdict: rejected for the bar.** It's real but tiny after costs.
+
+**Where part 4 stands:** 8 rounds, 8 families, nothing within reach of 18% a year at a 25% drop on unseen data. Two effects were confirmed as real but small: the overnight drift, and swing's +0.08R a trade on fresh markets. On this broker, the costs of trading CFDs (spread, financing, no dividends) take most of what the known edges pay.
