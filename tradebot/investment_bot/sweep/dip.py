@@ -48,6 +48,7 @@ class DipParams:
     sides: int = 1           # 1 = buy dips only; 0 = also sell short sharp rises (the mirror rule)
     entry: str = "rsi"       # "rsi"; "volspike" = buy when 10-day volatility is spike x the 100-day
     spike: float = 1.5
+    calm: bool = False       # only enter while 20-day volatility is below its own 1-year median
 
     def label(self) -> str:
         d = DipParams()
@@ -81,6 +82,8 @@ def run(symbol: str, df: pd.DataFrame, p: DipParams, point: float) -> list[dict[
     r_ = rsi(c, p.rsi_n)
     lr = pd.Series(np.log(c)).diff()
     vol_ratio = (lr.rolling(10).std() / lr.rolling(100).std()).to_numpy()
+    v20 = lr.rolling(20).std()
+    is_calm = (v20 < v20.rolling(252).median()).to_numpy()
 
     def cost(i: int, price: float) -> float:
         return max(p.cost_bp * 1e-4 * price, spread[i])
@@ -126,7 +129,7 @@ def run(symbol: str, df: pd.DataFrame, p: DipParams, point: float) -> list[dict[
             pos["mark"] = mark
             if (p.exit_ma and pos["side"] * (c[i] - xma[i]) > 0) or pos["bars"] >= p.max_days:
                 leave = True
-        if pos is None and not leave:
+        if pos is None and not leave and (not p.calm or is_calm[i]):
             up = not p.ma_n or c[i] > ma[i]
             down = not p.ma_n or c[i] < ma[i]
             if p.entry == "volspike":

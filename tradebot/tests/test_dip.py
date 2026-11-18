@@ -70,3 +70,12 @@ def test_vol_spike_buys_after_a_volatility_jump_and_does_not_peek():
     assert tr and near > len(tr) / 2                         # mostly at the bursts (a 10-day estimate is noisy)
     part = run("US500", df.iloc[:900].reset_index(drop=True), p, 0.01)
     assert part == [x for x in tr if x["exit_time"] <= int(df["time"].iat[899])]
+
+
+def test_calm_filter_only_trades_when_volatility_is_low():
+    df = _daily(n=1500, seed=9)
+    calm = run("US500", df, DipParams(calm=True), 0.01)
+    every = run("US500", df, DipParams(), 0.01)
+    assert len(calm) < len(every)
+    part = run("US500", df.iloc[:1000].reset_index(drop=True), DipParams(calm=True), 0.01)
+    assert part == [x for x in calm if x["exit_time"] <= int(df["time"].iat[999])]

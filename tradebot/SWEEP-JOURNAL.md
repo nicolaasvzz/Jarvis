@@ -1165,3 +1165,18 @@ The gap is about 10x. Rule tweaks on swing can't close it, and swing is frozen a
 **Verdict: rejected.** It's the same story as round 3, more sharply: superb in 2012–18 (+22–28% a year, every quarter positive) and nothing in 2018–22. Buying the early Covid sell-off and the 2022 bear market meant buying panics that kept going (the −14.7 and −24.7 quarters). Then 2020's rebound paid some back.
 
 **What 21 rounds keep showing:** every index rule that buys weakness looks brilliant on 2012–18, one long, calm bull market, and earns nothing on 2018–22. Learn-period success on indices is a poor guide here. Only the check part has been honest.
+
+## Part 4 round 22: 01:12
+
+**Idea:** rounds 3 and 21 both show that buying index dips works in calm markets and fails in turbulent ones. The principled fix is a **calm-market filter**: only buy round 3's dip (RSI2 under 10, over MA200) while the index's 20-day volatility is below its own 1-year median (`dip.py`, `calm=True`). **Caveat:** the idea comes from where the check failures were, so check is partly hindsight. Test: fewer trades than without the filter, no-peek. Twelve indices, index split.
+
+| Version | Part | Trades/yr | Win | Avg R | t | PF | Yearly at 25% drop | Quarters |
+|---|---|---|---|---|---|---|---|---|
+| dip + calm filter | learn | 18 | 77% | **+0.111** | **+2.45** | 2.17 | +14.9% | +2.4, +1.7, +2.8, +4.3 |
+| | check | 38 | 74% | **+0.038** | **+0.70** | 1.25 | **+3.7%** | −1.1, −1.4, +10.0, −1.4 |
+| dip (round 3) | learn | 33 | 75% | +0.095 | +2.21 | 1.79 | +16.0% | |
+| | check | 53 | 70% | −0.001 | −0.01 | 1.00 | −1.0% | |
+
+**Verdict: kept as the dip family's version** (better average R and t on both parts). The yearly figure on learn is slightly lower because it trades about half as often. **It doesn't get a locked look:** +3.7% a year on check is nowhere near 18%. The filter removes most of the damage from turbulent periods, but what's left is a small edge.
+
+**Champion of the dip family:** RSI2<10 over MA200, only while 20-day volatility is under its 1-year median, sell on a close over the 5-day average or after 10 days, 3 ATR stop.
