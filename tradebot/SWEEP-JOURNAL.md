@@ -240,3 +240,29 @@ All rejected: each helps learn but hurts check.
 **Champions now:**
 - swing: min 3.5R, max 4R, half at 1.5R, break 1.2, swings 3/5/5, hold 2x
 - intraday: unchanged
+
+## Iteration 10: 02:50 (robustness check)
+
+**Question:** is swing's gain a real plateau or a sharp, fitted peak? I nudged every kept setting a little either way and doubled the costs. A fitted result collapses when you nudge it.
+
+**Results** (champion: learn t +0.81, check +1.64):
+
+| Change | Learn t | Check t |
+|---|---|---|
+| Costs 2bp (doubled) | +0.42 | +1.53 |
+| Min 3.25R | +0.37 | +1.46 |
+| Min 3.75R | +0.55 | +1.24 |
+| Break 1.0 | +2.05 | +1.33 |
+| Break 1.4 | +0.35 | +2.53 |
+| Half at 1.25R | +0.90 | +1.56 |
+| Half at 1.75R | +0.46 | +1.59 |
+| Target swings 4 | **+1.02** | **+1.66** |
+| Zone swings 4 | +0.81 | +1.93 |
+
+**Verdict:**
+- **Every neighbour stays positive on both parts**, including doubled costs. That's a broad plateau, not a spike, which is the best evidence so far that something real is there.
+- Target swings 4 is better on both, so **kept** (a small step).
+- By symbol: gold, USDCAD, USDZAR, GBPJPY and EURUSD carry it, while EURGBP, AUDUSD and AUDJPY lose. No market is dropped, because picking markets by their results is just fitting.
+- Shorts make it; longs are flat. Noted, but not acted on.
+
+**Champion now:** swing with min 3.5R, max 4R, half at 1.5R, break 1.2, swings 3/5/4, hold 2x. Learn +0.079R (t 1.02), check +0.149R (t 1.66).
