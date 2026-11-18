@@ -94,6 +94,7 @@ class Params:
     sweep_in_zone: bool = False # the sweep's extreme must stay inside the zone (a wick into it, not through it)
     enter_on_close: bool = False  # enter at the confirmation candle's close instead of waiting for a pullback
     cluster_atr: float = 0.0  # target only "equal highs/lows": another untaken level within this many higher-chart ATRs
+    zone_touches: int = 1     # how many separate visits a zone gets (price must leave it in between)
 
     def label(self) -> str:
         bits = [f"rr>={self.min_rr:g}"]
@@ -108,6 +109,8 @@ class Params:
             bits.append("buy cheap / sell dear")
         if self.trail_swings:
             bits.append("trail to swings" + (f" after {self.trail_after_r:g}R" if self.trail_after_r else ""))
+        if self.zone_touches > 1:
+            bits.append(f"{self.zone_touches} visits per zone")
         if self.cluster_atr:
             bits.append(f"equal-level targets ({self.cluster_atr:g} ATR)")
         if self.sweep_in_zone:
@@ -357,12 +360,20 @@ class Engine:
                 if a is not None:
                     dead = (side == 1 and c_[j] < a["zone"]["lo"]) or (side == -1 and c_[j] > a["zone"]["hi"])
                     if dead or not trend_ok or j - a["start"] > arm_bars:
-                        a["zone"]["used"] = True
+                        z0 = a["zone"]
+                        z0["visits"] = z0.get("visits", 0) + 1
+                        z0["away"] = False
+                        if dead or z0["visits"] >= p.zone_touches:
+                            z0["used"] = True
                         arm[side] = a = None
                 if a is None:
                     if not trend_ok:
                         continue
+                    for z in zones:   # a revisit needs price to have left the zone first
+                        if z.get("visits") and ((side == 1 and l_[j] > z["hi"]) or (side == -1 and h_[j] < z["lo"])):
+                            z["away"] = True
                     touched = [z for z in zones if z["side"] == side and not z["used"]
+                               and (not z.get("visits") or z.get("away"))
                                and ((side == 1 and l_[j] <= z["hi"] and c_[j] >= z["lo"])
                                     or (side == -1 and h_[j] >= z["lo"] and c_[j] <= z["hi"]))]
                     if not touched:

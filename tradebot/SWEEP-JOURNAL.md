@@ -401,3 +401,23 @@ All much worse. Skipping the nearest single level means aiming further away, whi
 Big gains on learn, collapses on check: the overfitting pattern again. Rejected.
 
 **Kept:** nothing.
+
+## Round 16: 10:17
+
+(The 09:47 timer fired while the machine was busy. This is one round.)
+
+**Idea (a new engine rule): second-touch entries.** Until now a zone got one visit. If the setup didn't confirm in time, the zone was thrown away. Many traders say a zone that held once and is revisited is still good. Allow 2 or 3 separate visits, with price leaving the zone in between.
+
+**Tried, swing** (champion: learn t +1.02, check +1.66):
+- 2 visits: +0.44 / +0.82 (501 and 380 trades). Worse.
+- 3 visits: +0.24 / +1.12. Worse.
+
+**Tried, intraday** (champion: +0.17 / +0.90):
+- 2 visits: +1.24 / +0.34
+- 3 visits: +1.25 / −0.01
+
+Better on learn, collapses on check. Rejected.
+
+**Kept:** nothing.
+
+**Learned:** fresh zones only (the videos' rule) is right. Second visits add trades, and they're worse trades.
