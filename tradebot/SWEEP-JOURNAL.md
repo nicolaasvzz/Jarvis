@@ -832,3 +832,22 @@ The gap is about 10x. Rule tweaks on swing can't close it, and swing is frozen a
 **Verdict:** not a candidate (check negative). Index exposure is closed as an edge on its own.
 
 **Next:** relative strength **across** markets rather than each market alone. Rank all 45 by their past performance and hold only the strongest few. That doesn't need the market as a whole to rise, which is exactly what failed in 2018–22.
+
+## Part 4 round 5: 20:57
+
+**Idea:** **relative strength across markets** (`tsmom.py`, mode `rank`). At each month end, all 45 markets are scored by their lookback return per unit of their own volatility. The bot goes long the 5 strongest and short the 5 weakest, volatility-sized, with the same costs and financing. It doesn't need markets as a whole to rise, which is what failed in rounds 3–4. Test: the riser is mostly the long, the faller mostly the short, at most 2k positions, no-peek. The split is the 45-market one (from 2000).
+
+| Version | Part | Avg R | PF | t (daily) | Yearly at 25% drop | Groups (forex / metals / indices) |
+|---|---|---|---|---|---|---|
+| 12-month rank, top/bottom 5 | learn | −0.002 | 0.97 | −0.15 | −0.6% | −0.007 / +0.023 / none |
+| | check | −0.015 | 0.85 | −0.62 | −2.3% | −0.036 / +0.019 / +0.024 |
+| 6-month rank | learn | −0.013 | 0.87 | −1.04 | −2.4% | |
+| | check | −0.023 | 0.78 | −0.25 | −1.1% | |
+| 12-month, long the top 5 only | learn | +0.003 | 1.08 | +0.58 | +1.3% | |
+| | check | +0.001 | 1.02 | +0.29 | +0.5% | |
+
+**Verdict: rejected.** It's flat everywhere, and forex drags again while metals and indices lean slightly positive, the same pattern as rounds 1–2.
+
+**Where part 4 stands after 5 rounds:** trend, momentum, dip-buying, index holding and cross-market ranking all fail check. The one honest positive out-of-sample result in the whole project is still swing (+0.084R a trade on fresh markets, about +1.5% a year at 1% risk). These are the textbook edges, and on this broker's markets since 2000 (mostly currency pairs, index CFDs without dividends, 2% a year financing) none of them pays enough to reach 18% at a 25% drop.
+
+**Next:** an effect that holds positions only a few days a month, so financing barely matters: the **turn of the month in stock indices**. Equity gains have historically clustered in the last trading day and the first few days of each month, when salaries and pension money flow in.

@@ -43,16 +43,19 @@ class MomParams:
     sides: int = 0           # 0 both, 1 long only
     cost_bp: float = 1.0
     finance_pa: float = 0.02
-    mode: str = "momentum"   # "momentum"; "hold" (always long); "above_ma" (long over the ma_n-day average)
+    mode: str = "momentum"   # "momentum"; "hold" (always long); "above_ma" (long over the ma_n-day average);
+                             # "rank" (long the rank_k strongest markets, short the rank_k weakest)
     ma_n: int = 200
+    rank_k: int = 5
 
     def label(self) -> str:
         d = MomParams()
-        skip = {"lookback", "mode"} | ({"ma_n"} if self.mode != "above_ma" else set())
+        skip = {"lookback", "mode"} | ({"ma_n"} if self.mode != "above_ma" else set())             | ({"rank_k"} if self.mode != "rank" else set())
         diff = [f"{f.name}={getattr(self, f.name)}" for f in fields(self)
                 if getattr(self, f.name) != getattr(d, f.name) and f.name not in skip]
         head = {"momentum": f"momentum {self.lookback}d", "hold": "hold long",
-                "above_ma": f"hold long over MA{self.ma_n}"}[self.mode]
+                "above_ma": f"hold long over MA{self.ma_n}",
+                "rank": f"rank {self.lookback}d top/bottom {self.rank_k}"}[self.mode]
         return head + (f" ({', '.join(diff)})" if diff else "")
 
 
@@ -79,6 +82,14 @@ def weights(c: pd.DataFrame, p: MomParams) -> pd.DataFrame:
         side = (c * 0 + 1).where(c.notna())
     elif p.mode == "above_ma":
         side = (c > c.rolling(p.ma_n).mean()).astype(float).where(c.rolling(p.ma_n).mean().notna())
+    elif p.mode == "rank":
+        # Strength = the lookback's return per unit of its own volatility, compared across markets.
+        score = (c / c.shift(p.lookback) - 1) / (vol * math.sqrt(p.lookback / 252))
+        n_ok = score.notna().sum(axis=1)
+        top = score.rank(axis=1, ascending=False) <= p.rank_k
+        bottom = score.rank(axis=1, ascending=True) <= p.rank_k
+        side = top.astype(float) - (bottom.astype(float) if p.sides <= 0 else 0.0)
+        side = side.mul((n_ok >= 2 * p.rank_k).astype(float), axis=0).where(c.notna())
     else:
         side = np.sign(c / c.shift(p.lookback) - 1)
     if p.sides > 0:

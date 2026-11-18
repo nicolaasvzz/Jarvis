@@ -59,3 +59,14 @@ def test_hold_modes_are_long_only():
     full, _ = returns(c, sp, MomParams(mode="above_ma", ma_n=100))
     part, _ = returns(c.iloc[:600], sp.iloc[:600], MomParams(mode="above_ma", ma_n=100))
     pd.testing.assert_series_equal(part, full.iloc[:600], check_names=False)
+
+
+def test_rank_holds_the_strongest_long_and_the_weakest_short():
+    c, sp = _panel()
+    w = weights(c, MomParams(mode="rank", rank_k=1, lookback=120)).dropna(how="all")
+    assert (w["AAAUSD"] > 0).mean() > (w["AAAUSD"] < 0).mean()   # the riser is mostly the long
+    assert (w["BBBUSD"] < 0).mean() > (w["BBBUSD"] > 0).mean()   # the faller mostly the short
+    assert ((w.fillna(0) != 0).sum(axis=1) <= 2).all()
+    full, _ = returns(c, sp, MomParams(mode="rank", rank_k=1, lookback=120))
+    part, _ = returns(c.iloc[:700], sp.iloc[:700], MomParams(mode="rank", rank_k=1, lookback=120))
+    pd.testing.assert_series_equal(part, full.iloc[:700], check_names=False)
