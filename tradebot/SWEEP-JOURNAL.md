@@ -216,3 +216,27 @@ All four are better on check but none on learn, so all rejected. Intraday has on
 **Champions now:**
 - swing: min 3.5R, max 4R, half at 2R, break 1.2, swings 3/5/5, hold 2x
 - intraday: unchanged
+
+## Iteration 9: 02:20
+
+**Idea:**
+- Swing: bank the half earlier (1.5R), allow a 4.5R cap, or give the stop a little room.
+- Intraday: does swing's whole recipe transfer to the shorter charts? If the edge is real and not fitted, the same rules should help on intraday too.
+
+**Tried, swing** (champion: learn t +0.66, check +1.43):
+- Max 4.5R: +0.59 / +1.72. Rejected: worse on learn.
+- Half at 1.5R: **+0.81 / +1.64** (win 42% and 47%, avg +0.061R and +0.149R). **Kept.**
+- Stop room 0.2: +0.53 / +1.25. Rejected.
+
+**Tried, intraday** (champion: −0.04 / +0.48):
+- Swing's full recipe (without the higher-chart filter and strong zones): −0.66 / **−2.09**. Clearly worse.
+- Swing's recipe on top of intraday's: 0.00 / +0.08
+- Only bigger zone and target swings: +0.14 / +0.14
+
+All rejected: each helps learn but hurts check.
+
+**What that says:** swing's recipe does **not** carry over to the 4h/1h/15m charts. That's a warning sign. Part of swing's improvement may be specific to the daily/4h/1h charts, or it may be fitted. The locked final test at 04:45 will be the judge.
+
+**Champions now:**
+- swing: min 3.5R, max 4R, half at 1.5R, break 1.2, swings 3/5/5, hold 2x
+- intraday: unchanged
