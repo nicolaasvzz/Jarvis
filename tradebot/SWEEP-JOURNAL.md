@@ -1110,3 +1110,24 @@ The gap is about 10x. Rule tweaks on swing can't close it, and swing is frozen a
 | | check | −0.028 | 0.90 | −0.16 | −1.6% | |
 
 **Verdict: rejected.** It's worse than plain holding on learn (+13.0% against +14.6%) and only marginally better on check (−0.6% against −1.6%). The keep rule needs better on both. Its winter window also caught the February–March 2020 crash, which shows a calendar rule gives no protection from shocks. Even if it worked, the best it could be is index exposure for half the year, which round 4 showed can't reach 18%.
+
+## Part 4 round 19: 00:27
+
+(Check of the live forward test, read-only: the process is running, sweep_trader.json was updated at 00:27, and there have been no setups since the 19:42 start.)
+
+**Idea:** **breakout after a quiet day** (`sweep/nr7.py`, the "NR7" pattern), a short-term family not yet tried. When a day's range is the narrowest of the last 7, the next day buy above its high or sell short below its low. The stop is the other side (1R = the quiet day's range). Exit at the close 2 days after entry. On all 45 markets, with the 2000 split. A day that touches both sides can't be ordered from daily candles, so it's **booked as the worst case** (filled, then stopped). Tests: both sides trade, a loss is at most about 1R, holds are at most 3 days, no-peek.
+
+| Version | Part | Trades/yr | Win | Avg R | t | Yearly at 25% drop | Forex / metals / indices |
+|---|---|---|---|---|---|---|---|
+| NR7, hold 2d | learn | 683 | 36% | −0.267 | −9.42 | −2.6% | −0.284 / +0.213 / none |
+| | check | 1008 | 35% | −0.111 | −3.80 | −3.3% | −0.123 / −0.067 / −0.041 |
+| NR7, exit same day | learn | 793 | 39% | −0.217 | −12.32 | −2.6% | −0.232 / +0.215 / none |
+| | check | 1162 | 44% | −0.059 | −3.07 | −3.2% | −0.072 / +0.004 / +0.003 |
+| NR4, hold 2d | learn | 1034 | 36% | −0.256 | −11.51 | −2.6% | |
+| | check | 1551 | 37% | −0.104 | −4.10 | −3.4% | |
+| NR7, no costs (diagnostic) | learn | 683 | 36% | −0.246 | −8.71 | −2.6% | |
+| | check | 1008 | 36% | −0.071 | −2.43 | −3.1% | |
+
+**Why this result can't be trusted either way:** with no costs over learn + check, **26% of the 15,466 trades are stopped on their entry day** (−1.01R each). The other 74% average **+0.35R**. Many entry-day stops are days that touched both sides, which I booked as losses because daily candles can't tell which came first. With a stop only one quiet day's range away, that assumption alone could turn a winner into a loser.
+
+**Verdict: undecided, not kept.** Next round resolves the order of each touch-both-sides day from **hourly candles** (which side was hit first). That's a correctness fix to the simulation, not tuning: the rule stays exactly the same.
