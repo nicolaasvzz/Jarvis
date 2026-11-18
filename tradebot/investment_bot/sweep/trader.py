@@ -15,7 +15,9 @@ places any order the engine made on that candle:
   time limit are closed.
 
 Only proven profiles trade (see ``prove.py``). ``also_unproven`` lets unproven
-ones trade too, for forward testing, and only on a demo account.
+ones trade too, for forward testing, and only on a demo account. An unproven
+profile trades its latest hand-tuned version (``sweep_champions.json``, from the
+workbench), not the untuned defaults.
 A 10% drop from the peak halts everything.
 
 It never logs in: open MetaTrader 5, log in, and turn on **Algo Trading**.
@@ -31,6 +33,7 @@ from typing import Any, Callable
 
 from . import data
 from .engine import DEFAULT, PROFILES, TF_SECONDS, Engine, Params
+from .bench import load_champions as tuned_versions
 from .prove import load_champions, params_of
 
 STATE_FILE = "sweep_trader.json"
@@ -94,8 +97,9 @@ class SweepTrader:
         if self.cfg.also_unproven:
             if self.mt5.account_info().trade_mode != self.mt5.ACCOUNT_TRADE_MODE_DEMO:
                 raise RuntimeError("also_unproven is for demo accounts only.")
+            tuned = tuned_versions()
             for p in self.cfg.profiles:
-                out.setdefault(p, DEFAULT)
+                out.setdefault(p, tuned.get(p, DEFAULT))
         return out
 
     def spec(self, symbol: str) -> data.Spec | None:
