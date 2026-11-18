@@ -697,3 +697,37 @@ The champions tested once on 24 markets never used for any decision (16 forex cr
 **Recommendation:**
 - Forward-test **swing only** on the MT5 demo (`sweep-trade --profiles swing --also-unproven`). That's about 2–3 trades a week across the markets.
 - Revisit after 3 months, or about 30 trades. No real money until the live demo results match.
+
+## Correction, 18 Nov 19:50: how often swing trades
+
+Part 3 said "about 2–3 trades a week". That was wrong. Measured over the full history:
+- fresh 24 markets: 325 trades in 15.9 years, so **20 a year**; tuned 21 markets: 22 a year.
+- Live on the 21 markets, that's **about 2 trades a month**. A 30-trade demo check takes about 15 months, not 3.
+
+## Forward test started, 18 Nov 19:42
+
+Swing only, on the MT5 demo (MetaQuotes-Demo, $100), 1% risk a trade, at most 3 open, halts at a 10% drop. It trades the round-29 version (PR #22 fixed demo mode, which had been trading the untuned defaults). The swing version is now **frozen**: no further changes.
+
+# Part 4: the Fairtree bar (from 18 Nov, 19:50)
+
+**Goal (from Nicolaas):** keep teaching the bot until it's stronger than the best fund that manages money for you.
+
+**The bar.** Fairtree Equity Prescient is the strongest South African-managed fund over 10 years: about 12–18% a year after fees (11.7% in the 10 years to Dec 2024; about 17.7% in an earlier decade window). A version beats it only if, **on data it was never tuned on**, net of costs:
+1. it returns **18%+ a year**, at a risk size where
+2. the **worst drop is 25% or less** (an equity fund's drop in a bad year), and
+3. it passes the luck bar: t at least 1.65, 3 of 4 quarters positive, profit factor at least 1.2, 30+ trades.
+
+**Where swing stands** (compounded, trades in exit order):
+
+| Markets | Trades/yr | R/yr | 1% risk | 2% risk | 3% risk |
+|---|---|---|---|---|---|
+| fresh 24 (never tuned) | 20 | +1.7 | +1.5%/yr, worst drop 16% | +2.7%, 30% | +3.4%, 42% |
+| tuned 21 | 22 | +3.6 | +3.4%, 14% | +6.5%, 26% | +9.2%, 36% |
+
+The gap is about 10x. Rule tweaks on swing can't close it, and swing is frozen anyway. Part 4 looks for **new kinds of trade**: different families that trade more often or earn more a trade, and portfolios that combine them.
+
+**Rules for part 4:**
+- Research runs only in `tradebot/research_lab/` (its own champions file; candles shared read-only from `data_cache`). It never touches the live bot, `sweep_champions.json` in the main folder, or the MT5 terminal: cached candles only.
+- Each new family is developed on the **first 70% of time on all 45 markets** (learn = first 40%, check = next 30%). The **last 30% of time on all 45 markets** is locked for that family, and gets **one** look, when it's ready.
+- A change is kept only if it's better on both learn and check, and doesn't get worse in 2 of the 3 groups.
+- Every round is written here, including what failed.
