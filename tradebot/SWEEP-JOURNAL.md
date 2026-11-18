@@ -948,3 +948,23 @@ The gap is about 10x. Rule tweaks on swing can't close it, and swing is frozen a
 **Verdict: rejected.** With no costs there's no edge either (+0.007R, then −0.009R). The many small trades turn the spread into a steady loss.
 
 **What forex taught over four rounds:** at daily horizons since 2000, currency pairs neither trend (rounds 1, 2, 5) nor revert (this round) enough to pay their spread. They're close to a coin flip. The only forex edge funds famously earn is **carry** (holding high-interest currencies against low-interest ones). That needs the broker's swap rates, which aren't in the cached data. Measuring them would mean touching the live MT5 terminal, which part 4's rules forbid.
+
+## Part 4 round 11: 22:27
+
+**Idea:** round 4 held only stock indices. The classic diversified version adds metals (gold tends to rise when stocks fall) and gives each market an **equal share of the risk**. It uses the existing code (`tsmom.py`, mode `hold`, volatility-sized per market, monthly, with costs and financing) and the index split. **Hindsight caveat:** gold's rise after 2018 is common knowledge, so a good check result here proves little until a locked look.
+
+| Version | Part | Avg R (market-month) | PF | t (daily) | Yearly at 25% drop | Metals / indices |
+|---|---|---|---|---|---|---|
+| hold all 16 non-forex | learn 2012–18 | +0.045 | 1.31 | +1.31 | +7.0% | −0.053 / +0.078 |
+| | check 2018–22 | −0.002 | 0.99 | +0.21 | +0.5% | +0.078 / −0.028 |
+| hold all 16, only above MA200 | learn | +0.022 | 1.29 | +0.38 | +1.2% | |
+| | check | +0.010 | 1.06 | +0.31 | +1.1% | |
+| **hold gold + US500 only** | learn | +0.095 | 1.28 | +1.18 | **+6.5%** | −0.102 / +0.292 |
+| | check | +0.107 | 1.29 | +0.98 | **+6.6%** | +0.126 / +0.088 |
+
+**What it shows:**
+- **Gold + US500, equal risk, simply held, is the steadiest result of part 4:** about +6.5% a year at a 25% drop in both parts. When stocks were strong (2012–18) gold lagged, and when stocks stalled (2018–22) gold carried it. That's diversification working as designed.
+- It's a **passive portfolio, not a trading edge.** It earns what the two markets earn. t is about 1, and it reaches about a third of 18%. It also uses hindsight, because US500 and gold are the two winners everyone knows about.
+- Adding more indices and metals made it worse (+0.5% on check). Spreading wider brought in more weak markets, not more diversification.
+
+**Verdict:** rejected for the bar. It's recorded as the realistic reference: on this broker, about 6–7% a year at a 25% worst drop is what plain held exposure delivered, and no active rule tonight beat it on check.
