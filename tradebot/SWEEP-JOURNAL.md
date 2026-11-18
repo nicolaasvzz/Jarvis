@@ -504,3 +504,26 @@ Both worse.
 - "Hold 2x" and "half at 1.5R" are about neutral. They were marginal keeps and are probably noise. Under the rule they stay, since removing them isn't better on both parts, but they shouldn't be counted as findings.
 
 **Kept:** nothing changed.
+
+## Round 20: 12:24 (intraday ablation)
+
+**Idea:** the same take-each-rule-out test for intraday, where I trust the small filters least.
+
+| Intraday without… | Learn t | Check t | Check avg R | Groups (forex / metals / indices) |
+|---|---|---|---|---|
+| (champion) | +0.17 | +0.90 | +0.233 | +0.187 / +1.230 / −0.159 |
+| no-Fridays | +0.06 | +0.51 | +0.110 | |
+| volatility filter | +0.16 | +1.03 | +0.259 | |
+| both filters | −0.04 | +0.48 | +0.102 | |
+| zones 1.6 | +0.43 | +0.12 | +0.019 | |
+| **bigger swing size (back to 2)** | **+0.28** | **+0.96** | +0.217 | +0.204 / +1.004 / −0.081 |
+| **strong break** | −1.08 | −1.14 | −0.150 | |
+| higher chart agrees | −0.55 | −0.42 | −0.079 | |
+
+**What it shows:**
+- The strong break again carries the version: without it, intraday is clearly negative, the same as swing.
+- The higher-chart-agrees filter is real for intraday.
+- **Dropping the bigger swing size** is better on both parts and in 2 of 3 groups (metals down). **Kept.** The version is simpler and takes more trades (68 and 93).
+- The volatility filter is about neutral (learn 0.17→0.16 without it). It stays by the rule, but it isn't a finding.
+
+**Champion now:** intraday = higher chart agrees, strong break 1.2, zones 1.6, skip volatility over 1.5x, no Fridays.
