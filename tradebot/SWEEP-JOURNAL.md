@@ -631,3 +631,25 @@ None better on both. Rejected.
 - Top 20%: +0.31 / +0.84
 
 **Kept:** nothing. All worse on both parts. A big body is what matters (round 3). Where the candle closes within its range adds nothing.
+
+## Round 27: 14:54
+
+**Ideas:**
+- Swing: a looser fast-turn rule (36 or 48 candles), since 24 helped check but not learn in round 25.
+- Intraday: now that the fast-turn rule is in, are the Friday and volatility filters still needed? A simpler version would be preferable.
+
+**Tried, swing** (champion: learn t +1.02, check +1.66):
+- Within 36: +0.89 / +1.76. Rejected.
+- Within 48: identical to the champion (no setup takes longer).
+
+**Tried, intraday** (champion: +0.64 / +1.23):
+
+| Intraday without… | Learn t | Check t |
+|---|---|---|
+| no-Fridays | +0.16 | +0.86 |
+| volatility filter | +0.56 | +1.29 |
+| both filters | +0.01 | +0.76 |
+
+The Friday filter still holds its weight on this data. The volatility filter is close to neutral (slightly better on check, slightly worse on learn), so under the rule it stays.
+
+**Kept:** nothing.
