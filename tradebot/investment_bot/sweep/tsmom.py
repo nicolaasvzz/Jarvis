@@ -47,15 +47,18 @@ class MomParams:
                              # "rank" (long the rank_k strongest markets, short the rank_k weakest)
     ma_n: int = 200
     rank_k: int = 5
+    tom_before: int = 1      # mode "tom": long over the month's last tom_before weekdays ...
+    tom_after: int = 3       # ... and the next month's first tom_after weekdays, flat otherwise
 
     def label(self) -> str:
         d = MomParams()
-        skip = {"lookback", "mode"} | ({"ma_n"} if self.mode != "above_ma" else set())             | ({"rank_k"} if self.mode != "rank" else set())
+        skip = {"lookback", "mode"} | ({"ma_n"} if self.mode != "above_ma" else set())             | ({"rank_k"} if self.mode != "rank" else set())             | ({"tom_before", "tom_after"} if self.mode != "tom" else set())
         diff = [f"{f.name}={getattr(self, f.name)}" for f in fields(self)
                 if getattr(self, f.name) != getattr(d, f.name) and f.name not in skip]
         head = {"momentum": f"momentum {self.lookback}d", "hold": "hold long",
                 "above_ma": f"hold long over MA{self.ma_n}",
-                "rank": f"rank {self.lookback}d top/bottom {self.rank_k}"}[self.mode]
+                "rank": f"rank {self.lookback}d top/bottom {self.rank_k}",
+                "tom": f"turn of month (last {self.tom_before}, first {self.tom_after})"}[self.mode]
         return head + (f" ({', '.join(diff)})" if diff else "")
 
 
@@ -74,10 +77,25 @@ def panel(fr: dict[str, pd.DataFrame]) -> tuple[pd.DataFrame, pd.DataFrame]:
     return c, sp
 
 
+def turn_of_month(days: pd.DatetimeIndex, before: int, after: int) -> np.ndarray:
+    """For each day: is the NEXT weekday inside the turn-of-month window? Calendar only, no prices."""
+    nxt = (days + pd.offsets.BDay(1)).normalize()
+    d = nxt.values.astype("datetime64[D]")
+    first = nxt.to_period("M").start_time.values.astype("datetime64[D]")
+    last = nxt.to_period("M").end_time.normalize().values.astype("datetime64[D]")
+    from_start = np.busday_count(first, d) + 1          # 1 = the month's first weekday
+    to_end = np.busday_count(d, last + np.timedelta64(1, "D"))   # 1 = the month's last weekday
+    return (from_start <= after) | (to_end <= before)
+
+
 def weights(c: pd.DataFrame, p: MomParams) -> pd.DataFrame:
     """The position each market holds after each close (a share of the account, before scaling)."""
     ret = c.pct_change(fill_method=None)
     vol = ret.ewm(span=p.vol_n, min_periods=p.vol_n).std() * math.sqrt(252)
+    if p.mode == "tom":
+        on = turn_of_month(c.index, p.tom_before, p.tom_after).astype(float)
+        side = (c * 0 + 1).mul(on, axis=0)
+        return (side * (p.target_vol / vol)).clip(0, p.max_lev).where(c.notna() & vol.notna())
     if p.mode == "hold":
         side = (c * 0 + 1).where(c.notna())
     elif p.mode == "above_ma":

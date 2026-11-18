@@ -851,3 +851,22 @@ The gap is about 10x. Rule tweaks on swing can't close it, and swing is frozen a
 **Where part 4 stands after 5 rounds:** trend, momentum, dip-buying, index holding and cross-market ranking all fail check. The one honest positive out-of-sample result in the whole project is still swing (+0.084R a trade on fresh markets, about +1.5% a year at 1% risk). These are the textbook edges, and on this broker's markets since 2000 (mostly currency pairs, index CFDs without dividends, 2% a year financing) none of them pays enough to reach 18% at a 25% drop.
 
 **Next:** an effect that holds positions only a few days a month, so financing barely matters: the **turn of the month in stock indices**. Equity gains have historically clustered in the last trading day and the first few days of each month, when salaries and pension money flow in.
+
+## Part 4 round 6: 21:12
+
+**Idea:** the **turn of the month** in stock indices (`tsmom.py`, mode `tom`). Long only on the month's last weekday and the next month's first 3 weekdays, flat otherwise, volatility-sized per index. Positions are held about 4 days a month, so financing barely matters. The window comes from the weekday calendar only, never from the data's own dates, so cutting off the future changes nothing. Test: in Jan/Feb 2024 it holds 31 Jan plus 1, 2 and 5 Feb, and no-peek holds. The split is the index split from round 3.
+
+| Version | Part | Avg R (index-month) | PF | t (daily) | Yearly at 25% drop |
+|---|---|---|---|---|---|
+| last 1, first 3 | learn 2012–18 | −0.020 | 0.71 | −1.13 | −3.4% |
+| | check 2018–22 | −0.012 | 0.91 | +0.05 | −0.6% |
+| last 2, first 4 | learn | −0.013 | 0.82 | −0.59 | −2.2% |
+| | check | +0.023 | 1.19 | +0.83 | +5.2% |
+| last 1, first 2 | learn | −0.008 | 0.85 | −0.64 | −2.7% |
+| | check | −0.015 | 0.85 | −0.33 | −3.0% |
+
+**Verdict: rejected.** It's negative on learn for every version. One check result is positive (+5.2%), which looks like noise when its learn result is negative. The turn-of-month effect was famous in data before about 2010 and seems to have faded since. It has also been heavily publicised.
+
+**Six families now, all failing check** (trend, momentum, dip-buying, index holding, ranking, turn of month).
+
+**Next:** the one consistent pattern across rounds 1, 2 and 5 is that forex drags while **metals and indices lean positive** in both learn and check. Round 7 tests trend-following on the **13 non-forex markets only**. Caveat up front: choosing that subset uses what earlier rounds showed (including check), so if it passes check, only its one locked look can say whether it's real.

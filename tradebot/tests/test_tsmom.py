@@ -70,3 +70,15 @@ def test_rank_holds_the_strongest_long_and_the_weakest_short():
     full, _ = returns(c, sp, MomParams(mode="rank", rank_k=1, lookback=120))
     part, _ = returns(c.iloc[:700], sp.iloc[:700], MomParams(mode="rank", rank_k=1, lookback=120))
     pd.testing.assert_series_equal(part, full.iloc[:700], check_names=False)
+
+
+def test_turn_of_month_window_is_calendar_only():
+    from investment_bot.sweep.tsmom import turn_of_month
+    days = pd.bdate_range("2024-01-24", "2024-02-08")
+    on = dict(zip(days.strftime("%m-%d"), turn_of_month(days, 1, 3)))
+    # Held through Jan 31 (last weekday) and Feb 1, 2, 5: decided on the close before each.
+    assert [d for d, x in on.items() if x] == ["01-30", "01-31", "02-01", "02-02"]
+    c, sp = _panel()
+    full, _ = returns(c, sp, MomParams(mode="tom"))
+    part, _ = returns(c.iloc[:640], sp.iloc[:640], MomParams(mode="tom"))
+    pd.testing.assert_series_equal(part, full.iloc[:640], check_names=False)
