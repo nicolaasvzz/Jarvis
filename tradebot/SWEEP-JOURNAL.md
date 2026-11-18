@@ -457,3 +457,27 @@ This is the **second look** at the locked 20%, so it's weaker evidence than the 
 - Swing didn't change, because none of the 10 new rules passed for it.
 
 **Verdict after both parts (17 rounds, about 20 new rules):** the sweep setup has no edge that survives unseen data on these 21 markets. The method did its job twice: it refused to call anything proven. The bot stays parked, with no real money.
+
+---
+
+# Part 3: Wed 18 Nov, 12:00 → 16:00 (15-minute rounds)
+
+**A new final test.** The locked 20% has been looked at twice, so a third look would mean little. The final test at 15:40 runs instead on **24 fresh markets never used for any decision**, over their whole history: 16 more forex crosses, 6 more indices, platinum and palladium (`data.FRESH`, `sweep-fresh`). Tuning stays on the original 21 markets' learn and check parts, with the same strict keep rule.
+
+## Round 18: 12:00
+
+**Idea (a new engine rule): a moving-average trend filter.** Buy only when the higher chart's last close is above its 50- or 200-candle average, and sell only below it. It's a far simpler trend read than swing structure, which hurt swing as a filter in round 2.
+
+**Tried, swing** (champion: learn t +1.02, check +1.66):
+- 50 average: −0.42 / +1.05
+- 200 average: +0.38 / +0.86
+
+Both worse, with about half the trades.
+
+**Tried, intraday** (champion: +0.17 / +0.90):
+- 50 average: −0.30 / +0.16
+- 200 average: −1.14 / +0.40
+
+Both worse.
+
+**Kept:** nothing. The setup does better taking trades against the bigger trend than filtering them out. That fits the first video: trade toward the obvious liquidity even when the higher chart is bearish.

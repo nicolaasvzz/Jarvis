@@ -77,18 +77,18 @@ def save_champions(champs: dict[str, Params]) -> None:
                                  encoding="utf-8")
 
 
-def symbols_for(profile: str) -> list[str]:
+def symbols_for(profile: str, universe: list[str] | None = None) -> list[str]:
     pf = PROFILES[profile]
-    return [s for s in data.UNIVERSE
+    return [s for s in (universe or data.UNIVERSE)
             if all((data.CACHE / f"{s}_{tf}.pkl").exists() for tf in (pf.htf, pf.mtf, pf.ltf))]
 
 
-def run_versions(versions: dict[str, list[Params]], workers: int | None = None
-                 ) -> dict[str, list[list[dict[str, Any]]]]:
+def run_versions(versions: dict[str, list[Params]], workers: int | None = None,
+                 universe: list[str] | None = None) -> dict[str, list[list[dict[str, Any]]]]:
     """Every symbol's trades for each version: {profile: [trades of version 0, ...]}."""
     jobs, keys = [], []
     for p, plist in versions.items():
-        for s in symbols_for(p):
+        for s in symbols_for(p, universe):
             jobs.append((s, p, data.offline_point(s), [asdict(v) for v in plist]))
             keys.append(p)
     out: dict[str, list[list[dict[str, Any]]]] = {p: [[] for _ in v] for p, v in versions.items()}
@@ -252,3 +252,64 @@ def final(say: Callable[[str], None] = print) -> dict[str, Any]:
 
 def _day(t: int) -> str:
     return datetime.fromtimestamp(t, timezone.utc).strftime("%Y-%m-%d")
+
+
+def fresh_final(profiles: list[str] | None = None, say: Callable[[str], None] = print) -> dict[str, Any]:
+    """The final test on markets never used for tuning (data.FRESH), over their whole history."""
+    champs = load_champions()
+    profiles = profiles or ["swing", "intraday"]
+    res = run_versions({p: [champs[p]] for p in profiles}, universe=data.FRESH)
+    proof: dict[str, Any] = {"updated": datetime.now().isoformat(timespec="seconds"),
+                             "source": "final test on fresh markets (sweep-fresh)", "luck_bar": 1.65,
+                             "profiles": {}}
+    for p in profiles:
+        tr = res[p][0]
+        if not tr:
+            say(f"{p}: no fresh-market candles cached")
+            continue
+        t0 = min(t["exit_time"] for t in tr)
+        t1 = max(t["exit_time"] for t in tr) + 1
+        fin, q = stats(tr, t0, t1), quarters(tr, t0, t1)
+        groups = {g: stats([t for t in tr if group_of(t["symbol"]) == g], t0, t1)
+                  for g in ("forex", "metals", "indices")}
+        why = []
+        if fin["trades"] < MIN_TRADES:
+            why.append(f"only {fin['trades']} trades (needs {MIN_TRADES})")
+        if fin["t"] < 1.65:
+            why.append(f"t={fin['t']:.2f} is under 1.65")
+        if sum(x > 0 for x in q) < 3:
+            why.append(f"won {sum(x > 0 for x in q)} of 4 quarters (needs 3)")
+        if fin["pf"] < 1.2:
+            why.append(f"profit factor {fin['pf']:.2f} (needs 1.2)")
+        proof["profiles"][p] = {
+            "words": PROFILES[p].words, "train_from": _day(t0), "test_from": _day(t0), "test_to": _day(t1),
+            "best": {"label": champs[p].label(), "params": asdict(champs[p]), "train": {}, "test": fin,
+                     "quarters": q},
+            "video_rules": {"label": DEFAULT.label(), "test": {}}, "proven": not why, "why_not": why,
+            "by_symbol": breakdown(tr, lambda t: t["symbol"]), "versions": [],
+            "recent_trades": sorted(tr, key=lambda t: t["exit_time"])[-40:],
+        }
+        say(f"{p} FRESH MARKETS: {fin['trades']} trades, win {fin['win_pct']}%, avg {fin['avg_r']:+.3f}R, "
+            f"t {fin['t']:+.2f}, quarters {q}; by group "
+            + ", ".join(f"{g} {x['avg_r']:+.3f}R ({x['trades']})" for g, x in groups.items()) + ". "
+            + ("PROVEN" if not why else "not proven: " + "; ".join(why)))
+    Path(PROOF_FILE).write_text(json.dumps(proof, indent=1, default=str), encoding="utf-8")
+    proven = [p for p, x in proof["profiles"].items() if x["proven"]]
+    rep_ = Report("sweep", ("Proven on fresh markets: " + ", ".join(proven)) if proven else
+                  "Nothing proven on fresh markets", "good" if proven else "bad",
+                  title="Sweep setup: final test on fresh markets",
+                  subtitle=f"{len(data.FRESH)} markets never used for tuning, whole history")
+    for p, x in proof["profiles"].items():
+        b_ = x["best"]
+        rep_.bullets(f"{p}: {x['words']}", [
+            f"Version: {b_['label']}.",
+            f"{x['train_from']} to {x['test_to']}: {b_['test']['trades']} trades, win {b_['test']['win_pct']}%, "
+            f"avg {b_['test']['avg_r']}R, t={b_['test']['t']}, quarters {b_['quarters']}, at 1% a trade "
+            f"{b_['test']['return_pct']}% (worst drop {b_['test']['max_dd_pct']}%).",
+            "PROVEN" if x["proven"] else "Not proven: " + "; ".join(x["why_not"]) + ".",
+        ])
+        rep_.table(f"{p}: by market", x["by_symbol"])
+    path = rep_.save()
+    if path:
+        say(f"Report: {path}")
+    return proof

@@ -96,6 +96,7 @@ class Params:
     cluster_atr: float = 0.0  # target only "equal highs/lows": another untaken level within this many higher-chart ATRs
     zone_touches: int = 1     # how many separate visits a zone gets (price must leave it in between)
     partial_at_zone: bool = False  # take the half at the first opposing zone (if 1R+ away) instead of partial_r
+    ma_filter: int = 0        # buy only when the higher chart closed above its N-candle average (sell below); 0 = off
 
     def label(self) -> str:
         bits = [f"rr>={self.min_rr:g}"]
@@ -110,6 +111,8 @@ class Params:
             bits.append("buy cheap / sell dear")
         if self.trail_swings:
             bits.append("trail to swings" + (f" after {self.trail_after_r:g}R" if self.trail_after_r else ""))
+        if self.ma_filter:
+            bits.append(f"higher-chart {self.ma_filter} average agrees")
         if self.partial_at_zone:
             bits.append("half at opposing zone")
         if self.zone_touches > 1:
@@ -274,6 +277,8 @@ class Engine:
         M, H = self.m, self.h
         mo, mh, ml, mc = (M.df[k].to_numpy() for k in ("open", "high", "low", "close"))
         hh, hl, hc = (H.df[k].to_numpy() for k in ("high", "low", "close"))
+        h_ma = (pd.Series(hc).rolling(p.ma_filter, min_periods=p.ma_filter).mean().to_numpy()
+                if p.ma_filter else None)
 
         # structure state
         liq_hi: list[float] = []   # higher-chart highs not yet taken
@@ -415,6 +420,10 @@ class Engine:
                     continue
                 if p.skip_days and (T // 86400 + 3) % 7 in p.skip_days:
                     continue
+                if h_ma is not None:
+                    k = hb - 1   # the last higher-chart candle closed by now
+                    if k < 0 or np.isnan(h_ma[k]) or (hc[k] - h_ma[k]) * side <= 0:
+                        continue
                 if p.discount and h_last["H"] and h_last["L"]:
                     mid = (h_last["H"][1] + h_last["L"][1]) / 2
                     if (c_[j] - mid) * side > 0:

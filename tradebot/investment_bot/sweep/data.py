@@ -28,6 +28,14 @@ UNIVERSE = [
     "US500", "US30", "USTEC", "DE40", "UK100", "JPN225",
 ]
 
+# Markets kept apart from all tuning: the final test of a version runs on these,
+# over their whole history, so it is judged on markets it has never seen.
+FRESH = [
+    "AUDCAD", "AUDCHF", "AUDNZD", "CADCHF", "CADJPY", "CHFJPY", "EURCAD", "EURCHF", "EURNZD",
+    "GBPAUD", "GBPCAD", "GBPCHF", "GBPNZD", "NZDCAD", "NZDCHF", "NZDJPY",
+    "AUS200", "FRA40", "ESP35", "EUSTX50", "HK50", "US2000", "XPTUSD", "XPDUSD",
+]
+
 
 def _mt5():
     try:

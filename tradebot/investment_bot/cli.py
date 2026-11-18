@@ -731,6 +731,14 @@ def cmd_sweep_final(args: argparse.Namespace) -> None:
     write_status(config)
 
 
+def cmd_sweep_fresh(args: argparse.Namespace) -> None:
+    from .sweep.bench import fresh_final
+
+    fresh_final(say=_plain)
+    config, _ = _load_with_memory(args.config)
+    write_status(config)
+
+
 def cmd_sweep_trade(args: argparse.Namespace) -> None:
     from .sweep.trader import TraderConfig, trade
 
@@ -894,6 +902,10 @@ def build_parser() -> argparse.ArgumentParser:
     sf = sub.add_parser("sweep-final", parents=[common],
                         help="The locked final test of the sweep champions (writes sweep.json)")
     sf.set_defaults(func=cmd_sweep_final)
+
+    sfr = sub.add_parser("sweep-fresh", parents=[common],
+                         help="Final test of the sweep champions on fresh markets never used for tuning")
+    sfr.set_defaults(func=cmd_sweep_fresh)
 
     sw = sub.add_parser("sweep-trade", parents=[common],
                         help="Trade the sweep setup on the MT5 terminal (demo)")
