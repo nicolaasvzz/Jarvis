@@ -761,3 +761,26 @@ The gap is about 10x. Rule tweaks on swing can't close it, and swing is frozen a
 1. Any multi-week hold has to earn more than about 2% a year of its position size just to cover financing. That rules out slow, low-edge ideas.
 2. A 12-month time-series momentum version (monthly rebalanced, volatility-scaled) is the last trend idea worth one round. If it's flat too, the trend family is closed.
 3. Index ideas (mean reversion) can't be judged on learn, since indices have no data before 2012. They'll need their own split: learn 2012–2016, check 2016–2019, locked 2019 onward.
+
+## Part 4 round 2: 20:12
+
+**Idea:** the last trend idea worth a round, **time-series momentum** (`sweep/tsmom.py`). At each month's last close, every market is held long if it rose over the lookback and short if it fell. Each market is sized to 10% yearly volatility, and the portfolio is the average over the markets with data. A position decided on a close earns only from the next close on, which is a full day late and slightly pessimistic. Costs: the spread or 1bp on every change in position, plus 2% a year financing on what's held. Tests: positions change only at month ends and follow the trend, no-peek (the daily returns are identical when the future is cut off), costs only hurt, and market-months add up.
+
+**Tried** (scaled so the worst drop is 25%; "avg R" is per market-month in units of its monthly risk):
+
+| Version | Part | Avg R | PF | t (daily) | Yearly at 25% drop | Groups (forex / metals / indices) |
+|---|---|---|---|---|---|---|
+| 12 months | learn | −0.011 | 0.95 | −0.45 | −1.2% | −0.022 / +0.037 / none |
+| | check | −0.056 | 0.83 | −1.01 | −2.7% | −0.100 / +0.008 / +0.030 |
+| 6 months | learn | −0.035 | 0.84 | −1.57 | −2.4% | |
+| | check | −0.045 | 0.86 | −0.70 | −2.2% | −0.088 / −0.011 / +0.048 |
+| 3 months | learn | −0.031 | 0.86 | −1.68 | −2.0% | |
+| | check | −0.063 | 0.81 | −1.41 | −3.0% | |
+| 12 months, no costs (diagnostic) | learn | +0.020 | 1.11 | +1.06 | +3.5% | |
+| | check | −0.009 | 0.97 | +0.45 | +1.2% | |
+
+**Verdict: rejected, and the trend family is closed.** Even without costs, 12-month momentum makes 1–4% a year at a 25% drop: far below 18%, and negative after costs.
+
+**The pattern from both trend rounds:** **forex is the drag** (−0.02 to −0.10), while **metals and indices lean positive** (+0.01 to +0.05). Thirty-two of the 45 markets are forex pairs, and they swamp the rest. Currency pairs since 2000 have been range-bound and mean-reverting more than trending.
+
+**Next:** stop fighting forex. Round 3 tries the one effect equity indices are known for: they **drift up over time and recover from dips**. That means buying pullbacks in index CFDs (long only), with its own split, because index data starts in 2012: learn 2012–2016, check 2016–2019, locked 2019 onward. Few markets have history before 2019, so it'll be thin. If it shows promise, metals get the same test.
