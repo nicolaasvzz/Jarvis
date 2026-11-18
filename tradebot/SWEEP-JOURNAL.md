@@ -679,3 +679,21 @@ The Friday filter still holds its weight on this data. The volatility filter is 
 **Caveat:** I picked 20 out of four windows tried (3, 10, 20, 40). That's a small search, but a search. The fresh-market test at 15:40 is the judge.
 
 **Champion now:** swing = min 3.5R, max 4R, half at 1.5R, strong break 1.2, swings 3/5/4, hold 2x, and a daily low (or high) taken within the last 20 days.
+
+## FINAL, part 3: 24 fresh markets, 15:39
+
+The champions tested once on 24 markets never used for any decision (16 forex crosses, 6 indices, platinum and palladium), over their whole history:
+
+| Profile | Trades | Win | Avg R | t | Quarters (sum R) | By group | Verdict |
+|---|---|---|---|---|---|---|---|
+| **swing** | 325 | 43.1% | **+0.084** | +1.05 | **+6.8, +3.8, +2.4, +14.4** | forex +0.096, metals −0.078, indices +0.086 | not proven (t under 1.65; PF 1.14, needs 1.2) |
+| intraday | 153 | 20.3% | −0.463 | −3.77 | +3.6, −4.2, −32.1, −38.2 | all negative | not proven |
+
+**What it means:**
+- **Swing is positive on markets it has never seen, in all four quarters.** That's the first out-of-sample result of the whole project that points the right way. It's still too weak to call proven: +0.08R a trade with t 1.05 could be luck, and the profit factor is 1.14.
+- About **+0.08R a trade at 1% risk is roughly +0.1% per trade** before any slippage beyond the cost model. It's real money only at scale, and only if it holds.
+- **Intraday failed badly** on fresh markets (−0.46R). Its filters (Fridays, volatility, fast turn) were fitted to the original 21 markets. The intraday version should be dropped.
+
+**Recommendation:**
+- Forward-test **swing only** on the MT5 demo (`sweep-trade --profiles swing --also-unproven`). That's about 2–3 trades a week across the markets.
+- Revisit after 3 months, or about 30 trades. No real money until the live demo results match.
