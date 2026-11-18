@@ -49,3 +49,13 @@ def test_market_months_add_up():
     tr = market_months(per, p)
     unit = p.target_vol / np.sqrt(12)
     assert abs(sum(x["r"] for x in tr) * unit - per.sum().sum()) < 1e-9
+
+
+def test_hold_modes_are_long_only():
+    c, sp = _panel()
+    for mode in ("hold", "above_ma"):
+        w = weights(c, MomParams(mode=mode, ma_n=100))
+        assert (w.fillna(0) >= 0).all().all() and (w.fillna(0) > 0).any().any()
+    full, _ = returns(c, sp, MomParams(mode="above_ma", ma_n=100))
+    part, _ = returns(c.iloc[:600], sp.iloc[:600], MomParams(mode="above_ma", ma_n=100))
+    pd.testing.assert_series_equal(part, full.iloc[:600], check_names=False)

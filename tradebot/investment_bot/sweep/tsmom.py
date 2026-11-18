@@ -43,12 +43,17 @@ class MomParams:
     sides: int = 0           # 0 both, 1 long only
     cost_bp: float = 1.0
     finance_pa: float = 0.02
+    mode: str = "momentum"   # "momentum"; "hold" (always long); "above_ma" (long over the ma_n-day average)
+    ma_n: int = 200
 
     def label(self) -> str:
         d = MomParams()
+        skip = {"lookback", "mode"} | ({"ma_n"} if self.mode != "above_ma" else set())
         diff = [f"{f.name}={getattr(self, f.name)}" for f in fields(self)
-                if getattr(self, f.name) != getattr(d, f.name) and f.name != "lookback"]
-        return f"momentum {self.lookback}d" + (f" ({', '.join(diff)})" if diff else "")
+                if getattr(self, f.name) != getattr(d, f.name) and f.name not in skip]
+        head = {"momentum": f"momentum {self.lookback}d", "hold": "hold long",
+                "above_ma": f"hold long over MA{self.ma_n}"}[self.mode]
+        return head + (f" ({', '.join(diff)})" if diff else "")
 
 
 def panel(fr: dict[str, pd.DataFrame]) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -70,8 +75,12 @@ def weights(c: pd.DataFrame, p: MomParams) -> pd.DataFrame:
     """The position each market holds after each close (a share of the account, before scaling)."""
     ret = c.pct_change(fill_method=None)
     vol = ret.ewm(span=p.vol_n, min_periods=p.vol_n).std() * math.sqrt(252)
-    mom = c / c.shift(p.lookback) - 1
-    side = np.sign(mom)
+    if p.mode == "hold":
+        side = (c * 0 + 1).where(c.notna())
+    elif p.mode == "above_ma":
+        side = (c > c.rolling(p.ma_n).mean()).astype(float).where(c.rolling(p.ma_n).mean().notna())
+    else:
+        side = np.sign(c / c.shift(p.lookback) - 1)
     if p.sides > 0:
         side = side.clip(lower=0)
     w = (side * (p.target_vol / vol)).clip(-p.max_lev, p.max_lev)
@@ -139,15 +148,17 @@ def window(port: pd.Series, trades: list[dict[str, Any]], t0: int, t1: int) -> d
 
 
 def bench(versions: list[MomParams], say: Callable[[str], None] = print,
-          fr: dict[str, pd.DataFrame] | None = None) -> list[dict[str, Any]]:
-    """Learn and check only. The locked part (after CHECK_END) is never shown here."""
+          fr: dict[str, pd.DataFrame] | None = None,
+          split: tuple[int, int, int] = (T0, LEARN_END, CHECK_END)) -> list[dict[str, Any]]:
+    """Learn and check only. The locked part (after the split's check end) is never shown here."""
+    t0, learn_end, check_end = split
     c, sp = panel(fr if fr is not None else frames())
     rows = []
     for v in versions:
         port, per = returns(c, sp, v)
         tr = market_months(per, v)
-        row = {"version": v.label(), "learn": window(port, tr, T0, LEARN_END),
-               "check": window(port, tr, LEARN_END, CHECK_END)}
+        row = {"version": v.label(), "learn": window(port, tr, t0, learn_end),
+               "check": window(port, tr, learn_end, check_end)}
         rows.append(row)
         for part in ("learn", "check"):
             w = row[part]

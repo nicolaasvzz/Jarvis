@@ -810,3 +810,25 @@ The gap is about 10x. Rule tweaks on swing can't close it, and swing is frozen a
 **Verdict: rejected as a candidate.** It's the best learn result of part 4: +16% a year at a 25% drop, 2012–18, in a calm bull market. But it earned nothing in 2018–22, and the keep rule needs both. It's a fair-weather strategy. That matches what's known about short-term index dip-buying: it worked for decades and has been crowded since about 2015.
 
 **Next:** an honest reference point before more ideas. What does simply **holding the indices** do (long when above the 200-day average, sized to a volatility target), scaled to the same 25% drop? That's what a fund like Fairtree mostly earns: equity market returns. If plain held beta can't reach 18% a year at a 25% drop, no index timing rule will.
+
+## Part 4 round 4: 20:42
+
+**Idea:** a reality check, not a trick. What does **simply holding** the 12 stock indices earn, sized to the same 25% worst drop? That's mostly what an equity fund like Fairtree earns. If held market exposure can't get near 18% a year here, no timing rule on indices will. (`tsmom.py` gained modes `hold` and `above_ma`: long-only, decided monthly, volatility-sized per index, same costs and financing. The test covers long-only and no-peek.) The split is round 3's index split.
+
+| Version | Part | Avg R (per index-month) | PF | t (daily) | Yearly at 25% drop | Quarters |
+|---|---|---|---|---|---|---|
+| hold all 12 | learn 2012–18 | +0.078 | 1.99 | +1.91 | **+14.6%** | +29.0, +7.1, −6.4, +33.9 |
+| | check 2018–22 | −0.028 | 0.90 | −0.16 | **−1.6%** | −1.1, −35.9, +45.3, −25.8 |
+| hold only above MA200 | learn | +0.048 | 1.86 | +1.45 | +10.7% | |
+| | check | −0.013 | 0.91 | −0.16 | −1.7% | |
+| hold, no financing (diagnostic) | learn | +0.093 | 2.27 | +2.28 | +19.4% | |
+| | check | −0.005 | 0.98 | +0.08 | −0.4% | |
+
+**What it means:**
+- 2018–22 was a bad window for equal-weighted world indices in **price** terms: Hong Kong and Spain fell, Germany, the UK and the euro area were roughly flat, and the Covid crash forced a small size to keep the drop under 25%. The broker's index CFDs carry **no dividends**, and financing costs 2% a year. A fund gets the dividends and pays no financing.
+- Holding is the benchmark, not a candidate. Its check result (−1.6%) shows **18% a year at a 25% drop was not available from index exposure on this broker in 2018–22.** Rounds 1–3 failing check is partly this window, not only the rules.
+- **An important note on the bar.** Fairtree's 12–18% a year is in **rand**. Over 2014–24 the rand lost about 5% a year against the dollar, and this bot's account is in dollars. In dollar terms Fairtree's flagship made roughly 7–12% a year. For a South African goal (R10M), a dollar return of about 12–13% a year has historically been worth about 18% in rand. **The bar stays 18% in dollars**, as agreed. This is noted so the comparison is understood.
+
+**Verdict:** not a candidate (check negative). Index exposure is closed as an edge on its own.
+
+**Next:** relative strength **across** markets rather than each market alone. Rank all 45 by their past performance and hold only the strongest few. That doesn't need the market as a whole to rise, which is exactly what failed in 2018–22.
