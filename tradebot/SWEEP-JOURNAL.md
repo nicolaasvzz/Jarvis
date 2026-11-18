@@ -1082,3 +1082,18 @@ The gap is about 10x. Rule tweaks on swing can't close it, and swing is frozen a
 - **Costs kill it.** Gold's typical hourly spread is about 1bp (0.16 at a median price of about 1,573), but this trade pays about 0.055% a day, roughly 5 times that. The likely cause: entering at 02:00, right after the 00:00–01:00 daily rollover, when spreads blow out.
 
 **Verdict: rejected as is.** Next round tests entering **later in the Asian session** (once spreads have normalised). That choice is motivated by the cost mechanics, not by picking the best check number.
+
+## Part 4 round 17: 23:57
+
+**Idea:** continue round 16. Enter gold's Asian drift **after spreads normalise**, with the hour picked from **learn-period spreads only**.
+
+**Learn-period median spread by hour (bp per side):** 01:00 2.99, 02:00 2.60, 03:00 2.41, then 2.24–2.40 through the day, rising to 3.06 by 23:00. Round 16's guess was wrong: there's no rollover spike to avoid. **Gold cost 2.2–3bp a side at every hour in 2009–16**, so a round trip is at least about 4.6bp, while the Asian drift is about 3.6bp a day.
+
+| Asia, buy at the close of the 03:00 candle, sell at 09:00 | Learn | Check |
+|---|---|---|
+| with costs | −0.018% a day, t −2.11, −3.3%/yr | −0.022%, t −2.76, −4.0%/yr |
+| no costs | +0.031%, t +3.53 | +0.006%, t +0.73 |
+
+**Verdict: rejected.** The drift is smaller than one round-trip spread, and it was also weaker in 2016–21 (+0.006% a day, about 6 times smaller than 2009–16). A daily in-and-out trade can't capture an edge smaller than its own cost. Only someone already holding gold collects it for free, the same lesson as the overnight drift in round 8.
+
+**The repeating lesson:** rounds 8, 16 and 17 found real, documented time-of-day drifts (US indices overnight, gold in Asian hours). Each is 1–4bp a day, and this broker's spread is 1–3bp a side. Session-timing edges are real but too thin for a retail CFD account.
