@@ -784,3 +784,29 @@ The gap is about 10x. Rule tweaks on swing can't close it, and swing is frozen a
 **The pattern from both trend rounds:** **forex is the drag** (−0.02 to −0.10), while **metals and indices lean positive** (+0.01 to +0.05). Thirty-two of the 45 markets are forex pairs, and they swamp the rest. Currency pairs since 2000 have been range-bound and mean-reverting more than trending.
 
 **Next:** stop fighting forex. Round 3 tries the one effect equity indices are known for: they **drift up over time and recover from dips**. That means buying pullbacks in index CFDs (long only), with its own split, because index data starts in 2012: learn 2012–2016, check 2016–2019, locked 2019 onward. Few markets have history before 2019, so it'll be thin. If it shows promise, metals get the same test.
+
+## Part 4 round 3: 20:27
+
+**Idea:** forex was the drag in rounds 1–2, so this round leaves it out. **Buy the dip in stock indices, long only** (`sweep/dip.py`), on 12 indices. Buy at the next open when the close is above its 200-day average and the 2-day RSI is under 10. Sell at the next open after a close above the 5-day average, or after 10 days. The hard stop is 3 ATR (= 1R). Costs and financing are as in round 1, with a daily mark-to-market. Tests: RSI uses only the past, long only, paths add up, no-peek.
+
+**Its own split** (index data starts in 2012): learn 2012-08-06 to 2018-04-23, check to 2022-08-05, locked 2022-08-05 to now. Indices only, so the forex/metals group rule doesn't apply.
+
+**Tried** (risk set so the worst drop is 25%):
+
+| Version | Part | Trades/yr | Win | Avg R | t | PF | Yearly at 25% drop | Quarters |
+|---|---|---|---|---|---|---|---|---|
+| RSI2<10 over MA200 | learn | 33 | 75% | **+0.095** | **+2.21** | 1.79 | **+16.0%** (5.9% risk) | +5.3, +4.9, +1.4, +6.2 |
+| | check | 53 | 70% | −0.001 | −0.01 | 1.00 | −1.0% | −0.7, −10.1, +10.0, +0.7 |
+| no trend filter | learn | 51 | 71% | +0.068 | +1.79 | 1.46 | +10.5% | |
+| | check | 126 | 67% | +0.007 | +0.17 | 1.04 | −0.2% | |
+| deeper dip (RSI2<5) | learn | 15 | 72% | +0.076 | +1.24 | 1.58 | +4.9% | |
+| | check | 30 | 72% | +0.022 | +0.24 | 1.10 | +0.8% | |
+
+**Why check is flat** (check data only):
+- **Not the new markets.** The four indices that made learn strong are about zero on check too (US500 +0.03, US30 +0.02, US2000 −0.06, DE40 −0.02).
+- **It's the period.** 2020 (the Covid crash) cost −6.2R and 2022 (the bear market) −2.5R, while 2021 gave +10.2R.
+- The 36 stops cost −36.5R; everything else made +36R.
+
+**Verdict: rejected as a candidate.** It's the best learn result of part 4: +16% a year at a 25% drop, 2012–18, in a calm bull market. But it earned nothing in 2018–22, and the keep rule needs both. It's a fair-weather strategy. That matches what's known about short-term index dip-buying: it worked for decades and has been crowded since about 2015.
+
+**Next:** an honest reference point before more ideas. What does simply **holding the indices** do (long when above the 200-day average, sized to a volatility target), scaled to the same 25% drop? That's what a fund like Fairtree mostly earns: equity market returns. If plain held beta can't reach 18% a year at a 25% drop, no index timing rule will.
