@@ -421,3 +421,22 @@ Better on learn, collapses on check. Rejected.
 **Kept:** nothing.
 
 **Learned:** fresh zones only (the videos' rule) is right. Second visits add trades, and they're worse trades.
+
+## Round 17: 10:47
+
+**Idea (a new engine rule): take the half at the opposing zone.** The second video takes 50% off at the first opposing demand or supply zone, not at a fixed R. If that zone is at least 1R away and before the target, half comes off there; otherwise at 1.5R as before.
+
+**Tried, swing** (champion: learn t +1.02, check +1.66):
+- Half at opposing zone: +1.08 / +1.12 (forex +0.010, metals +0.011). Worse on check. Rejected.
+- Trail to swings, re-measured on the final champion as a control: +0.91 / +1.97, the same as round 12. Still worse on learn.
+
+**Tried, intraday** (champion: +0.17 / +0.90):
+- Half at opposing zone: −0.08 / +0.92. Rejected.
+
+**Kept:** nothing.
+
+**Part 2 so far:**
+- 6 rounds and 10 new rules.
+- Kept for intraday: skip high volatility, and no Friday setups.
+- Swing: no change in part 2.
+- Confirmed the videos are right on two points: wait for the pullback into the new zone, and use each zone only once.

@@ -95,6 +95,7 @@ class Params:
     enter_on_close: bool = False  # enter at the confirmation candle's close instead of waiting for a pullback
     cluster_atr: float = 0.0  # target only "equal highs/lows": another untaken level within this many higher-chart ATRs
     zone_touches: int = 1     # how many separate visits a zone gets (price must leave it in between)
+    partial_at_zone: bool = False  # take the half at the first opposing zone (if 1R+ away) instead of partial_r
 
     def label(self) -> str:
         bits = [f"rr>={self.min_rr:g}"]
@@ -109,6 +110,8 @@ class Params:
             bits.append("buy cheap / sell dear")
         if self.trail_swings:
             bits.append("trail to swings" + (f" after {self.trail_after_r:g}R" if self.trail_after_r else ""))
+        if self.partial_at_zone:
+            bits.append("half at opposing zone")
         if self.zone_touches > 1:
             bits.append(f"{self.zone_touches} visits per zone")
         if self.cluster_atr:
@@ -152,6 +155,7 @@ class Order:
     expires_i: int
     zone: tuple[float, float]
     why: str = ""
+    partial_px: float = 0.0   # where half comes off, when set by the opposing zone
 
 
 @dataclass
@@ -416,6 +420,7 @@ class Engine:
                     if (c_[j] - mid) * side > 0:
                         continue
                 # confirmed: build the order
+                self._zones_now = zones
                 order = self._order(side, j, a, o_, h_, l_, c_, liq_hi if side == 1 else liq_lo)
                 a["zone"]["used"] = True
                 arm[side] = None
@@ -457,8 +462,15 @@ class Engine:
         why = (f"{'demand' if side == 1 else 'supply'} zone {a['zone']['lo']:.5g}-{a['zone']['hi']:.5g}, "
                f"{'swept' if a['swept'] else 'no sweep'}, broke {a['ref']:.5g}, "
                f"target {'high' if side == 1 else 'low'} {target:.5g} ({min(rr, p.max_rr):.1f}R)")
+        part = 0.0
+        if p.partial_at_zone:
+            near = [z["lo"] if side == 1 else z["hi"] for z in getattr(self, "_zones_now", [])
+                    if z["side"] == -side and not z["used"]]
+            near = [x for x in near if (x - entry) * side >= risk and (target - x) * side > 0]
+            if near:
+                part = min(near) if side == 1 else max(near)
         return Order(side, float(entry), float(stop), float(target), j, j + self.pf.entry_valid,
-                     (a["zone"]["lo"], a["zone"]["hi"]), why)
+                     (a["zone"]["lo"], a["zone"]["hi"]), why, float(part))
 
     # -- the order and the trade, through one bar --
     def _manage(self, j: int, o: float, h: float, lo: float, c: float, t: int) -> None:
@@ -502,10 +514,11 @@ class Engine:
             if sw is not None and (sw - pos["stop"]) * s > 0 and (sw - (c if s == 1 else c + cost)) * s < 0:
                 pos["stop"] = sw   # the latest swing behind price, known before this candle
         if self.p.partial_r and not pos["half"]:
-            level = pos["entry"] + s * self.p.partial_r * risk
+            od_part = pos["order"].partial_px
+            level = od_part if od_part else pos["entry"] + s * self.p.partial_r * risk
             if (best - level) * s >= 0 and (pos["target"] - level) * s > 0:
                 pos["half"] = True
-                pos["banked"] = 0.5 * self.p.partial_r
+                pos["banked"] = 0.5 * (level - pos["entry"]) * s / risk
                 pos["stop"] = pos["entry"]
         if (best - pos["target"]) * s >= 0:
             self._close(pos, pos["target"], t, "target")
