@@ -91,6 +91,8 @@ class Params:
     max_vol_ratio: float = 0.0  # skip setups when ATR is more than this many times its 200-candle average (0 = off)
     trail_after_r: float = 0.0  # with trail_swings: only start trailing once price has gone this many R our way
     skip_days: tuple = ()       # weekdays (server time, 0 = Monday) on which no new setups are taken
+    sweep_in_zone: bool = False # the sweep's extreme must stay inside the zone (a wick into it, not through it)
+    enter_on_close: bool = False  # enter at the confirmation candle's close instead of waiting for a pullback
 
     def label(self) -> str:
         bits = [f"rr>={self.min_rr:g}"]
@@ -105,6 +107,10 @@ class Params:
             bits.append("buy cheap / sell dear")
         if self.trail_swings:
             bits.append("trail to swings" + (f" after {self.trail_after_r:g}R" if self.trail_after_r else ""))
+        if self.sweep_in_zone:
+            bits.append("sweep inside zone")
+        if self.enter_on_close:
+            bits.append("enter on the break")
         if self.skip_days:
             bits.append("skip days " + "/".join("MTWTFSS"[d] for d in self.skip_days))
         if self.max_vol_ratio:
@@ -386,6 +392,8 @@ class Engine:
                     continue
                 if p.max_vol_ratio and vol_ratio[j] > p.max_vol_ratio:
                     continue
+                if p.sweep_in_zone and (a["ext"] - (a["zone"]["lo"] if side == 1 else a["zone"]["hi"])) * side < 0:
+                    continue
                 if p.skip_days and (T // 86400 + 3) % 7 in p.skip_days:
                     continue
                 if p.discount and h_last["H"] and h_last["L"]:
@@ -409,7 +417,7 @@ class Engine:
         cand = [i for i in range(start, j) if (c_[i] - o_[i]) * side < 0]
         e = cand[-1] if cand else start
         top, bot = (h_[e], l_[e]) if side == 1 else (l_[e], h_[e])
-        entry = top - p.entry_frac * (top - bot)
+        entry = c_[j] if p.enter_on_close else top - p.entry_frac * (top - bot)
         entry = min(entry, c_[j]) if side == 1 else max(entry, c_[j])
         stop = a["ext"] - side * p.stop_buf_atr * self.l.atr[j]
         risk = (entry - stop) * side

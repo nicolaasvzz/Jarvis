@@ -363,3 +363,22 @@ The user asked for more rounds. **What changes from last night:**
 **Champions now:**
 - swing: unchanged
 - intraday: + no Friday setups
+
+## Round 14: 08:47
+
+**Ideas (two new engine rules):**
+- **Sweep inside the zone:** the sweep's wick must stay inside the demand or supply zone, a cleaner grab than one that runs through.
+- **Enter on the break:** buy at the confirmation candle's close instead of waiting for the pullback. That means no missed winners, at a worse price.
+
+**Tried, swing** (champion: learn t +1.02, check +1.66):
+- Sweep inside zone: +0.67 / +1.18. Worse on both.
+- Enter on the break: +0.14 / +0.49 (forex −0.071, metals −0.138). Much worse.
+- Enter on the break with min 3R: +0.42 / +0.20. Worse.
+
+**Tried, intraday** (champion: +0.17 / +0.90):
+- Sweep inside zone: 0.00 / **+1.29**. Rejected: worse on learn.
+- Enter on the break: −0.07 / −0.02. Worse.
+
+**Kept:** nothing.
+
+**Learned:** waiting for the pullback into the new zone (the videos' entry) is clearly better than entering on the break. The swing version gives up about 0.1R a trade without it. This is one of the videos' rules that the data backs.
