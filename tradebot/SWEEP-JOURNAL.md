@@ -968,3 +968,22 @@ The gap is about 10x. Rule tweaks on swing can't close it, and swing is frozen a
 - Adding more indices and metals made it worse (+0.5% on check). Spreading wider brought in more weak markets, not more diversification.
 
 **Verdict:** rejected for the bar. It's recorded as the realistic reference: on this broker, about 6–7% a year at a 25% worst drop is what plain held exposure delivered, and no active rule tonight beat it on check.
+
+## Part 4 round 12: 22:42
+
+**Idea:** every directional idea has failed, so this one is **market-neutral: pairs** (`sweep/pairs.py`). It uses four pairs that normally move together: US500/US30, gold/silver, DE40/Euro Stoxx 50 and FRA40/Euro Stoxx 50. Each leg is sized to equal volatility. When the gap's 20-day z-score passes ±2, the next close holds it the other way (long the cheap leg, short the rich one) until the z-score crosses 0 or 20 days pass. Both legs pay spread or 1bp on every change, plus 2% a year financing. Positions earn from the next close (one day late). Tests: it profits on a synthetic gap that snaps back, trades add up to the daily series, no-peek. The split is the index split.
+
+| Version | Part | Trades | Avg (per 1% a leg) | PF | t (daily) | Yearly at 25% drop |
+|---|---|---|---|---|---|---|
+| z>2, 20 days | learn | 106 | −0.161 | 0.59 | −1.79 | −4.3% |
+| | check | 146 | −0.010 | 0.97 | −0.08 | −1.6% |
+| z>2.5, 20 days | learn | 63 | −0.201 | 0.56 | −1.56 | −4.2% |
+| | check | 89 | −0.029 | 0.92 | −0.27 | −3.2% |
+| z>2, 60 days | learn | 54 | −0.280 | 0.51 | −2.05 | −4.2% |
+| | check | 64 | −0.097 | 0.80 | −0.55 | −5.7% |
+| z>2, 20 days, **no costs** (diagnostic) | learn | 106 | −0.052 | 0.84 | −0.57 | −2.6% |
+| | check | 146 | +0.093 | 1.38 | +0.97 | +8.0% |
+
+**Verdict: rejected.** It's negative on learn even with no costs, and after costs negative everywhere. Pairs also need 6–13x leverage to reach a 25% drop, because a market-neutral position moves very little, so every cost is multiplied too. Two legs mean two spreads and two financing charges on a small edge.
+
+**Twelve rounds, twelve families, nothing passes check.** Next round takes stock rather than adding a thirteenth guess.
