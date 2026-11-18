@@ -266,3 +266,25 @@ All rejected: each helps learn but hurts check.
 - Shorts make it; longs are flat. Noted, but not acted on.
 
 **Champion now:** swing with min 3.5R, max 4R, half at 1.5R, break 1.2, swings 3/5/4, hold 2x. Learn +0.079R (t 1.02), check +0.149R (t 1.66).
+
+## Iteration 11: 03:20
+
+**Idea:**
+- Swing: small refinements near the plateau (zone swings 4, break 1.1, half at 1.25R).
+- Intraday: borrow swing's two clearest lessons separately: bank earlier, and bigger target swings.
+
+**Tried, swing** (champion: learn t +1.02, check +1.66):
+- Zone swings 4: +0.84 / +2.11
+- Break 1.1: +1.51 / +1.25
+- Half at 1.25R: +1.15 / +1.59
+
+Each wins on one part and loses on the other. Nothing kept.
+
+**Tried, intraday** (champion: −0.04 / +0.48):
+- Half at 1.5R: −0.32 / +0.08
+- Target swings 4: +0.97 / +0.28
+- Half at 1.5R and hold 2x: −0.04 / +0.13
+
+Nothing kept.
+
+**Kept:** nothing. Both profiles have hit their plateau: everything nearby trades learn against check. I'm stopping tuning here. One more iteration would only fit noise. The locked final test runs at the 04:45 iteration.
