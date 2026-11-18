@@ -1063,3 +1063,22 @@ The gap is about 10x. Rule tweaks on swing can't close it, and swing is frozen a
 **Verdict: rejected.** It's flat. In 2018–22 big drops kept going but big rises reversed, so the two sides cancel. On learn there's a faint edge before costs (+0.02% a trade), which the spread takes. Round 14's "drops keep going" was a one-sided pattern of a falling-market period, not a stable intraday effect.
 
 **Tally:** 15 rounds, 14 families. Nothing passes check except the passive gold + US500 hold, which failed its locked look once costs were realistic (round 13).
+
+## Part 4 round 16: 23:42
+
+**Idea:** a pattern in gold, the steadiest market tonight. **Gold's session effect** is the reported tendency for gold to rise during Asian hours and fall during London/New York hours. Measured with the overnight module's hour logic (buy at a candle's close, sell at a later candle's open, same day, long only, no financing), on gold's own hourly history split 40/30/30: learn 2009-12 to 2016-09, check to 2021-10, locked after. (A research measurement, no new bot code. Gold has no 00:00 candle; it opens at 01:00 server time, so "Asia" is 02:00–09:00.)
+
+| Session (long gold) | Costs | Learn: avg a day, t, yearly at 25% drop | Check: avg a day, t, yearly |
+|---|---|---|---|
+| Asia 02–09 | with costs | −0.019%, t −1.98, −3.4% | −0.015%, t −1.56, −2.9% |
+| | **no costs** | **+0.036%, t +3.67**, +30.5% | **+0.013%, t +1.38**, +7.1% |
+| Europe 09–16 | with costs | −0.107%, t −7.33, −4.0% | −0.033%, t −2.39, −5.4% |
+| | no costs | −0.058%, t −3.98, −3.6% | −0.005%, t −0.39, −3.2% |
+| US 16–23 | with costs | −0.063%, t −3.01, −4.1% | −0.040%, t −2.47, −5.2% |
+| | no costs | −0.006%, t −0.23, −1.3% | −0.012%, t −0.76, −3.7% |
+
+**What it shows:**
+- **The Asian drift is real before costs**: positive in both parts, t +3.67 on learn. Gold falls in European hours. This matches the documented pattern, so it isn't something I mined from the data.
+- **Costs kill it.** Gold's typical hourly spread is about 1bp (0.16 at a median price of about 1,573), but this trade pays about 0.055% a day, roughly 5 times that. The likely cause: entering at 02:00, right after the 00:00–01:00 daily rollover, when spreads blow out.
+
+**Verdict: rejected as is.** Next round tests entering **later in the Asian session** (once spreads have normalised). That choice is motivated by the cost mechanics, not by picking the best check number.
