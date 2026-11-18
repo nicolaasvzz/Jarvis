@@ -59,7 +59,8 @@ class MomParams:
                 "above_ma": f"hold long over MA{self.ma_n}",
                 "rank": f"rank {self.lookback}d top/bottom {self.rank_k}",
                 "tom": f"turn of month (last {self.tom_before}, first {self.tom_after})",
-                "halloween": "hold Nov-Apr, flat May-Oct"}[self.mode]
+                "halloween": "hold Nov-Apr, flat May-Oct",
+                "calm_hold": "hold only while calm (20d vol < 1y median)"}[self.mode]
         return head + (f" ({', '.join(diff)})" if diff else "")
 
 
@@ -93,6 +94,11 @@ def weights(c: pd.DataFrame, p: MomParams) -> pd.DataFrame:
     """The position each market holds after each close (a share of the account, before scaling)."""
     ret = c.pct_change(fill_method=None)
     vol = ret.ewm(span=p.vol_n, min_periods=p.vol_n).std() * math.sqrt(252)
+    if p.mode == "calm_hold":
+        # Decided every close (not monthly): long while 20-day volatility is under its 1-year median.
+        v20 = ret.rolling(20).std()
+        calm = (v20 < v20.rolling(252).median()).astype(float).where(v20.rolling(252).median().notna())
+        return (calm * (p.target_vol / vol)).clip(0, p.max_lev).where(c.notna() & vol.notna())
     if p.mode == "tom":
         on = turn_of_month(c.index, p.tom_before, p.tom_after).astype(float)
         side = (c * 0 + 1).mul(on, axis=0)

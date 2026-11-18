@@ -1180,3 +1180,16 @@ The gap is about 10x. Rule tweaks on swing can't close it, and swing is frozen a
 **Verdict: kept as the dip family's version** (better average R and t on both parts). The yearly figure on learn is slightly lower because it trades about half as often. **It doesn't get a locked look:** +3.7% a year on check is nowhere near 18%. The filter removes most of the damage from turbulent periods, but what's left is a small edge.
 
 **Champion of the dip family:** RSI2<10 over MA200, only while 20-day volatility is under its 1-year median, sell on a close over the 5-day average or after 10 days, 3 ATR stop.
+
+## Part 4 round 23: 01:27
+
+**Idea:** carry round 22's lesson over to round 4's plain holding. **Hold the indices only while markets are calm** (20-day volatility under its 1-year median), decided every close, with volatility sizing, costs and financing as before (`tsmom.py`, mode `calm_hold`). Research on "volatility-managed portfolios" suggests stepping aside in turbulence can lift returns at the same risk. Test: held far more in calm stretches than stormy ones, no-peek. Twelve indices, index split.
+
+| Version | Part | Avg R (index-month) | PF | t (daily) | Yearly at 25% drop |
+|---|---|---|---|---|---|
+| hold only while calm | learn | +0.005 | 1.10 | +0.16 | **+0.2%** |
+| | check | −0.002 | 0.92 | −0.11 | −1.3% |
+| hold all the time (round 4) | learn | +0.078 | 1.99 | +1.91 | +14.6% |
+| | check | −0.028 | 0.90 | −0.16 | −1.6% |
+
+**Verdict: rejected.** It's far worse on learn (+0.2% against +14.6%) and about the same on check. Switching on a daily volatility signal pays the spread often, and it sits out the sharp rebounds that happen *inside* turbulent periods, where much of the stock market's return is made. The calm filter helps a short dip trade (round 22) because it avoids buying into a falling market. It hurts a holding strategy because it misses the recovery.

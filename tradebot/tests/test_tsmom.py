@@ -93,3 +93,19 @@ def test_halloween_holds_november_to_april_only():
     full, _ = returns(c, sp, MomParams(mode="halloween"))
     part, _ = returns(c.iloc[:700], sp.iloc[:700], MomParams(mode="halloween"))
     pd.testing.assert_series_equal(part, full.iloc[:700], check_names=False)
+
+
+def test_calm_hold_steps_aside_in_turbulence():
+    rng = np.random.default_rng(3)
+    n = 1200
+    days = pd.bdate_range("2013-01-01", periods=n)
+    sd = np.where((np.arange(n) // 150) % 2 == 1, 0.03, 0.006)      # calm and stormy stretches
+    c = pd.DataFrame({"US500": 100 * np.exp(np.cumsum(rng.normal(0, 1, n) * sd))}, index=days)
+    w = weights(c, MomParams(mode="calm_hold"))["US500"]
+    stormy = (np.arange(n) // 150) % 2 == 1
+    late = np.arange(n) > 400
+    assert w[late & ~stormy].gt(0).mean() > w[late & stormy].gt(0).mean() + 0.3
+    sp = pd.DataFrame(0.0001, index=days, columns=c.columns)
+    full, _ = returns(c, sp, MomParams(mode="calm_hold"))
+    part, _ = returns(c.iloc[:800], sp.iloc[:800], MomParams(mode="calm_hold"))
+    pd.testing.assert_series_equal(part, full.iloc[:800], check_names=False)
