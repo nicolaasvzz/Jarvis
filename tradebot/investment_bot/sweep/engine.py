@@ -100,6 +100,7 @@ class Params:
     break_past_atr: float = 0.0  # the confirmation must close at least this many ATRs past the swing it breaks
     sweep_max_atr: float = 0.0   # the sweep may run at most this many ATRs past the level it takes (0 = any)
     sweep_min_atr: float = 0.0   # the sweep must run at least this many ATRs past the level it takes
+    break_vol: float = 0.0       # the confirmation candle's tick volume must be this many times its 20-candle average
 
     def label(self) -> str:
         bits = [f"rr>={self.min_rr:g}"]
@@ -114,6 +115,8 @@ class Params:
             bits.append("buy cheap / sell dear")
         if self.trail_swings:
             bits.append("trail to swings" + (f" after {self.trail_after_r:g}R" if self.trail_after_r else ""))
+        if self.break_vol:
+            bits.append(f"break on {self.break_vol:g}x volume")
         if self.sweep_min_atr:
             bits.append(f"sweep at least {self.sweep_min_atr:g} ATR deep")
         if self.sweep_max_atr:
@@ -283,6 +286,9 @@ class Engine:
             avg = pd.Series(L.atr).rolling(200, min_periods=50).mean().to_numpy()
             vol_ratio = np.where(avg > 0, L.atr / np.where(avg > 0, avg, 1), 1.0)
         hours = (p.hour_from, p.hour_to) != (0, 24)
+        if p.break_vol and "tick_volume" in L.df:
+            tv = L.df["tick_volume"].to_numpy().astype(float)
+            tv_avg = pd.Series(tv).shift(1).rolling(20, min_periods=10).mean().to_numpy()
         M, H = self.m, self.h
         mo, mh, ml, mc = (M.df[k].to_numpy() for k in ("open", "high", "low", "close"))
         hh, hl, hc = (H.df[k].to_numpy() for k in ("high", "low", "close"))
@@ -424,6 +430,8 @@ class Engine:
                 if p.break_body_atr and (c_[j] - o_[j]) * side < p.break_body_atr * L.atr[j]:
                     continue
                 if p.break_past_atr and (c_[j] - a["ref"]) * side < p.break_past_atr * L.atr[j]:
+                    continue
+                if p.break_vol and "tick_volume" in L.df and not (tv_avg[j] > 0 and tv[j] >= p.break_vol * tv_avg[j]):
                     continue
                 if p.sweep_min_atr and (a["liq"] is None or (a["liq"] - a["ext"]) * side < p.sweep_min_atr * L.atr[j]):
                     continue

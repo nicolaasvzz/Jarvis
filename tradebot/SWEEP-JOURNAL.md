@@ -581,3 +581,22 @@ Better on check, worse on learn. Rejected.
 **Kept:** nothing.
 
 **Learned:** deep sweeps aren't better on their own. Shallow-only (round 22) and deep-only both lose to taking every sweep. Sweep depth isn't where the edge is. The strong break after the sweep is.
+
+## Round 24: 13:24 (finished 14:23: the machine was asleep or stalled for about an hour)
+
+**Idea (a new engine rule): volume on the break.** A real break should come with a burst of activity. The confirmation candle's tick volume must be at least N times its 20-candle average. (MT5 forex volume is tick count, not traded size, but it still rises with activity.)
+
+**Tried, swing** (champion: learn t +1.02, check +1.66):
+- 1.2x volume: +0.92 / +0.71
+- 1.5x volume: +0.23 / +1.08
+- 2x volume: +0.96 / +1.10
+
+All worse on both parts.
+
+**Tried, intraday** (champion: +0.28 / +0.96):
+- 1.2x volume: +0.49 / −0.52
+- 1.5x volume: +0.92 / −0.70
+
+Better on learn, collapses on check.
+
+**Kept:** nothing. Tick volume adds nothing beyond the strong-break body rule.
