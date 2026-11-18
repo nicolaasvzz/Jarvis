@@ -1193,3 +1193,23 @@ The gap is about 10x. Rule tweaks on swing can't close it, and swing is frozen a
 | | check | −0.028 | 0.90 | −0.16 | −1.6% |
 
 **Verdict: rejected.** It's far worse on learn (+0.2% against +14.6%) and about the same on check. Switching on a daily volatility signal pays the spread often, and it sits out the sharp rebounds that happen *inside* turbulent periods, where much of the stock market's return is made. The calm filter helps a short dip trade (round 22) because it avoids buying into a falling market. It hurts a holding strategy because it misses the recovery.
+
+## Part 4 round 24: 01:42
+
+**Idea:** a **robustness check of round 22's kept version** (index dip + calm filter). If "buy short dips in calm uptrends" is a real effect, it should also show on markets it was never designed on. The keep rule needs a change to hold in more than one group, and the dip family had only been measured on indices. Same rule and index split, on the 4 metals and the 29 forex pairs.
+
+| Group | Version | Learn: trades, avg R, t, yearly at 25% drop | Check: trades, avg R, t, yearly |
+|---|---|---|---|
+| metals | dip + calm | 51, −0.096, −1.43, −3.6% | 35, −0.020, −0.29, −2.4% |
+| | dip | 70, −0.081, −1.36, −4.0% | 98, −0.016, −0.35, −3.1% |
+| forex | dip + calm | 606, −0.044, −2.30, −4.0% | 358, −0.026, −1.13, −3.6% |
+| | dip | 1007, −0.012, −0.67, −2.4% | 678, −0.019, −1.10, −3.7% |
+| indices (round 22) | dip + calm | 101, **+0.111**, +2.45, +14.9% | 163, **+0.038**, +0.70, +3.7% |
+| | dip | 187, +0.095, +2.21, +16.0% | 228, −0.001, −0.01, −1.0% |
+
+**Verdict: round 22's keep is withdrawn.**
+- Dip-buying loses on metals and forex, with or without the filter.
+- The calm filter makes average R **worse** on metals (both parts) and on forex learn. By the group rule, worse in 2 of 3 groups, it doesn't qualify.
+- Its improvement on indices may just fit the one 2018–22 window it was designed around.
+
+The dip family stays at round 3's version, which is an index-only effect that failed check. Robustness checks like this are what stop a hindsight fix from slipping through.
