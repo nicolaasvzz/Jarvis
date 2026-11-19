@@ -1299,3 +1299,18 @@ The dip family stays at round 3's version, which is an index-only effect that fa
 **Verdict: rejected.** There's no edge even before costs. The published effect uses the exact cash-market half-hours (09:30–10:00 predicting 15:30–16:00 New York time), and it was strongest before 2013 and on volatile days. On CFD hourly candles that straddle the cash open, and in 2015–22, it doesn't show. Hourly candles may be too coarse to test it fairly. That's noted, not chased.
 
 **Note:** the full test suite runs at the FINISH step, and every new test file has passed on its own as it was added.
+
+## Part 4 round 30: 03:12
+
+**Idea:** **"dual momentum" rotation between gold and the US500** (Antonacci's idea, on round 11's steady pair). Each month, hold only whichever of the two had the stronger past year per unit of volatility. It uses the existing code: `tsmom.py` mode `rank`, top 1, long only, rate-based financing, index split. Caveat: the pair itself was chosen with hindsight (round 11).
+
+| Version | Part | Avg R (month) | PF | t (daily) | Yearly at 25% drop |
+|---|---|---|---|---|---|
+| rotate on 12 months | learn | +0.066 | 1.49 | +1.09 | +6.3% |
+| | check | +0.019 | 1.09 | +0.26 | +0.7% |
+| rotate on 6 months | learn | +0.109 | 1.81 | +1.61 | +13.3% |
+| | check | +0.005 | 1.02 | +0.12 | −0.1% |
+| hold both (round 25) | learn | +0.071 | 1.21 | +0.92 | +4.6% |
+| | check | +0.070 | 1.18 | +0.65 | **+3.9%** |
+
+**Verdict: rejected.** Rotation beats holding both in 2012–18, when US stocks led for years. In 2018–22 it loses to simply holding both, because it keeps switching into whichever just ran and misses the other's turn. Diversification beat timing again, as in rounds 4, 11, 23 and 27.
