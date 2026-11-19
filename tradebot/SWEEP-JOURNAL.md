@@ -1736,3 +1736,15 @@ Financing costs swing about **0.04R a trade**. From now on the research copy (`r
 | sweep must close back | +0.524R, t +2.31, 55 | +0.469R, t +1.95, 43 | +0.807 / +0.583 / **−0.102** |
 
 **Verdict: rejected.** It's better on learn, worse on check, and indices turn negative. Index stop-runs often close *above* the level for an hour or more before reversing (the push looks real at first), so demanding a rejection wick throws out good index trades. Forex and metals are unchanged.
+
+## Part 5 round 20 (round 58): 21:38, how long to wait for the break
+
+**Idea:** after a stop-run, the bot waits a set number of candles (the profile's arm window, ×1) for the strong break. A shorter wait means only quick, decisive reversals count; a longer one lets slower tops through. Version 2, financed.
+
+| Wait | Learn | Check | Check by group (forex / metals / indices) |
+|---|---|---|---|
+| 1× (champion) | +0.438R, t +2.09, 62 trades | +0.586R, t +2.61, 50 | +0.804 / +0.583 / +0.349 |
+| 0.5× | +0.044R, t +0.19, 43 | +0.197R, t +0.92, 34 | +0.357 / +0.146 / +0.014 |
+| 2× | +0.253R, t +1.36, 66 | +0.236R, t +1.24, 55 | +0.204 / +0.019 / +0.336 |
+
+**Verdict: rejected; 1× stays, a clear sweet spot.** Both sides are much worse on both parts. Too short misses tops that take a few hours to roll over; too long admits stale setups where the stop-run has lost its force. One of the clearest single-setting results of part 5.
