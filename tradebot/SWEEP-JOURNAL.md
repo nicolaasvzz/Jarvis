@@ -1282,3 +1282,20 @@ The dip family stays at round 3's version, which is an index-only effect that fa
 - The live demo **does** pay real swaps, so its results should come in below the old backtest. That's not a sign of a bug.
 
 **Recommendation (for Nicolaas, not done tonight):** add financing to `engine.py` so every future swing proof includes it. That changes how swing is measured, not its rules, but it touches the frozen version's numbers, so it should be his call.
+
+## Part 4 round 29: 02:57
+
+**Idea:** a documented intraday effect not yet tested, **"intraday momentum"** (Gao, Han, Li and Zhou, 2018): the US market's early-session move predicts its move in the last half-hour. Here: the "first hour" runs from the 15:00 candle's close to the 16:00 candle's close (server time, so it includes the 16:30 cash open). Trade the 22:00 candle (the session's last hour) in that direction, open to close: one trade a day, one hour, no financing (`sweep/lasthour.py`). Test: one trade a day on the 22:00 candle, it finds a planted follow-through, no-peek. US500, US30, US2000, USTEC, index split (hourly data really starts in 2015).
+
+| Version | Part | Trades | Avg a trade | PF | t (daily) | Yearly at 25% drop |
+|---|---|---|---|---|---|---|
+| every day | learn | 1557 | −0.019% | 0.80 | −2.30 | −4.5% |
+| | check | 3207 | −0.012% | 0.92 | −0.92 | −4.2% |
+| only after a first hour of 0.3%+ | learn | 273 | −0.029% | 0.79 | −1.00 | −4.2% |
+| | check | 1209 | −0.004% | 0.98 | −0.12 | −1.2% |
+| every day, no costs (diagnostic) | learn | 1557 | −0.004% | 0.95 | −0.59 | −3.6% |
+| | check | 3207 | −0.007% | 0.95 | −0.51 | −3.3% |
+
+**Verdict: rejected.** There's no edge even before costs. The published effect uses the exact cash-market half-hours (09:30–10:00 predicting 15:30–16:00 New York time), and it was strongest before 2013 and on volatile days. On CFD hourly candles that straddle the cash open, and in 2015–22, it doesn't show. Hourly candles may be too coarse to test it fairly. That's noted, not chased.
+
+**Note:** the full test suite runs at the FINISH step, and every new test file has passed on its own as it was added.
