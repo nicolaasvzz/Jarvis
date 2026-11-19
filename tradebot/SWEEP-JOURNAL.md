@@ -1435,3 +1435,42 @@ No credible new documented idea is left that this data can test fairly, so no ne
 ## Part 4 rounds 39+: 05:27 until 08:00, quiet
 
 There's no new, documented, fairly testable idea left, and round 31 showed that more guesses mostly add luck. So until the 08:00 finish, the remaining rounds do nothing. No more journal entries or commits, to keep the record clean. The live bot needs no attention (round 38). The FINISH steps run at 08:00.
+
+## FINAL, part 4: the Fairtree bar (18 Nov 19:50 to 19 Nov 08:00)
+
+**The bar:** 18%+ a year at a 25% worst drop, on data never tuned on, after costs, passing the luck test. (Fairtree Equity Prescient: about 12–18% a year over 10 years, in rand.)
+
+**Answer: nothing cleared it.** In 38 rounds, every major family of systematic edge known in the literature was built by hand, tested on learn and check, and, where ready, given one locked look. 203 tests pass, including a no-peek test for every new module.
+
+| Family | Rounds | Learn | Check | Locked look | Against the bar |
+|---|---|---|---|---|---|
+| daily breakout trend (45 markets) | 1, 7 | −2.0% | −3.4% | not ready | fails |
+| 12-month momentum (45) | 2, 7, 25 | −1.2% | −2.7% | not ready | fails |
+| cross-market ranking | 5 | −0.6% | −2.3% | not ready | fails |
+| index dip-buying (+ calm filter, vol spikes) | 3, 21, 22, 24 | +16.0% | −1.0% | not ready | fails |
+| index holding / Halloween / calm hold | 4, 18, 23 | +14.6% | −1.6% | reference | fails |
+| turn of the month | 6 | −3.4% | −0.6% | not ready | fails |
+| two-sided forex reversion | 10 | −2.5% | −3.4% | not ready | fails |
+| gold + US500 equal-risk hold (and rotation) | 11, 13, 25, 30 | +4.6% | +3.9% | **+16.0%** at realistic financing (+22.1% at 2%) | fails (hindsight pick, boom window) |
+| pairs (market-neutral) | 12 | −4.3% | −1.6% | not ready | fails |
+| intraday snap-back / momentum / last hour | 14, 15, 29 | −3.8% | −5.6% | not ready | fails |
+| gold Asian-hours drift | 16, 17 | −3.4% | −2.9% | not ready | fails (drift < spread) |
+| quiet-day (NR7) breakout | 19, 20 | −2.6% | −3.3% | not ready | fails |
+| forex carry (historical rates) | 26 | +2.3% | −2.0% | not ready | fails |
+| US overnight drift (+ Europe, + uptrend) | 8, 32, 33, 34 | +1.4% | +1.5% | **+0.3%** | fails |
+| options-expiry week | 37 | +28.3% | −6.3% | not ready | fails |
+| **pre-holiday day, US indices** | 36 | +3.8% | +10.4% | **+15.0%** (t 2.01, 4/4 quarters, PF 2.09) | **closest; misses 18%, needs about 9x leverage** |
+| all families combined | 9, 27 | −1.5% | −3.0% | not ready | fails |
+
+(Yearly returns at the size that keeps the worst drop at 25%, after costs.)
+
+**What was learned:**
+1. **Clearing the bar dependably needs a Sharpe ratio of about 1.5** (round 31). The best found on unseen data is about 0.3, except the pre-holiday effect, which is real but too small and too concentrated to carry 18% safely.
+2. **On a retail CFD account, costs decide almost everything:** spreads of 1–3bp a side, and financing of rate + 2.5% a year on longs (round 25). Real effects exist (overnight drift, gold in Asian hours, holiday eves), but most are smaller than the cost of trading them.
+3. **Index rules that buy weakness look brilliant on 2012–18 and earn nothing on 2018–22.** The check part caught it every time (rounds 3, 21, 37).
+4. **Swing (the live demo)** gives about +0.05R a trade on fresh markets once financing is counted (round 28): about +1% a year at 1% risk.
+
+**Recommendations:**
+- Keep the swing demo running as a forward test, but expect roughly break-even. Add financing to `engine.py` so its proof counts swaps.
+- Don't put real money into any of tonight's strategies. The pre-holiday effect is the only one worth a small demo forward test, at a capped size (2x the account: about +3.5% a year historically).
+- For the R10M goal, the businesses are the money engine. A low-cost index or balanced fund captures market returns without CFD financing; that's a decision for a licensed adviser, not this bot.
