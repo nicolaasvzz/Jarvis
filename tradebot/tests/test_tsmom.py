@@ -1,0 +1,111 @@
+"""Part 4, family 2: time-series momentum."""
+import numpy as np
+import pandas as pd
+
+from investment_bot.sweep.tsmom import MomParams, market_months, returns, weights
+
+
+def _panel(n: int = 900, seed: int = 5) -> tuple[pd.DataFrame, pd.DataFrame]:
+    rng = np.random.default_rng(seed)
+    days = pd.bdate_range("2001-01-01", periods=n)
+    c = pd.DataFrame({s: 100 * np.exp(np.cumsum(rng.normal(d, 0.01, n)))
+                      for s, d in (("AAAUSD", 0.001), ("BBBUSD", -0.001), ("US500", 0.0))}, index=days)
+    c.iloc[:200, 2] = np.nan     # one market starts later
+    sp = pd.DataFrame(0.0001, index=days, columns=c.columns)
+    return c, sp
+
+
+def test_positions_change_only_at_month_ends_and_follow_the_trend():
+    c, _ = _panel()
+    w = weights(c, MomParams())
+    a = w["AAAUSD"].dropna()
+    months = a.index.to_series().dt.to_period("M")
+    month_last = (months != months.shift(-1)).to_numpy()
+    changed = (a.diff().fillna(0) != 0).to_numpy()
+    assert changed.any() and not (changed & ~month_last).any()
+    assert (w["AAAUSD"].dropna() > 0).mean() > 0.6     # the rising market is mostly held long
+    assert (w["BBBUSD"].dropna() < 0).mean() > 0.6     # the falling one mostly short
+
+
+def test_no_peeking_at_the_future():
+    c, sp = _panel()
+    full, _ = returns(c, sp, MomParams(lookback=120))
+    for k in (400, 611, 850):
+        part, _ = returns(c.iloc[:k], sp.iloc[:k], MomParams(lookback=120))
+        pd.testing.assert_series_equal(part, full.iloc[:k], check_names=False)
+
+
+def test_costs_only_make_it_worse():
+    c, sp = _panel()
+    cheap, _ = returns(c, sp * 0, MomParams(lookback=120, cost_bp=0, finance_pa=0))
+    dear, _ = returns(c, sp, MomParams(lookback=120, cost_bp=5, finance_pa=0.05))
+    assert dear.sum() < cheap.sum()
+
+
+def test_market_months_add_up():
+    c, sp = _panel()
+    p = MomParams(lookback=120)
+    _, per = returns(c, sp, p)
+    tr = market_months(per, p)
+    unit = p.target_vol / np.sqrt(12)
+    assert abs(sum(x["r"] for x in tr) * unit - per.sum().sum()) < 1e-9
+
+
+def test_hold_modes_are_long_only():
+    c, sp = _panel()
+    for mode in ("hold", "above_ma"):
+        w = weights(c, MomParams(mode=mode, ma_n=100))
+        assert (w.fillna(0) >= 0).all().all() and (w.fillna(0) > 0).any().any()
+    full, _ = returns(c, sp, MomParams(mode="above_ma", ma_n=100))
+    part, _ = returns(c.iloc[:600], sp.iloc[:600], MomParams(mode="above_ma", ma_n=100))
+    pd.testing.assert_series_equal(part, full.iloc[:600], check_names=False)
+
+
+def test_rank_holds_the_strongest_long_and_the_weakest_short():
+    c, sp = _panel()
+    w = weights(c, MomParams(mode="rank", rank_k=1, lookback=120)).dropna(how="all")
+    assert (w["AAAUSD"] > 0).mean() > (w["AAAUSD"] < 0).mean()   # the riser is mostly the long
+    assert (w["BBBUSD"] < 0).mean() > (w["BBBUSD"] > 0).mean()   # the faller mostly the short
+    assert ((w.fillna(0) != 0).sum(axis=1) <= 2).all()
+    full, _ = returns(c, sp, MomParams(mode="rank", rank_k=1, lookback=120))
+    part, _ = returns(c.iloc[:700], sp.iloc[:700], MomParams(mode="rank", rank_k=1, lookback=120))
+    pd.testing.assert_series_equal(part, full.iloc[:700], check_names=False)
+
+
+def test_turn_of_month_window_is_calendar_only():
+    from investment_bot.sweep.tsmom import turn_of_month
+    days = pd.bdate_range("2024-01-24", "2024-02-08")
+    on = dict(zip(days.strftime("%m-%d"), turn_of_month(days, 1, 3)))
+    # Held through Jan 31 (last weekday) and Feb 1, 2, 5: decided on the close before each.
+    assert [d for d, x in on.items() if x] == ["01-30", "01-31", "02-01", "02-02"]
+    c, sp = _panel()
+    full, _ = returns(c, sp, MomParams(mode="tom"))
+    part, _ = returns(c.iloc[:640], sp.iloc[:640], MomParams(mode="tom"))
+    pd.testing.assert_series_equal(part, full.iloc[:640], check_names=False)
+
+
+def test_halloween_holds_november_to_april_only():
+    c, sp = _panel()
+    w = weights(c, MomParams(mode="halloween"))["AAAUSD"].dropna()
+    held = w.groupby(w.index.month).apply(lambda x: (x > 0).mean())
+    # A month-end close decides the month ahead, so its own last day already carries it.
+    assert held[[12, 1, 2, 3]].min() > 0.9 and held[[6, 7, 8, 9]].max() < 0.1
+    full, _ = returns(c, sp, MomParams(mode="halloween"))
+    part, _ = returns(c.iloc[:700], sp.iloc[:700], MomParams(mode="halloween"))
+    pd.testing.assert_series_equal(part, full.iloc[:700], check_names=False)
+
+
+def test_calm_hold_steps_aside_in_turbulence():
+    rng = np.random.default_rng(3)
+    n = 1200
+    days = pd.bdate_range("2013-01-01", periods=n)
+    sd = np.where((np.arange(n) // 150) % 2 == 1, 0.03, 0.006)      # calm and stormy stretches
+    c = pd.DataFrame({"US500": 100 * np.exp(np.cumsum(rng.normal(0, 1, n) * sd))}, index=days)
+    w = weights(c, MomParams(mode="calm_hold"))["US500"]
+    stormy = (np.arange(n) // 150) % 2 == 1
+    late = np.arange(n) > 400
+    assert w[late & ~stormy].gt(0).mean() > w[late & stormy].gt(0).mean() + 0.3
+    sp = pd.DataFrame(0.0001, index=days, columns=c.columns)
+    full, _ = returns(c, sp, MomParams(mode="calm_hold"))
+    part, _ = returns(c.iloc[:800], sp.iloc[:800], MomParams(mode="calm_hold"))
+    pd.testing.assert_series_equal(part, full.iloc[:800], check_names=False)

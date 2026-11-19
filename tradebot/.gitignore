@@ -81,3 +81,6 @@ sweep_champions.json
 sweep_champions.json.looks
 sweep_bench.json
 sweep_windows.json
+
+research_lab/
+sweep_forward*.log
