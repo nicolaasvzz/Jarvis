@@ -1639,3 +1639,15 @@ Financing costs swing about **0.04R a trade**. From now on the research copy (`r
 | 6 | +0.443R, t +2.24, 68 | +0.462R, t +2.35, 55 | +0.426 / +0.799 / +0.382 |
 
 **Verdict: rejected, 5 stays.** 4 is worse on both parts. 6 is a hair better on learn but clearly worse on check. The zone chart is already at its sweet spot; the gain from cleaner structure in round 48 was specific to the trigger.
+
+## Part 5 round 12 (round 50): 19:38, target swing size
+
+**Idea:** how many daily candles on each side make the old highs and lows that act as targets and stop-runs, currently 4. Version 2, financed.
+
+| Target swing size | Learn | Check | Check by group (forex / metals / indices) |
+|---|---|---|---|
+| 4 (champion) | +0.438R, t +2.09, 62 trades | +0.586R, t +2.61, 50 | +0.804 / +0.583 / +0.349 |
+| 3 | +0.361R, t +1.77, 63 | +0.651R, t +2.75, 47 | +0.720 / +0.813 / +0.503 |
+| 5 | +0.385R, t +1.84, 59 | +0.722R, t +3.07, 47 | +0.964 / +0.813 / +0.420 |
+
+**Verdict: rejected, 4 stays.** Both neighbours are worse on learn and better on check (5 reaches t 3.07 on check). The rule needs better on both. A change that gains a lot on check while losing on learn is exactly what fitting to the check window looks like, so this is the rule doing its job. 4 is the only setting good on both.
