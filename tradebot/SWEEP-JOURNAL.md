@@ -1503,3 +1503,15 @@ Financing costs swing about **0.04R a trade**. From now on the research copy (`r
 | hold limit 1.5× | +0.114R, t +1.01 | +0.263R, t +2.00 |
 
 **Verdict: rejected.** It's slightly better on check but not on learn. Few trades reach the time limit, so it barely moves anything. Most of the financing is paid by ordinary 2–5 night holds, not by the stragglers.
+
+## Part 5 plan: 15-minute rounds until 20 Nov 12:00
+
+**Goal (from Nicolaas):** keep improving the bot, trying different settings each round, until 20 Nov 12:00.
+
+**What gets trained:** a **swing version 2** in `research_lab/` (financed). Each round changes **one** setting by hand, chosen from what the last rounds showed, and rotates through the knobs not yet tried under real costs: entry depth, partial size, min/max reward, stop buffer, swing sizes (higher, middle, lower chart), strong-break size, daily stop-run window, trailing, zone visits, volatility skip, trend filter, fixed vs liquidity targets, sides. The live demo keeps version 1 and is never touched.
+
+**Keep rule (unchanged):** better on learn AND check, and not worse in 2 of the 3 groups. Every round is recorded, including failures.
+
+**The judge at the end:** version 2 (if it differs from version 1) gets **one** final test on the 24 fresh markets, financed, against version 1 financed. Caveat: those markets were already used once to judge version 1, so it's a second use; the result is reported with that in mind. Version 2 goes live only with Nicolaas's yes.
+
+**Wi-Fi pauses:** when Nicolaas warns that the Wi-Fi is about to cut out, the current work is committed and pushed and a flag file `research_lab/PAUSED` is created. While it exists, rounds do nothing. It's deleted when he says the Wi-Fi is back.
