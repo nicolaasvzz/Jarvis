@@ -1575,3 +1575,17 @@ Financing costs swing about **0.04R a trade**. From now on the research copy (`r
 | 6R | +0.423R, t +2.12 | +0.526R, t +2.23 | +0.414 / +1.316 / +0.324 |
 
 **Verdict: rejected, 4R stays.** The closest call is 6R: a better average on both parts, but check t falls (2.50 to 2.23), and forex and indices both get worse. Only metals gains, from bigger runs. The keep rule needs better average **and** t on both, without hurting 2 groups. Further targets add size and variance in about equal measure.
+
+## Part 5 round 7 (round 45): 18:31, strong-break size (shorts only)
+
+(The 17:07–18:22 rounds didn't run. The scheduled prompts queued up without being processed, probably a connection or usage hiccup. Nothing was lost: round 44 was committed and pushed, and the live bot kept running.)
+
+**Idea:** the strong-break rule (the confirmation candle's body at least 1.2 ATR) has carried swing since part 3, but it was tuned with both sides. With shorts only, the best size may differ. Financed.
+
+| Break body | Learn | Check | Check by group (forex / metals / indices) |
+|---|---|---|---|
+| 1.2 ATR (champion) | +0.347R, t +2.02, 84 trades | +0.505R, t +2.50, 60 | +0.462 / +1.016 / +0.335 |
+| 1.0 ATR | +0.482R, t +2.97, 103 | +0.391R, t +2.08, 74 | +0.441 / +0.832 / +0.094 |
+| 1.5 ATR | +0.238R, t +1.13, 58 | +0.583R, t +2.21, 39 | +0.345 / +1.315 / +0.705 |
+
+**Verdict: rejected, 1.2 ATR stays.** Each neighbour wins one part and loses the other (1.0 on learn, 1.5 on check, with only 39 trades). 1.2 sits between them and is solid on both, which is the shape a real setting should have, rather than a lucky spike.
