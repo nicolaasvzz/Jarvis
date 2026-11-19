@@ -1355,3 +1355,18 @@ The dip family stays at round 3's version, which is an index-only effect that fa
 | | check | 3213 | −0.017% | −0.62 | −3.2% |
 
 **Verdict: rejected.** Europe shows no dependable overnight drift. Learn is thin (574 nights, only DE40 has hourly data early on), and check is negative even before costs. The US overnight drift (round 8) stays a US-only effect, which matches the research: it's strongest in US stocks.
+
+## Part 4 round 33: 03:57
+
+**Idea:** is the US overnight drift (round 8) **stronger in uptrends**? Hold the night only when the index's *previous* daily close is above its 200-day average (`overnight.py`, `ma_n=200`; the previous close, because the current daily candle isn't finished at the 23:00 entry). If bear-market nights are the drag, this lifts the Sharpe without touching costs. Test: a jump is only known the day after, a fall switches it off, an empty allowed set means no trades. US indices, index split.
+
+| Version | Part | Nights | Avg a night | PF | t (daily) | Yearly at 25% drop |
+|---|---|---|---|---|---|---|
+| overnight, uptrend only | learn | 1478 | +0.011% | 1.08 | +0.40 | +1.3% |
+| | check | 2212 | +0.017% | 1.09 | +0.92 | **+7.3%** |
+| overnight, every night (round 8) | learn | 1559 | +0.011% | 1.08 | +0.43 | +1.4% |
+| | check | 3220 | +0.010% | 1.04 | +0.38 | +1.5% |
+
+**Verdict: not kept by the strict rule.** It's a dead heat on learn (2015–18 was nearly all uptrend, so the filter seldom acted: 1478 nights against 1559), and much better on check (+7.3% against +1.5%), where it skipped the late-2018, 2020 and 2022 sell-offs. The rule needs better on both, and "the same" isn't better. I won't bend the rule for a result I like. Even if kept, a Sharpe of about 0.45 (t 0.92 over 4.3 years) at +7.3% a year is far from the bar's ~1.5.
+
+**Noted as the best lead of the night** for a future forward test: US overnight drift with an uptrend filter. It's real before costs (round 8's short-the-night control lost at t −3.8), simple, never pays a full day's financing, and avoids bear markets.

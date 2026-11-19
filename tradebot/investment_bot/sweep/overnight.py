@@ -36,6 +36,7 @@ class NightParams:
     cost_bp: float = 1.0
     finance_pa: float = 0.02
     sides: int = 1           # 1 = hold the night long; -1 = hold it short (a control)
+    ma_n: int = 0            # >0: only nights when the previous daily close is above its ma_n-day average
 
     def label(self) -> str:
         d = NightParams()
@@ -44,7 +45,16 @@ class NightParams:
         return "overnight long" + (f" ({', '.join(diff)})" if diff else "")
 
 
-def nights(symbol: str, h1: pd.DataFrame, p: NightParams, point: float) -> list[dict[str, Any]]:
+def uptrend_days(d1: pd.DataFrame, n: int) -> set:
+    """Days whose PREVIOUS daily close was above its n-day average (known before that day starts)."""
+    c = d1["close"]
+    ok = (c > c.rolling(n).mean()).shift(1, fill_value=False)
+    days = pd.to_datetime(d1["time"], unit="s").dt.normalize()
+    return set(days[ok.to_numpy(bool)])
+
+
+def nights(symbol: str, h1: pd.DataFrame, p: NightParams, point: float,
+           allowed: set | None = None) -> list[dict[str, Any]]:
     t = pd.to_datetime(h1["time"], unit="s")
     hour = t.dt.hour.to_numpy()
     close, open_ = h1["close"].to_numpy(float), h1["open"].to_numpy(float)
@@ -62,6 +72,8 @@ def nights(symbol: str, h1: pd.DataFrame, p: NightParams, point: float) -> list[
         nxt = np.searchsorted(ins, i + 1)
         if nxt < len(ins) and ins[nxt] < j:
             continue  # another close comes before the exit candle (a short day): skip this night
+        if allowed is not None and t.iat[i].normalize() not in allowed:
+            continue
         buy, sell = close[i], open_[j]
         cost = (max(p.cost_bp * 1e-4 * buy, spread[i]) + max(p.cost_bp * 1e-4 * sell, spread[j])) / buy
         held = max(1, (t.iat[j].normalize() - t.iat[i].normalize()).days)
@@ -83,7 +95,11 @@ def all_nights(p: NightParams, symbols: list[str] | None = None) -> list[dict[st
     for s in symbols or US:
         path = data.CACHE / f"{s}_H1.pkl"
         if path.exists():
-            out.extend(nights(s, pd.read_pickle(path), p, data.offline_point(s)))
+            allowed = None
+            if p.ma_n:
+                d1 = data.CACHE / f"{s}_D1.pkl"
+                allowed = uptrend_days(pd.read_pickle(d1), p.ma_n) if d1.exists() else set()
+            out.extend(nights(s, pd.read_pickle(path), p, data.offline_point(s), allowed))
     return out
 
 

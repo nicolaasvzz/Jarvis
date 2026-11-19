@@ -46,3 +46,18 @@ def test_costs_and_weekends_cost_more():
     gaps = [b["ret"] - a["ret"] for a, b in zip(free, paid)]
     assert all(g < 0 for g in gaps)
     assert min(gaps) < max(gaps)   # weekend nights pay three nights' financing
+
+
+def test_uptrend_days_use_only_the_previous_close():
+    from investment_bot.sweep.overnight import uptrend_days
+    t = 1357603200 + np.arange(30) * 86400
+    close = np.r_[np.full(10, 100.0), np.full(10, 120.0), np.full(10, 80.0)]
+    d1 = pd.DataFrame({"time": t, "close": close})
+    ok = uptrend_days(d1, 5)
+    days = pd.to_datetime(t, unit="s").normalize()
+    assert days[10] not in ok and days[11] in ok     # the jump on day 10 is known only from day 11
+    assert days[21] not in ok                         # after the fall
+    h = _hourly()
+    every = nights("US500", h, NightParams(), 0.01)
+    some = nights("US500", h, NightParams(), 0.01, allowed=set())
+    assert every and some == []
