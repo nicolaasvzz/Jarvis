@@ -1342,3 +1342,16 @@ The dip family stays at round 3's version, which is an index-only effect that fa
 - **Clearing the bar dependably needs a Sharpe of about 1.5**, and it's a coin flip at 1.0. That's the territory of the best hedge funds, which usually rely on data, speed or costs a retail CFD account doesn't have.
 - **The best found tonight is about 0.3**, a factor of about 5 short.
 - **It also explains round 13's locked look.** A Sharpe-0.3 holding clears the bar in about 1 window in 10 by pure luck. Gold + US500 in 2022–26 (+22% as modelled) was that window: a boom, not an edge. That's why the bar demands unseen data **and** the luck test, and why I didn't call it a win.
+
+## Part 4 round 32: 03:42
+
+**Idea:** widen the one effect tonight that was real before costs, the **overnight drift** (round 8, US only). If European indices also rise while their cash market is closed, holding both regions overnight adds independent bets, the only way to raise the Sharpe ratio (round 31). DE40's hourly volume confirms the European cash session: it jumps at 10:00 server time and stays busy until 18:00. Rule (`overnight.py`, unchanged code): buy at the close of the 18:00 candle, sell at the open of the next 10:00 candle, on DE40, Euro Stoxx 50, FRA40 and UK100, index split.
+
+| Version | Part | Nights | Avg a night | t (daily) | Yearly at 25% drop |
+|---|---|---|---|---|---|
+| EU overnight | learn | 574 | +0.021% | +0.72 | +3.2% |
+| | check | 3213 | −0.027% | −1.06 | −4.6% |
+| EU overnight, no costs | learn | 574 | +0.042% | +1.45 | +8.7% |
+| | check | 3213 | −0.017% | −0.62 | −3.2% |
+
+**Verdict: rejected.** Europe shows no dependable overnight drift. Learn is thin (574 nights, only DE40 has hourly data early on), and check is negative even before costs. The US overnight drift (round 8) stays a US-only effect, which matches the research: it's strongest in US stocks.
