@@ -1713,3 +1713,15 @@ Financing costs swing about **0.04R a trade**. From now on the research copy (`r
 | 3 | +0.281R, t +1.64, 89 | +0.357R, t +1.96, 69 | +0.453 / +0.266 / +0.248 |
 
 **Verdict: rejected; fresh zones only.** Revisits add trades, but each is worse, on both parts and in every group. A zone that has already been tested has had its sellers used up. The videos' rule holds again, now on shorts and under real costs.
+
+## Part 5 round 18 (round 56): 21:08, liquidity target or fixed target
+
+**Idea:** version 2 aims at the nearest untaken daily low (the "liquidity" the videos target), and only trades when that low is 3.5–4R away. The alternative is a plain fixed target at 3.5R or 4R, wherever old lows sit. If the old-lows idea is real, the liquidity target should win. Version 2, financed.
+
+| Target | Learn | Check | Check by group (forex / metals / indices) |
+|---|---|---|---|
+| nearest old daily low (champion) | +0.438R, t +2.09, 62 trades | +0.586R, t +2.61, 50 | +0.804 / +0.583 / +0.349 |
+| fixed 3.5R | +0.121R, t +0.80, 98 | +0.212R, t +1.37, 95 | +0.166 / +0.386 / +0.243 |
+| fixed 4R | +0.151R, t +0.98, 100 | +0.235R, t +1.50, 94 | +0.169 / +0.439 / +0.296 |
+
+**Verdict: rejected; the liquidity target stays, and it's confirmed as a real part of the edge.** Fixed targets cut average R by more than half on both parts and in every group, while nearly doubling the trade count. Requiring an old low 3.5–4R away does two jobs: it picks setups with room to fall, and it puts the target where stop orders cluster and price tends to travel. That's the videos' "liquidity as a magnet" idea, and it's now the third video rule the data supports, after the pullback entry and fresh zones.
