@@ -1431,3 +1431,7 @@ Further rounds until 08:00 will do the same: only clearly new, documented ideas,
 No credible new documented idea is left that this data can test fairly, so no new strategy (see round 35).
 - **Full test suite: 203 passed** (165 at the start of the night).
 - **Live forward test (read-only):** running, equity $100.00 at 05:14, not halted, Algo Trading on, no orders, positions or closed trades yet (no setups since 19:42).
+
+## Part 4 rounds 39+: 05:27 until 08:00, quiet
+
+There's no new, documented, fairly testable idea left, and round 31 showed that more guesses mostly add luck. So until the 08:00 finish, the remaining rounds do nothing. No more journal entries or commits, to keep the record clean. The live bot needs no attention (round 38). The FINISH steps run at 08:00.
