@@ -1627,3 +1627,15 @@ Financing costs swing about **0.04R a trade**. From now on the research copy (`r
 **Verdict: KEPT.** It's better on average and t on both parts, and worse in only 1 group (metals, which drops from 10 check trades to 8). The direction makes sense: a turn needs 4 hours on each side to count, so only clearer reversals trigger, and 2 is worse on both. It costs about 25% fewer trades.
 
 **Version 2 now:** version 1's rules + financing + shorts only + **trigger swing size 4**.
+
+## Part 5 round 11 (round 49): 19:23, zone swing size
+
+**Idea:** round 48 showed cleaner structure helps on the trigger chart. Try the same on the zone chart: how many 4-hour candles on each side make a swing for the supply zones, currently 5. Version 2 (shorts only, trigger swing 4), financed.
+
+| Zone swing size | Learn | Check | Check by group (forex / metals / indices) |
+|---|---|---|---|
+| 5 (champion) | +0.438R, t +2.09, 62 trades | +0.586R, t +2.61, 50 | +0.804 / +0.583 / +0.349 |
+| 4 | +0.396R, t +1.78, 58 | +0.522R, t +2.30, 51 | +0.514 / +0.583 / +0.506 |
+| 6 | +0.443R, t +2.24, 68 | +0.462R, t +2.35, 55 | +0.426 / +0.799 / +0.382 |
+
+**Verdict: rejected, 5 stays.** 4 is worse on both parts. 6 is a hair better on learn but clearly worse on check. The zone chart is already at its sweet spot; the gain from cleaner structure in round 48 was specific to the trigger.
