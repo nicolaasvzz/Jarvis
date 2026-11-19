@@ -1474,3 +1474,32 @@ There's no new, documented, fairly testable idea left, and round 31 showed that 
 - Keep the swing demo running as a forward test, but expect roughly break-even. Add financing to `engine.py` so its proof counts swaps.
 - Don't put real money into any of tonight's strategies. The pre-holiday effect is the only one worth a small demo forward test, at a capped size (2x the account: about +3.5% a year historically).
 - For the R10M goal, the businesses are the money engine. A low-cost index or balanced fund captures market returns without CFD financing; that's a decision for a licensed adviser, not this bot.
+
+# Part 5: training under real costs (from 19 Nov, 15:40)
+
+The PC restarted at 13:53 and stopped the swing demo. MT5 was reopened (it logged back in to MetaQuotes-Demo, $100, Algo Trading on) and the forward test was restarted unchanged at 15:42.
+
+## Part 5 round 1 (round 39): 15:45, financing built into the swing engine
+
+Round 28 found the swing engine charged spreads and slippage but **no overnight financing**. `engine.py` now has `Params(finance=True)`: each trade pays the year's US policy rate + 2.5% a year on a long, or 2.5% − rate on a short, per night held (from `financing.py`), on the full size (slightly conservative after a partial). It's off by default, so stored versions and the live bot are unchanged. Test: 10 nights of a 2024 long cost exactly (5.1% + 2.5%)/365 × 10 × entry/risk, a 2024 short is paid, a same-night trade costs nothing.
+
+**Swing re-judged with financing** (same workbench, same windows as rounds 1–29):
+
+| Version | Learn | Check | Check by group (forex / metals / indices) |
+|---|---|---|---|
+| champion, no financing (as before) | +0.154R, t +1.34 | +0.287R, t +2.18 | +0.214 / +0.505 / +0.321 |
+| **champion, financed** | **+0.114R, t +1.01** | **+0.251R, t +1.92** | +0.170 / +0.472 / +0.301 |
+
+Financing costs swing about **0.04R a trade**. From now on the research copy (`research_lab/sweep_champions.json`) measures swing with `finance=True`. The live bot's `sweep_champions.json` is untouched.
+
+## Part 5 round 2 (round 40): 15:50, shorter holds under financing
+
+**Idea:** every night now costs money, so a shorter time limit should help. Current: 2× the profile's limit.
+
+| Version (financed) | Learn | Check |
+|---|---|---|
+| hold limit 2× (champion) | +0.114R, t +1.01 | +0.251R, t +1.92 |
+| hold limit 1× | +0.111R, t +0.97 | +0.264R, t +2.01 |
+| hold limit 1.5× | +0.114R, t +1.01 | +0.263R, t +2.00 |
+
+**Verdict: rejected.** It's slightly better on check but not on learn. Few trades reach the time limit, so it barely moves anything. Most of the financing is paid by ordinary 2–5 night holds, not by the stragglers.

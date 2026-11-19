@@ -175,3 +175,14 @@ def test_unproven_demo_trades_the_tuned_version(tmp_path, monkeypatch):
         raise AssertionError("unproven profiles must not trade a real account")
     except RuntimeError:
         pass
+
+
+def test_financing_charges_nights_held_by_rate_and_side():
+    from datetime import datetime, timezone
+
+    from investment_bot.sweep.engine import financing_r
+    t0 = int(datetime(2024, 3, 1, tzinfo=timezone.utc).timestamp())
+    long_ = financing_r(1, 100.0, 1.0, t0, t0 + 10 * 86400)     # 10 nights, rate ~5.1% + 2.5% markup
+    assert abs(long_ - (0.051 + 0.025) / 365 * 10 * 100) < 1e-9
+    assert financing_r(-1, 100.0, 1.0, t0, t0 + 10 * 86400) < 0  # 2024: a short is paid
+    assert financing_r(1, 100.0, 1.0, t0, t0 + 3600) == 0        # closed the same night: nothing

@@ -29,6 +29,8 @@ both ways, even where the demo shows no spread.
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from dataclasses import asdict, dataclass, field, replace
 from typing import Any
 
@@ -104,6 +106,7 @@ class Params:
     turn_bars: int = 0           # the break must come within this many lower-chart candles of the sweep's extreme (0 = any)
     break_close_pos: float = 0.0 # the break candle must close in the top (bottom) share of its range, e.g. 0.75
     htf_sweep_bars: int = 0      # a long needs a higher-chart low taken within this many higher-chart candles (a short, a high)
+    finance: bool = False        # charge overnight CFD financing (rate + markup a year on longs; see financing.py)
 
     def label(self) -> str:
         bits = [f"rr>={self.min_rr:g}"]
@@ -120,6 +123,8 @@ class Params:
             bits.append("trail to swings" + (f" after {self.trail_after_r:g}R" if self.trail_after_r else ""))
         if self.htf_sweep_bars:
             bits.append(f"higher-chart sweep within {self.htf_sweep_bars}")
+        if self.finance:
+            bits.append("financed")
         if self.break_close_pos:
             bits.append(f"break closes near its extreme ({self.break_close_pos:g})")
         if self.turn_bars:
@@ -204,6 +209,19 @@ class Trade:
 
 
 # ---------------------------------------------------------------- helpers ----
+
+def financing_r(side: int, entry: float, risk: float, t_in: int, t_out: int) -> float:
+    """Overnight financing in R for a position held from ``t_in`` to ``t_out`` (epoch seconds):
+    longs pay the year's US policy rate plus the markup, shorts pay the markup minus the rate."""
+    from .financing import MARKUP, POLICY
+    nights = max(0, (int(t_out) - int(t_in)) // 86400)
+    if not nights or risk <= 0:
+        return 0.0
+    year = datetime.fromtimestamp(int(t_in), tz=timezone.utc).year
+    rate = POLICY.get(year, POLICY[max(POLICY)] if year > max(POLICY) else POLICY[min(POLICY)])
+    yearly = rate + MARKUP if side > 0 else MARKUP - rate
+    return yearly / 365 * nights * entry / risk
+
 
 def atr(df: pd.DataFrame, n: int = 14) -> np.ndarray:
     h, lo, c = df["high"].to_numpy(), df["low"].to_numpy(), df["close"].to_numpy()
@@ -586,6 +604,8 @@ class Engine:
         s, risk = pos["side"], pos["risk"]
         r_rest = (px - pos["entry"]) * s / risk
         r = pos["banked"] + (0.5 if pos["half"] else 1.0) * r_rest
+        if self.p.finance:   # nights held, charged on the full size (a little conservative after a partial)
+            r -= financing_r(s, pos["entry"], risk, pos["fill_t"], t)
         od: Order = pos["order"]
         self.trades.append(Trade(
             self.symbol, self.pf.name, s, pos["entry"], od.stop, od.target,
