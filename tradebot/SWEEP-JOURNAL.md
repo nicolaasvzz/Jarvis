@@ -1663,3 +1663,15 @@ Financing costs swing about **0.04R a trade**. From now on the research copy (`r
 | 4.0R | +0.441R, t +2.05, 57 | +0.604R, t +2.53, 45 | +0.807 / +0.583 / +0.348 |
 
 **Verdict: rejected, 3.5R stays.** 3.0 is worse on learn. 4.0 is effectively the same version with 5 fewer trades per part: a hair better on average, a hair worse on t. The minimum reward is no longer a lever; the trigger and the sides are what changed version 2.
+
+## Part 5 round 14 (round 52): 20:08, trailing the stop
+
+**Idea:** after the half is taken at 1.5R, the stop sits at breakeven until the target or the time limit. Trailing it to each new hourly swing would lock in more of a breakdown that stalls short of 4R. Version 2, financed.
+
+| Version | Learn | Check | Check by group (forex / metals / indices) |
+|---|---|---|---|
+| stop at breakeven (champion) | +0.438R, t +2.09 | +0.586R, t +2.61 | +0.804 / +0.583 / +0.349 |
+| trail to swings after the half | +0.357R, t +1.89 | +0.494R, t +2.50 | +0.811 / +0.531 / +0.130 |
+| trail only after 2R | +0.346R, t +1.84 | +0.496R, t +2.50 | +0.824 / +0.535 / +0.118 |
+
+**Verdict: rejected.** It's worse on both parts either way, and indices suffer most (+0.35R to about +0.12R). Breakdowns bounce on the way down, and a stop under every hourly swing gets taken out by those bounces before the 4R target. Same result as night one (round 8): give the runner room.
