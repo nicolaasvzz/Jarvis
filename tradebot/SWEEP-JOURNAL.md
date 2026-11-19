@@ -1674,4 +1674,4 @@ Financing costs swing about **0.04R a trade**. From now on the research copy (`r
 | trail to swings after the half | +0.357R, t +1.89 | +0.494R, t +2.50 | +0.811 / +0.531 / +0.130 |
 | trail only after 2R | +0.346R, t +1.84 | +0.496R, t +2.50 | +0.824 / +0.535 / +0.118 |
 
-**Verdict: rejected.** It's worse on both parts either way, and indices suffer most (+0.35R to about +0.12R). Breakdowns bounce on the way down, and a stop under every hourly swing gets taken out by those bounces before the 4R target. Same result as night one (round 8): give the runner room.
+**Verdict: rejected.** It's worse on both parts either way, and indices suffer most (+0.35R to about +0.12R). Breakdowns bounce on the way down, and a stop under every hourly swing gets taken out by those bounces before the 4R target. Same result as rounds 12–13 (18 Nov), which found trailing gets shaken out by normal pullbacks: give the runner room.
