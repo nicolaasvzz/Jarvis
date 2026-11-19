@@ -116,3 +116,33 @@ def bench(versions: list[HolidayParams], say: Callable[[str], None] = print,
 
 
 __all__ = ["NYSE", "HolidayParams", "pre_holiday_days", "trades", "all_trades", "bench"]
+
+
+# ---------------------------------------------------- options-expiry week ----
+
+def opex_fridays(start: str = "2000-01-01", end: str = "2027-12-31") -> list[pd.Timestamp]:
+    """The third Friday of every month (US monthly options expire then)."""
+    return list(pd.date_range(start, end, freq="WOM-3FRI"))
+
+
+def opex_trades(symbol: str, d1: pd.DataFrame, p: HolidayParams, point: float) -> list[dict[str, Any]]:
+    """Hold from the close of the last trading day before expiry week to the close of expiry Friday
+    (if that Friday is a holiday, the last trading day before it)."""
+    t = d1["time"].to_numpy("int64")
+    day = pd.to_datetime(t, unit="s").normalize()
+    c = d1["close"].to_numpy(float)
+    sp = d1["spread"].to_numpy(float) * point
+    out = []
+    for fri in opex_fridays():
+        monday = fri - pd.Timedelta(days=4)
+        j = np.searchsorted(day, fri, side="right") - 1          # expiry Friday, or the day before it
+        i = np.searchsorted(day, monday, side="left") - 1        # the close before the week starts
+        if i < 0 or j <= i or j >= len(d1) or day[j] < monday:
+            continue
+        buy, sell = c[i], c[j]
+        cost = (max(p.cost_bp * 1e-4 * buy, sp[i]) + max(p.cost_bp * 1e-4 * sell, sp[j])) / buy
+        nights = (int(t[j]) - int(t[i])) // 86400
+        r = sell / buy - 1 - cost - p.finance_pa / 365 * nights
+        out.append({"symbol": symbol, "side": 1, "fill_time": int(t[i]), "exit_time": int(t[j]),
+                    "r": float(r / 0.01), "ret": float(r)})
+    return out

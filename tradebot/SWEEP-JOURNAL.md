@@ -1412,3 +1412,16 @@ Further rounds until 08:00 will do the same: only clearly new, documented ideas,
 - It **passes the luck test on unseen data** (t 2.01, PF 2.09, 4/4 quarters, 160 trades). A pre-holiday day earned about +0.19%, roughly 4 times an ordinary day. That's a real effect.
 - **It misses the 18%:** +15.0% at the size fixed in advance. (Sizing it on the locked data itself would show +28%, but that's choosing with hindsight, which the bar forbids.)
 - **The size is the catch.** It's invested only about 10 days a year, so a 25%-drop sizing puts about **9x the account** into US indices on those days. History never had a large loss on a holiday eve, but one −4% day would cost about 35%. At a sane 2x cap it makes +3.5% a year: a useful, steady, low-risk add-on, not a main engine.
+
+## Part 4 round 37: 04:57
+
+**Idea:** another fixed-calendar effect, **options-expiration week**. In US stocks the week ending on the third Friday of the month (monthly options expiry) has historically been stronger than average, plausibly from dealer hedging flows. Buy at the close before expiry week, sell at the close of expiry Friday (or the day before, if it's a holiday). 12 holds a year, a week each (`preholiday.opex_trades`). Test: 12 a year, each ends on a third Friday 7 days after it starts. US indices, index split.
+
+| Version | Part | Weeks | Avg a week | PF | t (daily) | Yearly at 25% drop |
+|---|---|---|---|---|---|---|
+| expiry week | learn 2012–18 | 207 | **+0.522%** | 2.19 | **+2.54** | **+28.3%** |
+| | check 2018–22 | 154 | **−0.742%** | 0.48 | **−1.66** | −6.3% |
+| no costs | learn | 207 | +0.578% | 2.38 | +2.79 | +32.8% |
+| | check | 154 | −0.698% | 0.50 | −1.56 | −6.2% |
+
+**Verdict: rejected.** It's the starkest flip of the night: strongly positive in 2012–18 (t 2.54), strongly negative in 2018–22 (t −1.66). The check window holds the March 2020 expiry week, one of the worst weeks in market history, but the profit factor of 0.48 shows it wasn't one week. Whatever drove it in 2012–18 (perhaps the low-volatility, short-volatility boom) reversed. It's another reminder that a great learn result (+28%!) means little on its own.

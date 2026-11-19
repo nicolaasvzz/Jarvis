@@ -26,3 +26,17 @@ def test_one_day_trades_on_those_days_only():
         assert pd.to_datetime(x["exit_time"], unit="s").normalize() in days
         i = int(np.flatnonzero(d1["time"].to_numpy() == x["exit_time"])[0])
         assert abs(x["ret"] - (close[i] / close[i - 1] - 1)) < 1e-12
+
+
+def test_opex_week_runs_friday_close_to_expiry_friday_close():
+    from investment_bot.sweep.preholiday import opex_fridays, opex_trades
+    assert pd.Timestamp("2024-11-15") in opex_fridays("2024-11-01", "2024-11-30")
+    t = pd.bdate_range("2016-01-04", "2016-12-30")
+    close = np.linspace(2000, 2200, len(t))
+    d1 = pd.DataFrame({"time": (t - pd.Timestamp("1970-01-01")) // pd.Timedelta(seconds=1),
+                       "close": close, "spread": 0})
+    tr = opex_trades("US500", d1, HolidayParams(cost_bp=0, finance_pa=0), 0.01)
+    assert len(tr) == 12
+    for x in tr:
+        a, b = pd.to_datetime(x["fill_time"], unit="s"), pd.to_datetime(x["exit_time"], unit="s")
+        assert b.weekday() == 4 and 15 <= b.day <= 21 and (b - a).days == 7
