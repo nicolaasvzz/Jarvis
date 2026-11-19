@@ -1528,3 +1528,16 @@ Financing costs swing about **0.04R a trade**. From now on the research copy (`r
 | no partial | +0.294R, t +1.69, win 27% | +0.115R, t +0.56, win 24% | −0.103 / +0.340 / +0.491 |
 
 **Verdict: rejected, 1.5R stays.** None is better on both parts. "No partial" is the trap: learn jumps to +0.294R, but check falls to +0.115R and forex goes negative. Letting winners run is a bet that the 2012–18-style long trends return. The 1.5R partial is the most consistent across both periods and all three groups.
+
+## Part 5 round 4 (round 42): 16:23, stop buffer
+
+**Idea:** how far the stop sits beyond the sweep, currently 0.1 ATR. It matters more now that financing is charged: a wider stop makes 1R bigger, so each night's financing is a smaller share of R, with fewer noise stop-outs but less reward per unit of risk. Financed.
+
+| Stop buffer | Learn | Check | Check by group (forex / metals / indices) |
+|---|---|---|---|
+| 0.1 ATR (champion) | +0.114R, t +1.01 | +0.251R, t +1.92 | +0.170 / +0.472 / +0.301 |
+| 0 | +0.068R, t +0.62 | +0.296R, t +2.27 | +0.272 / +0.454 / +0.262 |
+| 0.3 ATR | +0.081R, t +0.70 | +0.121R, t +0.88 | +0.105 / +0.377 / −0.010 |
+| 0.5 ATR | +0.173R, t +1.42 | +0.102R, t +0.78 | +0.078 / +0.579 / −0.138 |
+
+**Verdict: rejected, 0.1 ATR stays.** None is better on both. The results jump around without a direction (0 and 0.5 each win one part, 0.3 loses both), so differences this size between neighbouring settings are mostly noise. That's a useful warning for the rest of part 5: only a change that's better on both parts, and makes sense, should be kept.
