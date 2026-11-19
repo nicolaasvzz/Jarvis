@@ -1613,3 +1613,17 @@ Financing costs swing about **0.04R a trade**. From now on the research copy (`r
 | 50% into it | +0.256R, t +1.29, 68 | +0.373R, t +1.64, 53 | +0.317 / +0.838 / +0.187 |
 
 **Verdict: rejected, the edge entry stays.** Deeper is worse on both parts, getting steadily worse the deeper it goes. The trades that never pull back that far are the best ones (the clean breakdowns), so waiting for a better price filters out winners. This matches the videos' own rule (enter at the top of the turn candle), one of the two video rules the data has supported since night one.
+
+## Part 5 round 10 (round 48): 19:08, trigger swing size (shorts only), KEPT: 4
+
+**Idea:** how many 1-hour candles on each side make a swing high or low on the trigger chart, currently 3. Smaller catches quicker turns; larger demands cleaner structure. Financed.
+
+| Swing size | Learn | Check | Check by group (forex / metals / indices) |
+|---|---|---|---|
+| 3 (champion) | +0.347R, t +2.02, 84 trades | +0.505R, t +2.50, 60 | +0.462 / +1.016 / +0.335 |
+| 2 | +0.301R, t +1.92, 100 | +0.395R, t +2.30, 80 | +0.332 / +0.845 / +0.328 |
+| **4** | **+0.438R, t +2.09, 62** | **+0.586R, t +2.61, 50** | **+0.804** / +0.583 / **+0.349** |
+
+**Verdict: KEPT.** It's better on average and t on both parts, and worse in only 1 group (metals, which drops from 10 check trades to 8). The direction makes sense: a turn needs 4 hours on each side to count, so only clearer reversals trigger, and 2 is worse on both. It costs about 25% fewer trades.
+
+**Version 2 now:** version 1's rules + financing + shorts only + **trigger swing size 4**.
