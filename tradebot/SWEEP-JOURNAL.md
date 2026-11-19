@@ -1773,3 +1773,15 @@ Financing costs swing about **0.04R a trade**. From now on the research copy (`r
 | sell only in premium | +0.431R, t +1.73, 41 | +0.413R, t +1.54, 33 | +0.793 / −0.433 / +0.112 |
 
 **Verdict: rejected.** It's worse on both parts and cuts about a third of the trades, and the ones it cuts were good. The setup already requires a stop-run above an old daily high, which puts it near the top of the range by construction. The premium filter mostly duplicates that, and where it differs (a short below the midpoint after a fresh stop-run) the trades were winners. This video rule doesn't add anything here.
+
+## Part 5 round 23 (round 61): 22:23, how long a zone stays usable
+
+**Idea:** fresh zones won in round 55, so maybe zones also go stale with age. Zone life is currently 120 four-hour candles (about 20 trading days); try 60 and 240. Version 2, financed.
+
+| Zone life | Learn | Check | Check by group (forex / metals / indices) |
+|---|---|---|---|
+| 120 (champion) | +0.438R, t +2.09, 62 trades | +0.586R, t +2.61, 50 | +0.804 / +0.583 / +0.349 |
+| 60 | +0.401R, t +1.93, 61 | +0.575R, t +2.55, 48 | +0.712 / +0.812 / +0.349 |
+| 240 | +0.415R, t +2.01, 63 | +0.555R, t +2.51, 51 | +0.725 / +0.583 / +0.349 |
+
+**Verdict: rejected, 120 stays.** Lifetime barely matters: either way only one or two trades change, and both are slightly worse on both parts. Zones are almost always used or broken within days, long before they expire. "Fresh" means unvisited, not young.
