@@ -1370,3 +1370,15 @@ The dip family stays at round 3's version, which is an index-only effect that fa
 **Verdict: not kept by the strict rule.** It's a dead heat on learn (2015–18 was nearly all uptrend, so the filter seldom acted: 1478 nights against 1559), and much better on check (+7.3% against +1.5%), where it skipped the late-2018, 2020 and 2022 sell-offs. The rule needs better on both, and "the same" isn't better. I won't bend the rule for a result I like. Even if kept, a Sharpe of about 0.45 (t 0.92 over 4.3 years) at +7.3% a year is far from the bar's ~1.5.
 
 **Noted as the best lead of the night** for a future forward test: US overnight drift with an uptrend filter. It's real before costs (round 8's short-the-night control lost at t −3.8), simple, never pays a full day's financing, and avoids bear markets.
+
+## Part 4 round 34: 04:12, the overnight family's one locked look
+
+**Idea:** the overnight family is finished developing, so it gets its **one locked look** (2022-08-05 to 2026-11-18). By the rules this is the family's **kept** version, plain overnight long on US indices (round 8), not round 33's uptrend version, which didn't pass the keep rule. Its size was chosen on learn + check (x0.92). It's recorded in `research_lab/locked_looks.json`.
+
+| | Nights | Avg a night | PF | t (daily) | Yearly | Worst drop | Quarters |
+|---|---|---|---|---|---|---|---|
+| locked, at the size chosen beforehand | 4111 | +0.002% | 1.01 | +0.16 | **+0.3%** | 16% | −20.5, +46.8, −21.1, +4.9 |
+
+**Verdict: does not clear the bar, and shows no edge.** The US overnight drift was real before costs on learn and check (round 8's short control lost at t −3.8). Out of sample, after spread and financing, it's worth about nothing. Either the drift has faded since 2022, or the 2023–25 financing ate it (this look used the flat 2%, which round 25 showed is generous). Either way, round 33's "best lead" built on a base that doesn't hold up on unseen data, so it drops from the forward-test shortlist.
+
+**Locked looks so far:** gold + US500 hold (round 13: +16% at realistic financing, hindsight choice, a boom window) and US overnight (+0.3%). Neither clears the bar.
