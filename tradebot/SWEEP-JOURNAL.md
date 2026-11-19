@@ -1701,3 +1701,15 @@ Financing costs swing about **0.04R a trade**. From now on the research copy (`r
 **Verdict: rejected.** It cuts trades by about three quarters, and t falls on both parts.
 
 **What it reveals:** only about a quarter of version 2's shorts happen below the daily average. **Most fire above it, in uptrends.** So the edge is **fading stop-runs at the top of a rising market** (a failed push to new highs, then a sharp drop), not riding downtrends. That's useful for judging the forward test: version 2 will mostly short markets that look strong.
+
+## Part 5 round 17 (round 55): 20:53, zone visits
+
+**Idea:** each supply zone gets one use (the videos' fresh-zone rule, one of the two video rules the data has backed since night one). Re-check on shorts only: does a second or third visit still work? Version 2, financed.
+
+| Visits per zone | Learn | Check | Check by group (forex / metals / indices) |
+|---|---|---|---|
+| 1, fresh only (champion) | +0.438R, t +2.09, 62 trades | +0.586R, t +2.61, 50 | +0.804 / +0.583 / +0.349 |
+| 2 | +0.298R, t +1.71, 85 | +0.377R, t +2.04, 68 | +0.453 / +0.266 / +0.305 |
+| 3 | +0.281R, t +1.64, 89 | +0.357R, t +1.96, 69 | +0.453 / +0.266 / +0.248 |
+
+**Verdict: rejected; fresh zones only.** Revisits add trades, but each is worse, on both parts and in every group. A zone that has already been tested has had its sellers used up. The videos' rule holds again, now on shorts and under real costs.
