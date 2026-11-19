@@ -1725,3 +1725,14 @@ Financing costs swing about **0.04R a trade**. From now on the research copy (`r
 | fixed 4R | +0.151R, t +0.98, 100 | +0.235R, t +1.50, 94 | +0.169 / +0.439 / +0.296 |
 
 **Verdict: rejected; the liquidity target stays, and it's confirmed as a real part of the edge.** Fixed targets cut average R by more than half on both parts and in every group, while nearly doubling the trade count. Requiring an old low 3.5–4R away does two jobs: it picks setups with room to fall, and it puts the target where stop orders cluster and price tends to travel. That's the videos' "liquidity as a magnet" idea, and it's now the third video rule the data supports, after the pullback entry and fresh zones.
+
+## Part 5 round 19 (round 57): 21:23, the sweep must close back
+
+**Idea:** any poke above an old high counts as a sweep. A stricter rule counts it only if that hourly candle **closes back below** the level (a clear rejection wick): more convincing failed breakouts, but fewer. Version 2, financed.
+
+| Version | Learn | Check | Check by group (forex / metals / indices) |
+|---|---|---|---|
+| any poke counts (champion) | +0.438R, t +2.09, 62 trades | +0.586R, t +2.61, 50 | +0.804 / +0.583 / +0.349 |
+| sweep must close back | +0.524R, t +2.31, 55 | +0.469R, t +1.95, 43 | +0.807 / +0.583 / **−0.102** |
+
+**Verdict: rejected.** It's better on learn, worse on check, and indices turn negative. Index stop-runs often close *above* the level for an hour or more before reversing (the push looks real at first), so demanding a rejection wick throws out good index trades. Forex and metals are unchanged.
