@@ -1820,3 +1820,17 @@ Every version was run over each market set's whole history, at 1% risk a trade, 
 **The lesson, and the flaw in how part 5 taught the bot:** "shorts only" (round 43) and "trigger swing 4" (round 48) were better on learn **and** check, but learn and check are different *years* of the **same 21 markets**. A habit of those particular markets (here, their shorts working) passes that test every time. Adding real costs was a genuine improvement; the two keeps in part 5 were not. The honest result stands at about **+0.8% a year at 1% risk** (version 1), far below Fairtree's 12–18%.
 
 **What changes:** any further teaching must check each change on **different markets** as well as different years: split the 21 into two halves, tune on one, check on the other. The untouched 24 have now been used for both versions and can't judge another one fairly; the live demo is the next honest judge.
+
+## Part 5b: stricter teaching (from 19 Nov, 23:05)
+
+Version 2 is **reset to version 1 + financing** (shorts only and trigger swing 4 removed). A new market-halves bench (`scratchpad/sweeprun/halves.py`) splits the 21 training markets into two balanced halves. A change must now be better on learn, check, **half A and half B**.
+
+Re-testing part 5's two keeps under it (learn + check time, locked 20% unused):
+
+| Change | Half A | Half B | Verdict |
+|---|---|---|---|
+| baseline | +0.106R, t +0.91 | +0.234R, t +1.93 | |
+| shorts only | +0.237R, t +1.36 | +0.594R, t +3.32 | passes both halves, **yet failed the untouched 24** |
+| trigger swing 4 | +0.205R, t +1.56 | +0.220R, t +1.58 | fails half B |
+
+The halves rule catches swing size 4 but not shorts only. The 21 training markets (mostly major USD pairs) share a short-side habit that the 24 untouched markets don't. No test inside the 21 can catch that, so the live demo is now the only fully fair judge. The rounds continue under the stricter rule; the untouched 24 won't be used again.
