@@ -1382,3 +1382,11 @@ The dip family stays at round 3's version, which is an index-only effect that fa
 **Verdict: does not clear the bar, and shows no edge.** The US overnight drift was real before costs on learn and check (round 8's short control lost at t −3.8). Out of sample, after spread and financing, it's worth about nothing. Either the drift has faded since 2022, or the 2023–25 financing ate it (this look used the flat 2%, which round 25 showed is generous). Either way, round 33's "best lead" built on a base that doesn't hold up on unseen data, so it drops from the forward-test shortlist.
 
 **Locked looks so far:** gold + US500 hold (round 13: +16% at realistic financing, hindsight choice, a boom window) and US overnight (+0.3%). Neither clears the bar.
+
+## Part 4 round 35: 04:27, no new idea on purpose
+
+After 34 rounds every major family of systematic edge has been tested, and round 31 showed that each extra idea mainly adds another chance for luck to pass as skill. So this round adds **no new strategy**. Instead:
+- **Live forward test (read-only check):** the process is running, MetaQuotes-Demo, $100, Algo Trading on, not halted. There are no orders, positions or closed trades, and no setups since the 19:42 start, as expected at about 2 a month. The state file was updated at 04:27.
+- **The final summary** for 08:00 is drafted (each family's learn, check and locked result against the bar).
+
+Further rounds until 08:00 will do the same: only clearly new, documented ideas, or checks. No variations of failed ones.
