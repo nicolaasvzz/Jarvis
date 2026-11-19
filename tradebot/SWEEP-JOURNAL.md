@@ -1266,3 +1266,19 @@ The dip family stays at round 3's version, which is an index-only effect that fa
 **Verdict: rejected.** Diversification works only on edges that are positive. Here three of the six legs lose money in both parts, and averaging zero and negative edges stays negative. Dropping the losers would mean choosing legs by their results, which is exactly the hindsight the split exists to prevent. The two legs positive in both parts (overnight drift, gold + US500) combine to the round 9 / round 11 answer: about 2–5% a year.
 
 **The plan list is now finished in full**, including the portfolio step.
+
+## Part 4 round 28: 02:42
+
+**Idea:** a correctness check on the **live strategy**, not a new one. The swing backtest engine (`engine.py`) charges spreads and stop slippage but **no overnight financing**, and swing trades are held for days. Round 25 showed realistic financing is large, so this round re-prices swing's trades with it. Swing's rules stay frozen and the live bot isn't touched; this only measures. Each trade pays (US rate of its year + 2.5%) a year on a long, or (2.5% − rate) on a short, per night held. Position size per 1R = entry / |entry − stop|. (A research script: `scratchpad/sweeprun/swing_financing.py`.)
+
+| Markets | Trades | Hold (nights) | As backtested | With financing | Cost a trade |
+|---|---|---|---|---|---|
+| fresh 24 (never tuned) | 325 | median 0, mean 2.9 | +0.084R, t +1.07, +1.7R/yr | **+0.048R, t +0.62, +1.0R/yr** | 0.036R |
+| tuned 21 | 363 | median 1, mean 2.9 | +0.165R, t +2.18, +3.6R/yr | +0.128R, t +1.71, +2.8R/yr | 0.037R |
+
+**What it means for the forward test:**
+- Swing's edge on unseen markets shrinks by about **40%** once financing is counted: about +0.05R a trade, or **about +1% a year at 1% risk**. With t 0.62 it's indistinguishable from zero.
+- Most trades close within a night, but the few long holds (some up to weeks) carry most of the financing.
+- The live demo **does** pay real swaps, so its results should come in below the old backtest. That's not a sign of a bug.
+
+**Recommendation (for Nicolaas, not done tonight):** add financing to `engine.py` so every future swing proof includes it. That changes how swing is measured, not its rules, but it touches the frozen version's numbers, so it should be his call.
