@@ -1541,3 +1541,24 @@ Financing costs swing about **0.04R a trade**. From now on the research copy (`r
 | 0.5 ATR | +0.173R, t +1.42 | +0.102R, t +0.78 | +0.078 / +0.579 / −0.138 |
 
 **Verdict: rejected, 0.1 ATR stays.** None is better on both. The results jump around without a direction (0 and 0.5 each win one part, 0.3 loses both), so differences this size between neighbouring settings are mostly noise. That's a useful warning for the rest of part 5: only a change that's better on both parts, and makes sense, should be kept.
+
+## Part 5 round 5 (round 43): 16:38, longs only or shorts only, KEPT: shorts only
+
+**Idea:** with financing counted, the two sides cost differently (in high-rate years longs pay rate + markup and shorts get paid). If one side carries the edge, dropping the other shows it. Financed.
+
+| Version | Learn | Check | Check by group (forex / metals / indices) |
+|---|---|---|---|
+| both sides (champion) | +0.114R, t +1.01, 163 trades | +0.251R, t +1.92, 116 trades | +0.170 / +0.472 / +0.301 |
+| longs only | −0.133R, t −0.91, 79 | −0.039R, t −0.26, 57 | −0.022 / −0.208 / +0.042 |
+| **shorts only** | **+0.347R, t +2.02, 84** | **+0.505R, t +2.50, 60** | **+0.462 / +1.016 / +0.335** |
+
+**Checked before keeping:**
+- **Not a cost bug.** The engine fills both sides symmetrically: a long buys at the ask and sells at the bid, a short sells at the bid and buys back at the ask. Each pays one spread a round trip, and stops and targets are tested the same way on each side.
+- **Not new.** The very first night's notes (round 2) already showed shorts positive (+0.07R) and longs negative (−0.10R). "Longs only" was tested then and rejected; shorts only never was. The pattern has held across every version since.
+- **Plausible.** The short version of the setup is "price runs the stops above a high, then breaks down hard": a failed breakout. Markets tend to fall faster than they rise, so the 3.5–4R targets are reached more often going down.
+
+**Verdict: KEPT.** It's better on both parts and in all 3 groups. **Version 2 now trades shorts only.**
+
+**Costs of this change:** about half the trades (about 10 a year on 21 markets instead of about 20), so slower evidence in a forward test. And a shorts-only bot sits out long rallies, so it can't profit from strong bull years. The fresh-market test at the finish is the real judge.
+
+**Version 2 so far:** version 1's rules + financing + **shorts only**.
