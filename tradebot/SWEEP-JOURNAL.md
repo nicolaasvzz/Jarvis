@@ -1761,4 +1761,4 @@ Financing costs swing about **0.04R a trade**. From now on the research copy (`r
 
 **Verdict: rejected, 1.2 ATR stays.** 1.0 is worse on both parts. 1.6 has a better average on both but only about 4 trades a year, and t falls on both, so its higher average can't be told apart from luck. It's the same quality-versus-quantity curve as round 46. 1.2 is where both stay strong.
 
-**Pattern across part 5 so far:** around version 2, every setting is already at or near its sweet spot (rounds 44–59 rejected 15 changes in a row). Version 2's gains came from two structural choices, shorts only and a cleaner trigger swing; fine-tuning adds little now.
+**Pattern across part 5 so far:** around version 2, every setting is already at or near its sweet spot (since round 48, rounds 49–59 have rejected 11 settings in a row). Version 2's gains came from two structural choices, shorts only and a cleaner trigger swing; fine-tuning adds little now.
