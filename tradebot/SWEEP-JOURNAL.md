@@ -1748,3 +1748,17 @@ Financing costs swing about **0.04R a trade**. From now on the research copy (`r
 | 2× | +0.253R, t +1.36, 66 | +0.236R, t +1.24, 55 | +0.204 / +0.019 / +0.336 |
 
 **Verdict: rejected; 1× stays, a clear sweet spot.** Both sides are much worse on both parts. Too short misses tops that take a few hours to roll over; too long admits stale setups where the stop-run has lost its force. One of the clearest single-setting results of part 5.
+
+## Part 5 round 21 (round 59): 21:53, how strong a move makes a zone
+
+**Idea:** a supply zone forms where price left in a burst (a displacement candle of at least 1.2 ATR). Weaker bursts give more zones; stronger ones give fewer, more meaningful zones. Version 2, financed.
+
+| Displacement | Learn | Check | Check by group (forex / metals / indices) |
+|---|---|---|---|
+| 1.2 ATR (champion) | +0.438R, t +2.09, 62 trades | +0.586R, t +2.61, 50 | +0.804 / +0.583 / +0.349 |
+| 1.0 ATR | +0.229R, t +1.41, 88 | +0.289R, t +1.63, 71 | +0.462 / +0.150 / +0.135 |
+| 1.6 ATR | +0.484R, t +1.36, 24 | +0.820R, t +2.28, 25 | +0.825 / +0.849 / +0.801 |
+
+**Verdict: rejected, 1.2 ATR stays.** 1.0 is worse on both parts. 1.6 has a better average on both but only about 4 trades a year, and t falls on both, so its higher average can't be told apart from luck. It's the same quality-versus-quantity curve as round 46. 1.2 is where both stay strong.
+
+**Pattern across part 5 so far:** around version 2, every setting is already at or near its sweet spot (rounds 44–59 rejected 15 changes in a row). Version 2's gains came from two structural choices, shorts only and a cleaner trigger swing; fine-tuning adds little now.
