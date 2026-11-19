@@ -1425,3 +1425,9 @@ Further rounds until 08:00 will do the same: only clearly new, documented ideas,
 | | check | 154 | −0.698% | 0.50 | −1.56 | −6.2% |
 
 **Verdict: rejected.** It's the starkest flip of the night: strongly positive in 2012–18 (t 2.54), strongly negative in 2018–22 (t −1.66). The check window holds the March 2020 expiry week, one of the worst weeks in market history, but the profit factor of 0.48 shows it wasn't one week. Whatever drove it in 2012–18 (perhaps the low-volatility, short-volatility boom) reversed. It's another reminder that a great learn result (+28%!) means little on its own.
+
+## Part 4 round 38: 05:12, check round
+
+No credible new documented idea is left that this data can test fairly, so no new strategy (see round 35).
+- **Full test suite: 203 passed** (165 at the start of the night).
+- **Live forward test (read-only):** running, equity $100.00 at 05:14, not halted, Algo Trading on, no orders, positions or closed trades yet (no setups since 19:42).
