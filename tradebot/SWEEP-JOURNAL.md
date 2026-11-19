@@ -1589,3 +1589,15 @@ Financing costs swing about **0.04R a trade**. From now on the research copy (`r
 | 1.5 ATR | +0.238R, t +1.13, 58 | +0.583R, t +2.21, 39 | +0.345 / +1.315 / +0.705 |
 
 **Verdict: rejected, 1.2 ATR stays.** Each neighbour wins one part and loses the other (1.0 on learn, 1.5 on check, with only 39 trades). 1.2 sits between them and is solid on both, which is the shape a real setting should have, rather than a lucky spike.
+
+## Part 5 round 8 (round 46): 18:38, daily stop-run window (shorts only)
+
+**Idea:** a short needs a daily high run within the last 20 days. That was tuned with both sides; for shorts only, a tighter or looser window may fit better. Financed.
+
+| Window | Learn | Check | Check by group (forex / metals / indices) |
+|---|---|---|---|
+| 20 days (champion) | +0.347R, t +2.02, 84 trades | +0.505R, t +2.50, 60 | +0.462 / +1.016 / +0.335 |
+| 10 days | +0.615R, t +2.10, 33 | +0.618R, t +1.78, 26 | +0.634 / +0.839 / +0.491 |
+| 40 days | +0.161R, t +1.28, 145 | +0.298R, t +2.13, 102 | +0.350 / +0.494 / +0.151 |
+
+**Verdict: rejected, 20 days stays.** It's a clean quality-versus-quantity curve. A fresher stop-run makes each trade better (10 days: +0.62R on both parts), but only about 4 trades a year, and check t falls to 1.78. A staler one trades twice as often but each trade is worth half. The keep rule needs a better average **and** t on both, and 10 days fails check t. With 26 check trades it's also too thin to trust. 20 days is the balance.
