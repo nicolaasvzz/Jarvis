@@ -1246,3 +1246,23 @@ The dip family stays at round 3's version, which is an index-only effect that fa
 **Verdict: rejected.** Carry did what history says it did. It paid in the 2000s carry boom, gave much of it back in the 2008 crash (−46R in learn's last quarter), and earned nothing in 2010–18, when rates were near zero almost everywhere and there was no gap to collect. Even at its best (learn, no costs) it's +4.4% a year at a 25% drop. Carry is a slow, crash-prone edge, not an 18% one.
 
 **Tally: 26 rounds.** Tonight has tested every major edge family known in the literature: trend, momentum, carry, mean reversion, seasonality, volatility, pairs, and holding. None reaches 18% a year at a 25% drop after this broker's costs on unseen data.
+
+## Part 4 round 27: 02:27
+
+**Idea:** the plan's last item done properly: **one diversified portfolio of every family's best version** (round 9 combined only two). The legs are trend 50/20 (45 markets), 12-month momentum (45, rate-based financing), forex carry, the US overnight drift, the index dip (round 3), and the gold + US500 hold (rate-based financing). Each leg is scaled to equal daily risk **using its learn-period volatility only**, the legs are averaged, and the result is sized to a 25% drop. Common window: the 2012 index split. (A research script: `scratchpad/sweeprun/combo_all.py`.)
+
+**Correlations of daily results (learn)** are mostly between −0.35 and +0.30. Trend and momentum share +0.46, and carry runs against momentum at −0.35. The legs really are fairly unrelated.
+
+| Leg | Learn 2012–18: t, yearly at 25% drop | Check 2018–22: t, yearly |
+|---|---|---|
+| trend 50/20 | −1.17, −4.2% | −1.23, −5.2% |
+| momentum 12m | −0.75, −3.6% | −2.02, −5.5% |
+| carry | −1.46, −3.8% | −0.08, −1.0% |
+| overnight drift | +0.43, +1.4% | +0.38, +1.5% |
+| index dip | +1.67, +16.0% | −0.01, −1.0% |
+| gold + US500 hold | +0.92, +4.6% | +0.65, +3.9% |
+| **all combined** | **−0.12, −1.5%** | **−0.35, −3.0%** |
+
+**Verdict: rejected.** Diversification works only on edges that are positive. Here three of the six legs lose money in both parts, and averaging zero and negative edges stays negative. Dropping the losers would mean choosing legs by their results, which is exactly the hindsight the split exists to prevent. The two legs positive in both parts (overnight drift, gold + US500) combine to the round 9 / round 11 answer: about 2–5% a year.
+
+**The plan list is now finished in full**, including the portfolio step.
