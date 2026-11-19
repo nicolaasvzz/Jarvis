@@ -1687,3 +1687,17 @@ Financing costs swing about **0.04R a trade**. From now on the research copy (`r
 | skip above 2× | +0.438R, t +2.09, 62 | +0.555R, t +2.51, 51 | +0.725 / +0.583 / +0.349 |
 
 **Verdict: rejected, no skip.** 1.5× is better on learn but slightly worse on check. 2× changes nothing on learn and costs a little on check. The filter rarely triggers for this setup (3 learn trades at 1.5×), and the check trades it swaps are slightly better ones. Shorts after a stop-run seem to do fine in turbulence, which fits with markets falling faster than they rise.
+
+## Part 5 round 16 (round 54): 20:38, trend filter for shorts
+
+**Idea:** only sell short when the daily chart closed below its 50-day or 200-day average, so shorts line up with a downtrend. Version 2, financed.
+
+| Version | Learn | Check | Check by group (forex / metals / indices) |
+|---|---|---|---|
+| no filter (champion) | +0.438R, t +2.09, 62 trades | +0.586R, t +2.61, 50 | +0.804 / +0.583 / +0.349 |
+| below the 50-day | +0.344R, t +0.80, 16 | +0.683R, t +1.33, 13 | +0.825 / −0.443 / +1.312 |
+| below the 200-day | +0.480R, t +1.18, 13 | +0.416R, t +1.32, 19 | +0.290 / +0.867 / +0.496 |
+
+**Verdict: rejected.** It cuts trades by about three quarters, and t falls on both parts.
+
+**What it reveals:** only about a quarter of version 2's shorts happen below the daily average. **Most fire above it, in uptrends.** So the edge is **fading stop-runs at the top of a rising market** (a failed push to new highs, then a sharp drop), not riding downtrends. That's useful for judging the forward test: version 2 will mostly short markets that look strong.
