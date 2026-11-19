@@ -1562,3 +1562,16 @@ Financing costs swing about **0.04R a trade**. From now on the research copy (`r
 **Costs of this change:** about half the trades (about 10 a year on 21 markets instead of about 20), so slower evidence in a forward test. And a shorts-only bot sits out long rallies, so it can't profit from strong bull years. The fresh-market test at the finish is the real judge.
 
 **Version 2 so far:** version 1's rules + financing + **shorts only**.
+
+## Part 5 round 6 (round 44): 16:53, maximum reward (shorts only)
+
+**Idea:** shorts reach their targets more often, so maybe the target may be further. Maximum reward, currently 4R. Shorts only, financed.
+
+| Max reward | Learn | Check | Check by group (forex / metals / indices) |
+|---|---|---|---|
+| 4R (champion) | +0.347R, t +2.02 | +0.505R, t +2.50 | +0.462 / +1.016 / +0.335 |
+| 3.5R | +0.370R, t +2.15 | +0.475R, t +2.35 | +0.473 / +0.913 / +0.288 |
+| 5R | +0.382R, t +2.01 | +0.474R, t +2.28 | +0.363 / +1.200 / +0.298 |
+| 6R | +0.423R, t +2.12 | +0.526R, t +2.23 | +0.414 / +1.316 / +0.324 |
+
+**Verdict: rejected, 4R stays.** The closest call is 6R: a better average on both parts, but check t falls (2.50 to 2.23), and forex and indices both get worse. Only metals gains, from bigger runs. The keep rule needs better average **and** t on both, without hurting 2 groups. Further targets add size and variance in about equal measure.
