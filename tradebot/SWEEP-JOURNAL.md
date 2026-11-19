@@ -1675,3 +1675,15 @@ Financing costs swing about **0.04R a trade**. From now on the research copy (`r
 | trail only after 2R | +0.346R, t +1.84 | +0.496R, t +2.50 | +0.824 / +0.535 / +0.118 |
 
 **Verdict: rejected.** It's worse on both parts either way, and indices suffer most (+0.35R to about +0.12R). Breakdowns bounce on the way down, and a stop under every hourly swing gets taken out by those bounces before the 4R target. Same result as rounds 12–13 (18 Nov), which found trailing gets shaken out by normal pullbacks: give the runner room.
+
+## Part 5 round 15 (round 53): 20:23, skip very volatile markets
+
+**Idea:** when a market's volatility is far above its usual level (a crash or news shock), stop-runs and breaks behave differently. Skip setups when the trigger chart's ATR is more than 1.5× or 2× its 200-candle average. Version 2, financed.
+
+| Version | Learn | Check | Check by group (forex / metals / indices) |
+|---|---|---|---|
+| no skip (champion) | +0.438R, t +2.09, 62 trades | +0.586R, t +2.61, 50 | +0.804 / +0.583 / +0.349 |
+| skip above 1.5× | +0.513R, t +2.37, 59 | +0.551R, t +2.45, 50 | +0.725 / +0.583 / +0.328 |
+| skip above 2× | +0.438R, t +2.09, 62 | +0.555R, t +2.51, 51 | +0.725 / +0.583 / +0.349 |
+
+**Verdict: rejected, no skip.** 1.5× is better on learn but slightly worse on check. 2× changes nothing on learn and costs a little on check. The filter rarely triggers for this setup (3 learn trades at 1.5×), and the check trades it swaps are slightly better ones. Shorts after a stop-run seem to do fine in turbulence, which fits with markets falling faster than they rise.
