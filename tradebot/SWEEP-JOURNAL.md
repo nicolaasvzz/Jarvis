@@ -1651,3 +1651,15 @@ Financing costs swing about **0.04R a trade**. From now on the research copy (`r
 | 5 | +0.385R, t +1.84, 59 | +0.722R, t +3.07, 47 | +0.964 / +0.813 / +0.420 |
 
 **Verdict: rejected, 4 stays.** Both neighbours are worse on learn and better on check (5 reaches t 3.07 on check). The rule needs better on both. A change that gains a lot on check while losing on learn is exactly what fitting to the check window looks like, so this is the rule doing its job. 4 is the only setting good on both.
+
+## Part 5 round 13 (round 51): 19:53, minimum reward
+
+**Idea:** a setup is only taken if its target pays at least 3.5× the risk. Lower lets more setups through; higher keeps only the roomiest (with the 4R cap, 4.0 means only setups whose natural target reaches it). Version 2, financed.
+
+| Minimum reward | Learn | Check | Check by group (forex / metals / indices) |
+|---|---|---|---|
+| 3.5R (champion) | +0.438R, t +2.09, 62 trades | +0.586R, t +2.61, 50 | +0.804 / +0.583 / +0.349 |
+| 3.0R | +0.341R, t +1.84, 76 | +0.619R, t +2.85, 55 | +0.776 / +0.583 / +0.439 |
+| 4.0R | +0.441R, t +2.05, 57 | +0.604R, t +2.53, 45 | +0.807 / +0.583 / +0.348 |
+
+**Verdict: rejected, 3.5R stays.** 3.0 is worse on learn. 4.0 is effectively the same version with 5 fewer trades per part: a hair better on average, a hair worse on t. The minimum reward is no longer a lever; the trigger and the sides are what changed version 2.
