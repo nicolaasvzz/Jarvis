@@ -1515,3 +1515,16 @@ Financing costs swing about **0.04R a trade**. From now on the research copy (`r
 **The judge at the end:** version 2 (if it differs from version 1) gets **one** final test on the 24 fresh markets, financed, against version 1 financed. Caveat: those markets were already used once to judge version 1, so it's a second use; the result is reported with that in mind. Version 2 goes live only with Nicolaas's yes.
 
 **Wi-Fi pauses:** when Nicolaas warns that the Wi-Fi is about to cut out, the current work is committed and pushed and a flag file `research_lab/PAUSED` is created. While it exists, rounds do nothing. It's deleted when he says the Wi-Fi is back.
+
+## Part 5 round 3 (round 41): 16:08, where to take the half
+
+**Idea:** where to take half the profit, currently 1.5R. An earlier partial locks in more winners; a later one (or none) lets more trades run to the 3.5–4R target. Financed.
+
+| Version | Learn | Check | Check by group (forex / metals / indices) |
+|---|---|---|---|
+| half at 1.5R (champion) | +0.114R, t +1.01, win 44% | +0.251R, t +1.92, win 54% | +0.170 / +0.472 / +0.301 |
+| half at 1R | +0.109R, t +1.11, win 54% | +0.177R, t +1.57, win 60% | +0.099 / +0.403 / +0.217 |
+| half at 2R | +0.136R, t +1.08, win 38% | +0.203R, t +1.32, win 43% | +0.043 / +0.510 / +0.389 |
+| no partial | +0.294R, t +1.69, win 27% | +0.115R, t +0.56, win 24% | −0.103 / +0.340 / +0.491 |
+
+**Verdict: rejected, 1.5R stays.** None is better on both parts. "No partial" is the trap: learn jumps to +0.294R, but check falls to +0.115R and forex goes negative. Letting winners run is a bet that the 2012–18-style long trends return. The 1.5R partial is the most consistent across both periods and all three groups.
