@@ -1762,3 +1762,14 @@ Financing costs swing about **0.04R a trade**. From now on the research copy (`r
 **Verdict: rejected, 1.2 ATR stays.** 1.0 is worse on both parts. 1.6 has a better average on both but only about 4 trades a year, and t falls on both, so its higher average can't be told apart from luck. It's the same quality-versus-quantity curve as round 46. 1.2 is where both stay strong.
 
 **Pattern across part 5 so far:** around version 2, every setting is already at or near its sweet spot (since round 48, rounds 49–59 have rejected 11 settings in a row). Version 2's gains came from two structural choices, shorts only and a cleaner trigger swing; fine-tuning adds little now.
+
+## Part 5 round 22 (round 60): 22:08, sell only in premium
+
+**Idea:** the videos' premium/discount rule: only sell short when price is in the upper half of the daily chart's last swing range (sell dear, not cheap). It fits round 54's finding that version 2's shorts fire at tops. Version 2, financed.
+
+| Version | Learn | Check | Check by group (forex / metals / indices) |
+|---|---|---|---|
+| no premium filter (champion) | +0.438R, t +2.09, 62 trades | +0.586R, t +2.61, 50 | +0.804 / +0.583 / +0.349 |
+| sell only in premium | +0.431R, t +1.73, 41 | +0.413R, t +1.54, 33 | +0.793 / −0.433 / +0.112 |
+
+**Verdict: rejected.** It's worse on both parts and cuts about a third of the trades, and the ones it cuts were good. The setup already requires a stop-run above an old daily high, which puts it near the top of the range by construction. The premium filter mostly duplicates that, and where it differs (a short below the midpoint after a fresh stop-run) the trades were winners. This video rule doesn't add anything here.
