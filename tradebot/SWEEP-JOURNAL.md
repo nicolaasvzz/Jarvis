@@ -1799,3 +1799,24 @@ Financing costs swing about **0.04R a trade**. From now on the research copy (`r
 | skip Mondays | +0.473R, t +2.18, 58 | +0.551R, t +2.45, 50 | +0.803 / +0.583 / +0.260 |
 
 **Verdict: rejected; every weekday stays.** Both are better on learn but not on check. Skipping Fridays ties on average, loses on t, and is worse in 2 groups. The weekend's extra financing is small next to a 4R target, and the gap risk cuts both ways.
+
+## Part 5 check (19 Nov, 22:55): yearly % and version 2's untouched-market test, run early at Nicolaas's request
+
+Every version was run over each market set's whole history, at 1% risk a trade, compounded, with real costs (spread, slippage, financing). **This uses version 2's one look at the 24 untouched markets early** (the plan had it at 12:00 tomorrow). Script: `scratchpad/sweeprun/yearly.py`; output `research_lab/yearly_check.json`.
+
+| Version | Trained 21: yearly, avg R, t | **Untouched 24: yearly, avg R, t** | Trades/yr | Worst drop (untouched) | Up years (untouched) |
+|---|---|---|---|---|---|
+| start (video rules) | −16.6%, −0.137R, −3.89 | **−23.7%**, −0.199R, −6.08 | 129 | −99% | 2/17 |
+| version 1 (live demo) | +2.6%, +0.128R, +1.71 | **+0.8%**, +0.048R, +0.62 | 21 | −18% | 9/17 |
+| version 2 (newest) | +3.8%, +0.426R, +3.39 | **+0.4%**, +0.053R, +0.46 | 9 | −18% | 9/17 |
+
+**Why version 2 didn't carry over** (version 1's trades split by side):
+
+| | Trained 21 | Untouched 24 |
+|---|---|---|
+| longs | −0.095R, t −0.96 (167) | +0.113R, t +0.91 (137) |
+| shorts | +0.318R, t +2.93 (196) | +0.001R, t +0.01 (188) |
+
+**The lesson, and the flaw in how part 5 taught the bot:** "shorts only" (round 43) and "trigger swing 4" (round 48) were better on learn **and** check, but learn and check are different *years* of the **same 21 markets**. A habit of those particular markets (here, their shorts working) passes that test every time. Adding real costs was a genuine improvement; the two keeps in part 5 were not. The honest result stands at about **+0.8% a year at 1% risk** (version 1), far below Fairtree's 12–18%.
+
+**What changes:** any further teaching must check each change on **different markets** as well as different years: split the 21 into two halves, tune on one, check on the other. The untouched 24 have now been used for both versions and can't judge another one fairly; the live demo is the next honest judge.
