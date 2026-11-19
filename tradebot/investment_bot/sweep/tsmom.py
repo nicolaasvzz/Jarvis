@@ -28,7 +28,7 @@ import pandas as pd
 
 from . import data
 from .bench import group_of
-from .financing import charge
+from .financing import carry, charge
 from .prove import quarters, stats
 from .trend import CHECK_END, DAY, LEARN_END, T0, T1, curve, frames
 
@@ -45,6 +45,7 @@ class MomParams:
     cost_bp: float = 1.0
     finance_pa: float = 0.02
     finance: str = "flat"    # "flat" = finance_pa on any position; "rates" = by the historical rate (financing.py)
+    carry_min: float = 0.01  # mode "carry": hold a pair only when its interest gap is at least this
     mode: str = "momentum"   # "momentum"; "hold" (always long); "above_ma" (long over the ma_n-day average);
                              # "rank" (long the rank_k strongest markets, short the rank_k weakest)
     ma_n: int = 200
@@ -62,7 +63,8 @@ class MomParams:
                 "rank": f"rank {self.lookback}d top/bottom {self.rank_k}",
                 "tom": f"turn of month (last {self.tom_before}, first {self.tom_after})",
                 "halloween": "hold Nov-Apr, flat May-Oct",
-                "calm_hold": "hold only while calm (20d vol < 1y median)"}[self.mode]
+                "calm_hold": "hold only while calm (20d vol < 1y median)",
+                "carry": f"forex carry (gap >= {self.carry_min:.0%})"}[self.mode]
         return head + (f" ({', '.join(diff)})" if diff else "")
 
 
@@ -96,6 +98,14 @@ def weights(c: pd.DataFrame, p: MomParams) -> pd.DataFrame:
     """The position each market holds after each close (a share of the account, before scaling)."""
     ret = c.pct_change(fill_method=None)
     vol = ret.ewm(span=p.vol_n, min_periods=p.vol_n).std() * math.sqrt(252)
+    if p.mode == "carry":
+        gaps = pd.DataFrame({s: carry(s, c.index) for s in c.columns}, index=c.index)
+        side = np.sign(gaps).where(gaps.abs() >= p.carry_min, 0.0).where(c.notna() & gaps.notna())
+        w = (side * (p.target_vol / vol)).clip(-p.max_lev, p.max_lev)
+        month_end = c.index.to_series().dt.to_period("M") != c.index.to_series().shift(-1).dt.to_period("M")
+        month_end.iloc[-1] = False
+        w = w.where(np.repeat(month_end.to_numpy()[:, None], w.shape[1], axis=1)).ffill()
+        return w.where(c.notna())
     if p.mode == "calm_hold":
         # Decided every close (not monthly): long while 20-day volatility is under its 1-year median.
         v20 = ret.rolling(20).std()
@@ -142,7 +152,11 @@ def returns(c: pd.DataFrame, sp: pd.DataFrame, p: MomParams) -> tuple[pd.Series,
     gap = c.index.to_series().diff().dt.days.fillna(1).to_numpy()
     cost_frac = np.maximum(sp.reindex_like(c).fillna(0).to_numpy(), p.cost_bp * 1e-4)
     trade = (held.fillna(0) - held.shift(1).fillna(0)).abs().to_numpy()
-    per = held.to_numpy() * ret.to_numpy() - trade * cost_frac \
+    earned = 0.0
+    if p.mode == "carry":   # the interest gap is earned (or paid) every calendar day held
+        gap_now = np.column_stack([np.nan_to_num(carry(s, c.index)) for s in c.columns])
+        earned = held.fillna(0).to_numpy() * gap_now / 365 * gap[:, None]
+    per = held.to_numpy() * ret.to_numpy() + earned - trade * cost_frac \
         - (charge(held.fillna(0).to_numpy(), c.index) if p.finance == "rates"
            else np.abs(held.fillna(0).to_numpy()) * p.finance_pa) / 365 * gap[:, None]
     per = pd.DataFrame(per, index=c.index, columns=c.columns).where(held.notna())

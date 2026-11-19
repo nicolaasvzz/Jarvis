@@ -1229,3 +1229,20 @@ The dip family stays at round 3's version, which is an index-only effect that fa
 **What it shows:** the flat 2% was **slightly generous everywhere**. Even in zero-rate years the broker's 2.5% markup is more than 2%, and in 2023–25 a long position costs about 7.5% a year. No verdict changes, because every strategy was already below the bar. The realistic reference, holding gold + US500 on CFDs, falls to about **4–5% a year at a 25% drop**.
 
 **The lesson for the R10M plan:** for holding exposure for months, a CFD account is an expensive wrapper. A fund or ETF holds the same markets without a 2.5% + rate yearly charge. CFD bots only make sense for short holds, and every short-hold idea tested tonight was too thin to pay the spread.
+
+## Part 4 round 26: 02:12
+
+**Idea:** **forex carry**, the one forex edge famous among professional funds (round 10 said it needed rate data). Hold each pair in the direction of its interest-rate gap (long the high-rate currency against the low-rate one) whenever the gap is at least 1%. Earn or pay the gap daily, volatility-sized and decided monthly. A broker cut of 1.5% a year on the position plus spreads. `financing.py` gained approximate yearly policy rates for USD, EUR, GBP, JPY, CHF, AUD, NZD, CAD and ZAR (public central-bank history, rounded, typed from memory, so good to about a point). `tsmom.py` gained mode `carry`. Test: AUDJPY's 2007 gap is over 5%, held long, earns carry on a flat price; gold has no gap. The 29 forex pairs, 2000 split.
+
+| Version | Part | Avg R (pair-month) | PF | t (daily) | Yearly at 25% drop | Quarters |
+|---|---|---|---|---|---|---|
+| gap ≥ 1%, 1.5% broker cut | learn 2000–10 | +0.034 | 1.16 | +1.32 | +2.3% | +27.1, +118.9, +26.1, −46.2 |
+| | check 2010–18 | −0.011 | 0.95 | −0.91 | −2.0% | +30.7, −27.3, −9.5, −23.8 |
+| gap ≥ 2% | learn | +0.038 | 1.27 | +1.70 | +3.1% | |
+| | check | −0.002 | 0.98 | −0.87 | −1.6% | |
+| gap ≥ 1%, no costs (diagnostic) | learn | +0.061 | 1.31 | +2.23 | +4.4% | |
+| | check | +0.012 | 1.06 | −0.32 | −0.9% | |
+
+**Verdict: rejected.** Carry did what history says it did. It paid in the 2000s carry boom, gave much of it back in the 2008 crash (−46R in learn's last quarter), and earned nothing in 2010–18, when rates were near zero almost everywhere and there was no gap to collect. Even at its best (learn, no costs) it's +4.4% a year at a 25% drop. Carry is a slow, crash-prone edge, not an 18% one.
+
+**Tally: 26 rounds.** Tonight has tested every major edge family known in the literature: trend, momentum, carry, mean reversion, seasonality, volatility, pairs, and holding. None reaches 18% a year at a 25% drop after this broker's costs on unseen data.
