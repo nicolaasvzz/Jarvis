@@ -1834,3 +1834,21 @@ Re-testing part 5's two keeps under it (learn + check time, locked 20% unused):
 | trigger swing 4 | +0.205R, t +1.56 | +0.220R, t +1.58 | fails half B |
 
 The halves rule catches swing size 4 but not shorts only. The 21 training markets (mostly major USD pairs) share a short-side habit that the 24 untouched markets don't. No test inside the 21 can catch that, so the live demo is now the only fully fair judge. The rounds continue under the stricter rule; the untouched 24 won't be used again.
+
+# Part 6: the 18% push, multi-agent (pre-registered 19 Nov, 23:55)
+
+**Goal (from Nicolaas, going to bed):** keep pushing for 18%+ a year ("ideally 100%"). For the record, a realistic expectation: round 31 showed 18% at a 25% worst drop needs a Sharpe of about 1.5. The best honest result so far is about 0.3. 100% a year at a 25% drop would need a Sharpe far above anything any public fund has sustained. The push is to search much wider, with a stricter judge, and to report only what survives.
+
+**The swing rounds (5b) stop here.** Swing has been judged on every clean dataset it had; its next judge is the live demo. The demo keeps running version 1, untouched.
+
+**The judge** (`investment_bot/sweep/judge.py`, 10 tests): a strategy hands over *positions* only. The judge fills at the next bar's open, P&L runs open-to-open, and every change pays the spread or at least 1bp. Financing per night: FX pairs earn or pay their interest gap minus 1% a year, indices and metals pay the US rate + 2.5% on longs and 2.5% − rate on shorts. **Development years = 2000–2018 only:** `judge.frames(dev=True)` physically cuts candles at 1 Jan 2019, so no development run can see 2019–2026. Smoke test: holding US500 long over 2012–18 gives 9.98% a year gross, −3.05% financing, 6.93% net, Sharpe 0.53, which is right.
+
+**Pre-registered rules:**
+1. **Development gate:** a strategy must make money in all four cells (market half A/B × first/second half of its time span), and its whole-development t must be at least 2 ("candidate"). "Promising" also needs development Sharpe ≥ 1.0.
+2. **At most 8 variants per family**, every one reported (not just the best).
+3. **Adversarial verification** of every candidate by 3 independent agents (lookahead/leakage, overfitting/robustness, costs/realism). Killed if 2 of 3 refute it.
+4. **The locked years 2019–2026** are looked at only by the lead (me), only for verified candidates, **once per version**, at a size chosen on the development years (the multiple whose development worst drop is 25%). Recorded in `research_lab/locked_looks_p6.json`.
+5. A portfolio of survivors gets its weights from the development years and **one** locked look of its own.
+6. No MT5 access, no live-bot changes, no real money, no merges without Nicolaas.
+
+**Cycle 1 families (one research agent each):** walk-forward ML on daily bars (breadth across 37 markets); walk-forward ML on hourly bars; cross-sectional short-term reversal (incl. currency-level); month-end rebalancing flows (USD fix and equity rebalancing); cross-market lead-lag; professional multi-speed trend with buffering and true FX carry; calendar seasonality with cross-validation (incl. non-US holidays); FX style premia (carry + momentum + value at currency level).
