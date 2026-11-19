@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Swing Bot Scorecard</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: three columns (worst / newest / best), then the climb chart. */
+:root {
+  --bg: #f3f5f6; --panel: #fff; --fg: #1a1f24; --muted: #5c656e; --line: #dce1e5;
+  --worst: #b23a32; --worst-soft: #fbecea; --new: #1f5f9a; --new-soft: #e7f0f9; --best: #1d7a46; --best-soft: #e6f4ec;
+  --body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif; --mono: "IBM Plex Mono", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root { --bg: #121518; --panel: #1a1e22; --fg: #e6e9ec; --muted: #9aa3ad; --line: #2c3238;
+  --worst: #f07a70; --worst-soft: #2c1b19; --new: #7ab4ea; --new-soft: #17222e; --best: #5cc98a; --best-soft: #15281d; color-scheme: dark } }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.55 var(--body); }
+.wrap { max-width: 1080px; margin: 0 auto; padding: 28px max(16px, env(safe-area-inset-left, 0px)) 48px max(16px, env(safe-area-inset-right, 0px)); display: grid; gap: 22px; }
+h1 { margin: 0; font-size: clamp(24px, 3.6vw, 34px); line-height: 1.15; }
+h2 { margin: 0; font-size: 18px; }
+.sub { color: var(--muted); margin: 6px 0 0; max-width: 70ch; }
+.cols { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+.col { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; display: grid; align-content: start; min-width: 0; }
+.head { padding: 14px 16px; display: grid; gap: 2px; }
+.worst .head { background: var(--worst-soft); } .new .head { background: var(--new-soft); } .best .head { background: var(--best-soft); }
+.tag { font: 500 11.5px var(--mono); letter-spacing: .08em; text-transform: uppercase; }
+.worst .tag { color: var(--worst); } .new .tag { color: var(--new); } .best .tag { color: var(--best); }
+.name { font-weight: 600; font-size: 17px; }
+.date { color: var(--muted); font-size: 13px; }
+.big { padding: 14px 16px 4px; font: 500 34px/1.1 var(--mono); }
+.worst .big { color: var(--worst); } .new .big { color: var(--new); } .best .big { color: var(--best); }
+.big small { display: block; font: 400 12.5px var(--body); color: var(--muted); margin-top: 4px; }
+dl { margin: 0; padding: 8px 16px 16px; display: grid; gap: 6px; }
+dl div { display: flex; justify-content: space-between; gap: 10px; border-bottom: 1px dashed var(--line); padding-bottom: 5px; }
+dt { color: var(--muted); font-size: 13.5px; } dd { margin: 0; font: 13.5px var(--mono); text-align: right; }
+.note { padding: 0 16px 16px; font-size: 13.5px; color: var(--muted); }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 18px; display: grid; gap: 10px; min-width: 0; }
+.chart { overflow-x: auto; } .chart svg { display: block; width: 100%; min-width: 620px; height: auto; }
+.chart text { font: 11.5px var(--mono); fill: var(--muted); } .chart .v { fill: var(--fg); font-weight: 500; }
+.chart .grid { stroke: var(--line); } .chart .zero { stroke: var(--muted); }
+ul { margin: 0; padding-left: 18px; display: grid; gap: 5px; }
+@media (max-width: 760px) { .cols { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Swing bot: worst, newest and best</h1>
+    <p class="sub">Average result per trade in R (1R = the amount risked on that trade). Backtests after spread and slippage; "real costs" also includes overnight financing. Updated 19 Nov 2026, 22:30, after part 5 round 61.</p>
+  </header>
+
+  <section class="cols">
+    <article class="col worst">
+      <div class="head"><span class="tag">Worst · the start</span><span class="name">Video rules, as first coded</span><span class="date">17 Nov 2026</span></div>
+      <div class="big">−0.10R<small>per trade, 929 trades, t −1.0</small></div>
+      <dl>
+        <div><dt>Intraday / scalp</dt><dd>−0.25R / −0.36R</dd></div>
+        <div><dt>With zero costs</dt><dd>still negative</dd></div>
+        <div><dt>Night 1 locked test</dt><dd>−0.11R</dd></div>
+        <div><dt>Old bot's news trader</dt><dd>bet 44–50% of equity</dd></div>
+      </dl>
+      <p class="note">Every profile lost money, on every test.</p>
+    </article>
+
+    <article class="col new">
+      <div class="head"><span class="tag">Newest · version 2</span><span class="name">Shorts only, cleaner trigger</span><span class="date">19 Nov 2026, research lab</span></div>
+      <div class="big">+0.586R<small>per trade on check (2018–22), t 2.61, real costs</small></div>
+      <dl>
+        <div><dt>Learn (earlier years)</dt><dd>+0.438R, t 2.09</dd></div>
+        <div><dt>Trades</dt><dd>62 learn · 50 check</dd></div>
+        <div><dt>Win rate</dt><dd>52% · 62%</dd></div>
+        <div><dt>Fresh-market test</dt><dd>at 12:00 tomorrow</dd></div>
+      </dl>
+      <p class="note">Not live yet. The demo still runs version 1 (no trades since 18 Nov, about 2 a month expected).</p>
+    </article>
+
+    <article class="col best">
+      <div class="head"><span class="tag">Best · on unseen data</span><span class="name">Version 1 on 24 fresh markets</span><span class="date">18 Nov 2026</span></div>
+      <div class="big">+0.084R<small>per trade, 325 trades, all 4 quarters positive</small></div>
+      <dl>
+        <div><dt>With real costs</dt><dd>+0.048R</dd></div>
+        <div><dt>t (needs 1.65)</dt><dd>1.05</dd></div>
+        <div><dt>Yearly at 1% risk</dt><dd>about +1%</dd></div>
+        <div><dt>Best other strategy</dt><dd>pre-holiday +15%/yr*</dd></div>
+      </dl>
+      <p class="note">The only swing result proven on markets it never trained on. *Locked 2022–26 data, needs about 9× leverage.</p>
+    </article>
+  </section>
+
+  <section class="card">
+    <h2>The climb, step by step</h2>
+    <div class="chart">
+      <svg viewBox="0 0 760 300" role="img" aria-label="Average R per trade at each stage, from −0.10R to +0.586R">
+        <!-- scale: 0R at y=230, 300px per 1R -->
+        <line class="grid" x1="60" y1="50" x2="750" y2="50"/><text x="52" y="54" text-anchor="end">+0.6</text>
+        <line class="grid" x1="60" y1="110" x2="750" y2="110"/><text x="52" y="114" text-anchor="end">+0.4</text>
+        <line class="grid" x1="60" y1="170" x2="750" y2="170"/><text x="52" y="174" text-anchor="end">+0.2</text>
+        <line class="zero" x1="60" y1="230" x2="750" y2="230"/><text x="52" y="234" text-anchor="end">0</text>
+        <rect x="75" y="230" width="58" height="30" fill="var(--worst)"/>
+        <text class="v" x="104" y="276" text-anchor="middle">−0.10</text><text x="104" y="292" text-anchor="middle">video rules</text>
+        <rect x="160" y="230" width="58" height="33" fill="var(--worst)" opacity=".7"/>
+        <text class="v" x="189" y="278" text-anchor="middle">−0.11</text><text x="189" y="294" text-anchor="middle">night 1 locked</text>
+        <rect x="245" y="204.8" width="58" height="25.2" fill="var(--best)"/>
+        <text class="v" x="274" y="198" text-anchor="middle">+0.084</text><text x="274" y="292" text-anchor="middle">v1 fresh</text>
+        <rect x="330" y="215.6" width="58" height="14.4" fill="var(--best)" opacity=".7"/>
+        <text class="v" x="359" y="209" text-anchor="middle">+0.048</text><text x="359" y="248" text-anchor="middle">+ real costs</text>
+        <rect x="415" y="154.7" width="58" height="75.3" fill="var(--new)" opacity=".55"/>
+        <text class="v" x="444" y="148" text-anchor="middle">+0.251</text><text x="444" y="248" text-anchor="middle">v1 check</text>
+        <rect x="500" y="78.5" width="58" height="151.5" fill="var(--new)" opacity=".75"/>
+        <text class="v" x="529" y="72" text-anchor="middle">+0.505</text><text x="529" y="248" text-anchor="middle">shorts only</text>
+        <rect x="585" y="54.2" width="58" height="175.8" fill="var(--new)"/>
+        <text class="v" x="614" y="48" text-anchor="middle">+0.586</text><text x="614" y="248" text-anchor="middle">v2 check</text>
+      </svg>
+    </div>
+    <p class="sub">Green bars are on markets the bot never trained on. Blue bars are the 2018–22 check data, which guided the changes. That's why version 2 still needs its fresh-market test before anyone trusts it.</p>
+  </section>
+
+  <section class="card">
+    <h2>What changed to get here</h2>
+    <ul>
+      <li><strong>Strong-break rule</strong> (18 Nov): the breakdown candle must be at least 1.2 ATR. It turned the video rules from losing to positive.</li>
+      <li><strong>Daily stop-run within 20 days</strong> (18 Nov): the first positive result on fresh markets.</li>
+      <li><strong>Real overnight costs</strong> (19 Nov): about −0.04R a trade, now always counted.</li>
+      <li><strong>Shorts only</strong> (19 Nov): the edge was all in shorts; longs lost money on every test.</li>
+      <li><strong>Trigger swing size 4</strong> (19 Nov): only clear hourly turning points count.</li>
+      <li>Kept from the videos and confirmed again: pullback entry, fresh zones only, old-low targets.</li>
+    </ul>
+  </section>
+</div>
+</body>
+</html>

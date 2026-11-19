@@ -1785,3 +1785,17 @@ Financing costs swing about **0.04R a trade**. From now on the research copy (`r
 | 240 | +0.415R, t +2.01, 63 | +0.555R, t +2.51, 51 | +0.725 / +0.583 / +0.349 |
 
 **Verdict: rejected, 120 stays.** Lifetime barely matters: either way only one or two trades change, and both are slightly worse on both parts. Zones are almost always used or broken within days, long before they expire. "Fresh" means unvisited, not young.
+
+## Part 5 round 24 (round 62): 22:38, skip Fridays or Mondays
+
+(At 22:30 a scorecard of the bot's worst, newest and best results was made for Nicolaas: `tradebot/reports/bot-performance.html`.)
+
+**Idea:** a short opened on a Friday has to sit through the weekend gap and pays 3 nights of financing; a Monday setup can be distorted by the weekend gap. Skip new setups on one of those days. Version 2, financed.
+
+| Version | Learn | Check | Check by group (forex / metals / indices) |
+|---|---|---|---|
+| every weekday (champion) | +0.438R, t +2.09, 62 trades | +0.586R, t +2.61, 50 | +0.804 / +0.583 / +0.349 |
+| skip Fridays | +0.515R, t +2.16, 52 | +0.586R, t +2.40, 42 | +0.890 / +0.274 / +0.286 |
+| skip Mondays | +0.473R, t +2.18, 58 | +0.551R, t +2.45, 50 | +0.803 / +0.583 / +0.260 |
+
+**Verdict: rejected; every weekday stays.** Both are better on learn but not on check. Skipping Fridays ties on average, loses on t, and is worse in 2 groups. The weekend's extra financing is small next to a 4R target, and the gap risk cuts both ways.
