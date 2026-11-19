@@ -1314,3 +1314,31 @@ The dip family stays at round 3's version, which is an index-only effect that fa
 | | check | +0.070 | 1.18 | +0.65 | **+3.9%** |
 
 **Verdict: rejected.** Rotation beats holding both in 2012–18, when US stocks led for years. In 2018–22 it loses to simply holding both, because it keeps switching into whichever just ran and misses the other's turn. Diversification beat timing again, as in rounds 4, 11, 23 and 27.
+
+## Part 4 round 31: 03:27, what the bar takes
+
+**Idea:** instead of a thirtieth strategy, measure **what clearing the bar requires**. In a Monte Carlo of 2,000 random return paths per Sharpe ratio, each 4.3 years long (the length of a check window), every path is sized to the biggest leverage whose worst drop stays at 25%. How often does it then make 18%+ a year? (Picking the leverage per path with hindsight makes these odds *optimistic*.)
+
+| Sharpe ratio | Chance a 4.3-year window clears 18%/yr at ≤25% drop |
+|---|---|
+| 0.30 | 10% |
+| 0.50 | 19% |
+| 0.75 | 36% |
+| 1.00 | 54% |
+| 1.25 | 74% |
+| **1.50** | **87%** |
+| 2.00 | 98% |
+
+**Best Sharpe ratios found tonight on unseen data** (t divided by √years):
+
+| Strategy | Sharpe |
+|---|---|
+| gold + US500 hold, rate-based financing | about 0.31 |
+| index dip + calm filter (withdrawn in round 24) | about 0.34 |
+| US overnight drift | about 0.18 |
+| swing on fresh markets, with financing | about 0.16 |
+
+**What it means:**
+- **Clearing the bar dependably needs a Sharpe of about 1.5**, and it's a coin flip at 1.0. That's the territory of the best hedge funds, which usually rely on data, speed or costs a retail CFD account doesn't have.
+- **The best found tonight is about 0.3**, a factor of about 5 short.
+- **It also explains round 13's locked look.** A Sharpe-0.3 holding clears the bar in about 1 window in 10 by pure luck. Gold + US500 in 2022–26 (+22% as modelled) was that window: a boom, not an edge. That's why the bar demands unseen data **and** the luck test, and why I didn't call it a win.
