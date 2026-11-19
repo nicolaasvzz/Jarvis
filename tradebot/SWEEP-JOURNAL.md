@@ -1390,3 +1390,25 @@ After 34 rounds every major family of systematic edge has been tested, and round
 - **The final summary** for 08:00 is drafted (each family's learn, check and locked result against the bar).
 
 Further rounds until 08:00 will do the same: only clearly new, documented ideas, or checks. No variations of failed ones.
+
+## Part 4 round 36: 04:42, the pre-holiday effect (and its one locked look)
+
+**Idea:** a genuinely new, well-documented calendar effect: the **pre-holiday effect**. US stocks have historically risen on the last trading day before a market holiday. Hold the US indices for that one day only (bought at the previous daily close, sold at that day's close), about 10 days a year (`sweep/preholiday.py`). The holidays come from a fixed NYSE-style calendar (New Year, MLK, Presidents', Good Friday, Memorial, Juneteenth from 2022, July 4, Labor, Thanksgiving, Christmas), so nothing peeks. Costs are the spread or 1bp per side plus a night's financing. Tests: the calendar knows the 2024 eves (3 Jul, 27 Nov, 24 Dec, 28 Mar), not Columbus Day; trades happen only on those days; returns are exactly close-to-close. US500, US30, US2000, USTEC, index split.
+
+| Part | Trades | Avg a day | PF | t (daily) | Yearly at 25% drop |
+|---|---|---|---|---|---|
+| learn 2012–18 | 156 | +0.076% | 1.38 | +0.87 | +3.8% |
+| check 2018–22 | 117 | +0.182% | 1.66 | +1.10 | +10.4% |
+| (no costs: learn / check) | | +0.100% / +0.194% | | | +5.5% / +11.4% |
+
+**Positive after costs in both parts:** the first new family to manage that since round 11. It's one version with nothing to tune, so it's ready. **The one locked look** (2022-08-05 to now, recorded in `locked_looks.json`):
+
+| Locked | Yearly | Worst drop | Notes |
+|---|---|---|---|
+| at the size chosen on learn + check (x8.77) | **+15.0%** | 13.4% | t **+2.01**, PF 2.09, **all 4 quarters positive** (+9.0, +3.9, +9.8, +7.1), 160 trades |
+| capped at 2x the account | +3.5% | 3.1% | |
+
+**Verdict: the closest result of the night, and still not a pass.**
+- It **passes the luck test on unseen data** (t 2.01, PF 2.09, 4/4 quarters, 160 trades). A pre-holiday day earned about +0.19%, roughly 4 times an ordinary day. That's a real effect.
+- **It misses the 18%:** +15.0% at the size fixed in advance. (Sizing it on the locked data itself would show +28%, but that's choosing with hindsight, which the bar forbids.)
+- **The size is the catch.** It's invested only about 10 days a year, so a 25%-drop sizing puts about **9x the account** into US indices on those days. History never had a large loss on a holiday eve, but one −4% day would cost about 35%. At a sane 2x cap it makes +3.5% a year: a useful, steady, low-risk add-on, not a main engine.
