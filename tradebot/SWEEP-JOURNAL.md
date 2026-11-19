@@ -1601,3 +1601,15 @@ Financing costs swing about **0.04R a trade**. From now on the research copy (`r
 | 40 days | +0.161R, t +1.28, 145 | +0.298R, t +2.13, 102 | +0.350 / +0.494 / +0.151 |
 
 **Verdict: rejected, 20 days stays.** It's a clean quality-versus-quantity curve. A fresher stop-run makes each trade better (10 days: +0.62R on both parts), but only about 4 trades a year, and check t falls to 1.78. A staler one trades twice as often but each trade is worth half. The keep rule needs a better average **and** t on both, and 10 days fails check t. With 26 check trades it's also too thin to trust. 20 days is the balance.
+
+## Part 5 round 9 (round 47): 18:53, entry depth (shorts only)
+
+**Idea:** version 2 enters at the edge of the turn candle. Waiting for a deeper pullback, a quarter or half into it, gives a better price and a tighter stop (more R per trade), but some trades never fill. Financed.
+
+| Entry | Learn | Check | Check by group (forex / metals / indices) |
+|---|---|---|---|
+| edge of the turn candle (champion) | +0.347R, t +2.02, 84 trades | +0.505R, t +2.50, 60 | +0.462 / +1.016 / +0.335 |
+| 25% into it | +0.301R, t +1.67, 79 | +0.456R, t +2.06, 56 | +0.589 / +1.014 / +0.031 |
+| 50% into it | +0.256R, t +1.29, 68 | +0.373R, t +1.64, 53 | +0.317 / +0.838 / +0.187 |
+
+**Verdict: rejected, the edge entry stays.** Deeper is worse on both parts, getting steadily worse the deeper it goes. The trades that never pull back that far are the best ones (the clean breakdowns), so waiting for a better price filters out winners. This matches the videos' own rule (enter at the top of the turn candle), one of the two video rules the data has supported since night one.
