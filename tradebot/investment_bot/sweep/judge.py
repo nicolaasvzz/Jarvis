@@ -20,8 +20,10 @@ indexed by. The judge does everything else, the same way for every strategy:
   minus ``FX_MARKUP`` a year; indices and metals pay the US rate + ``CFD_MARKUP`` on longs
   and ``CFD_MARKUP`` - US rate on shorts.
 * **Locked years.** ``frames(dev=True)`` cuts every market at ``DEV_END`` (1 Jan 2019), so a
-  strategy developed with it cannot have seen 2019-2026. Only ``locked_look`` reads the
-  locked years, at a size chosen on the development years, once per name, and records it.
+  strategy developed with it cannot have seen 2019-2026. Only ``locked_look`` / ``locked_look_portfolio`` read
+  the locked years, at a size chosen on the development years (the multiple whose development
+  worst drop is 25%, capped so total positions never exceed ``max_gross`` = 10x the account on
+  any development day), once per name, and record it.
 
 Scoring: the development years are cut into four cells, market half A or B (balanced by
 group, ``HALF_A``/``HALF_B``) x first or second half of that market half's time span. A
@@ -283,22 +285,75 @@ def _entries(held: np.ndarray) -> int:
     return int(np.sum((held != 0) & (np.sign(held) != np.sign(prev))))
 
 
-def locked_look(name: str, strategy: Strategy, params: dict[str, Any], symbols: list[str] | None = None,
-                tf: str = "D1", looks_file: str | Path = "locked_looks_p6.json") -> dict[str, Any]:
-    """The ONE look at 2019-2026 for a version decided on the development years. Recorded; a
-    name can be looked at only once. Size = the multiple whose development-years worst drop is 25%."""
+def gross_table(pnl: dict[str, pd.DataFrame]) -> pd.DataFrame:
+    """Date x market table of the largest |position| held that date (1x)."""
+    cols = {s: p.assign(a=p["held"].abs()).groupby("day")["a"].max() for s, p in pnl.items()}
+    if not cols:
+        return pd.DataFrame()
+    return pd.DataFrame(cols).sort_index().fillna(0.0)
+
+
+def _add(tables: list[pd.DataFrame]) -> pd.DataFrame:
+    out = pd.DataFrame()
+    for f in tables:
+        out = f.copy() if out.empty else out.add(f, fill_value=0.0)
+    return out.sort_index().fillna(0.0)
+
+
+def component_pnl(comp: dict[str, Any], dev: bool = True) -> dict[str, pd.DataFrame]:
+    """One portfolio component = {"name", "strategy", "params", "symbols", "tf", "weight"}."""
+    fr = frames(comp.get("symbols"), comp.get("tf", "D1"), dev=dev)
+    pos = comp["strategy"](fr, comp.get("params") or {})
+    return {s: market_pnl(s, fr[s], pos.get(s)) for s in fr}
+
+
+def portfolio_tables(components: list[dict[str, Any]], dev: bool = True
+                     ) -> tuple[pd.DataFrame, pd.Series, dict[str, pd.Series], int]:
+    """Weighted date x market net P&L summed over components, the daily gross leverage (1x),
+    each component's own weighted daily net, and the number of locked-period entries."""
+    nets, grosses, per, entries = [], [], {}, 0
+    for c in components:
+        pnl = component_pnl(c, dev)
+        w = float(c.get("weight", 1.0))
+        net = daily_table(pnl) * w
+        nets.append(net)
+        grosses.append(gross_table(pnl) * abs(w))
+        per[c["name"]] = net.sum(axis=1)
+        entries += sum(_entries(q["held"].to_numpy()[q["time"].to_numpy() >= DEV_END]) for q in pnl.values())
+    net = _add(nets)
+    gross = _add(grosses).sum(axis=1) if grosses else pd.Series(dtype=float)
+    return net, gross, per, entries
+
+
+def evaluate_portfolio(components: list[dict[str, Any]]) -> dict[str, Any]:
+    """Development-years report for a weighted mix of strategies (any timeframes)."""
+    net, gross, per, _ = portfolio_tables(components, dev=True)
+    start = SCORE_START // DAY
+    net = net[net.index >= start]
+    gross = gross[gross.index >= start]
+    c = cells(net)
+    comp = pd.DataFrame({k: v[v.index >= start] for k, v in per.items()}).fillna(0.0)
+    return {"cells": c, "gate": gate(c),
+            "components": {k: stats(comp[k]) for k in comp.columns},
+            "correlation": comp.corr().round(2).to_dict() if comp.shape[1] > 1 else {},
+            "gross_1x": {"mean": round(float(gross.mean()), 3) if len(gross) else 0.0,
+                         "max": round(float(gross.max()), 3) if len(gross) else 0.0}}
+
+
+def _locked_report(name: str, net: pd.Series, gross: pd.Series, entries: int, record: dict[str, Any],
+                   looks_file: str | Path, max_gross: float) -> dict[str, Any]:
     path = Path(looks_file)
     looks = json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
     if any(x["name"] == name for x in looks):
         raise RuntimeError(f"{name!r} already had its locked look")
-    fr = frames(symbols, tf, dev=False)
-    pos = strategy(fr, params)
-    pnl = {s: market_pnl(s, fr[s], pos.get(s)) for s in fr}
-    net = daily_table(pnl).sum(axis=1)
     dev_day = DEV_END // DAY
-    dev = net[(net.index >= SCORE_START // DAY) & (net.index < dev_day)]
-    lock = net[net.index >= dev_day]
-    k = scale_for_cap(dev.to_numpy())
+    in_dev = (net.index >= SCORE_START // DAY) & (net.index < dev_day)
+    dev, lock = net[in_dev], net[net.index >= dev_day]
+    k_dd = scale_for_cap(dev.to_numpy())
+    dev_gross = gross[(gross.index >= SCORE_START // DAY) & (gross.index < dev_day)]
+    peak = float(dev_gross.max()) if len(dev_gross) else 0.0
+    k_lev = max_gross / peak if peak > 0 else float("inf")
+    k = min(k_dd, k_lev)
     years = max((lock.index[-1] - lock.index[0]) / 365.25, 1e-9)
     eq, dd = curve(lock.to_numpy(), k)
     yearly = eq ** (1 / years) - 1 if eq > 0 else -1.0
@@ -308,18 +363,45 @@ def locked_look(name: str, strategy: Strategy, params: dict[str, Any], symbols: 
                 for a, b in zip(edges[:-1], edges[1:])]
     pos_days, neg_days = lock[lock > 0].sum(), -lock[lock < 0].sum()
     pf = float(pos_days / neg_days) if neg_days > 0 else 99.0
-    entries = sum(_entries(p["held"].to_numpy()[p["time"].to_numpy() >= DEV_END]) for p in pnl.values())
+    lock_gross = gross[gross.index >= dev_day] * k
     passed = {"yearly_18pct": yearly >= 0.18, "drop_25pct": dd <= DD_CAP + 1e-9, "t_1.65": st["t"] >= 1.65,
               "quarters_3of4": sum(q > 0 for q in quarters) >= 3, "pf_1.2": pf >= 1.2, "trades_30": entries >= 30}
-    res = {"name": name, "at": datetime.now().isoformat(timespec="minutes"), "params": params, "tf": tf,
-           "dev_size": round(k, 3), "locked_yearly_pct": round(yearly * 100, 2), "locked_maxdd_pct": round(dd * 100, 1),
+    res = {"name": name, "at": datetime.now().isoformat(timespec="minutes"), **record,
+           "size": round(k, 3), "size_for_25pct_dev_drop": round(k_dd, 3), "size_for_leverage_cap": round(k_lev, 3),
+           "max_gross_cap": max_gross,
+           "locked_yearly_pct": round(yearly * 100, 2), "locked_maxdd_pct": round(dd * 100, 1),
            "locked_t": st["t"], "locked_sharpe": st["sharpe"], "quarters_pct": quarters, "pf": round(pf, 2),
-           "entries": entries, "passed": passed, "clears_bar": all(passed.values())}
+           "entries": entries,
+           "locked_gross_mean": round(float(lock_gross.mean()), 2) if len(lock_gross) else 0.0,
+           "locked_gross_max": round(float(lock_gross.max()), 2) if len(lock_gross) else 0.0,
+           "passed": passed, "clears_bar": all(passed.values())}
     looks.append(res)
     path.write_text(json.dumps(looks, indent=1, default=str), encoding="utf-8")
     return res
 
 
+def locked_look(name: str, strategy: Strategy, params: dict[str, Any], symbols: list[str] | None = None,
+                tf: str = "D1", looks_file: str | Path = "locked_looks_p6.json",
+                max_gross: float = 10.0) -> dict[str, Any]:
+    """The ONE look at 2019-2026 for a version decided on the development years. Recorded; a
+    name can be looked at only once. Size = the multiple whose development-years worst drop is
+    25%, but never more than ``max_gross`` times the account in total positions on any
+    development day."""
+    comp = {"name": name, "strategy": strategy, "params": params, "symbols": symbols, "tf": tf, "weight": 1.0}
+    net, gross, _, entries = portfolio_tables([comp], dev=False)
+    return _locked_report(name, net.sum(axis=1), gross, entries, {"params": params, "tf": tf},
+                          looks_file, max_gross)
+
+
+def locked_look_portfolio(name: str, components: list[dict[str, Any]],
+                          looks_file: str | Path = "locked_looks_p6.json", max_gross: float = 10.0) -> dict[str, Any]:
+    """The ONE locked look for a weighted mix decided on the development years."""
+    net, gross, _, entries = portfolio_tables(components, dev=False)
+    record = {"components": [{k: v for k, v in c.items() if k != "strategy"} for c in components]}
+    return _locked_report(name, net.sum(axis=1), gross, entries, record, looks_file, max_gross)
+
+
 __all__ = ["SCORE_START", "DEV_END", "END", "MARKETS", "HALF_A", "HALF_B", "frames", "is_fx", "financing", "market_pnl",
            "daily_table", "curve", "scale_for_cap", "stats", "cells", "gate", "summary", "evaluate",
-           "assert_no_peek", "locked_look"]
+           "assert_no_peek", "gross_table", "component_pnl", "portfolio_tables", "evaluate_portfolio",
+           "locked_look", "locked_look_portfolio"]

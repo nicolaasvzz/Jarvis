@@ -1852,3 +1852,33 @@ The halves rule catches swing size 4 but not shorts only. The 21 training market
 6. No MT5 access, no live-bot changes, no real money, no merges without Nicolaas.
 
 **Cycle 1 families (one research agent each):** walk-forward ML on daily bars (breadth across 37 markets); walk-forward ML on hourly bars; cross-sectional short-term reversal (incl. currency-level); month-end rebalancing flows (USD fix and equity rebalancing); cross-market lead-lag; professional multi-speed trend with buffering and true FX carry; calendar seasonality with cross-validation (incl. non-US holidays); FX style premia (carry + momentum + value at currency level).
+
+## Part 6 cycle 1: results (8 families, 23:48 – 00:12; the session was then paused until 04:31, probably the usage limit)
+
+Each family's builder-chosen best variant on the development years (Sharpe of the four cells: half A early / A late / B early / B late). Every variant tried is in `research_lab/p6/cycle1_builds.json`. The agents' files are in the worktree copy `research_lab/p6/<family>/`, because a safety hook kept them out of the main checkout.
+
+| Family | Variants | Best | Dev Sharpe | t | Cells | Net %/yr at 1x | Gate |
+|---|---|---|---|---|---|---|---|
+| month-end flows | 8 | rebalancing fade, US indices only | **0.801** | **2.05** | +0.54 / +1.14 / +0.71 / +0.55 | +1.48 | **candidate** |
+| multi-speed trend | 8 | USD pairs + gold, slow, buffered, carry tilt | 0.354 | 1.58 | +0.53 / +0.02 / +0.21 / +0.30 | +6.69 | no (t < 2) |
+| ML, daily | 7 | boosted trees, pooled, dead-band | 0.353 | 1.57 | +0.17 / +0.52 / −0.12 / +0.52 | +0.34 | no |
+| ML, hourly | 8 | 8h horizon, hold rule | 0.307 | 0.94 | −0.77 / +0.82 / +0.35 / +0.54 | +0.62 | no |
+| FX style premia | 7 | carry + momentum + value | 0.168 | 0.75 | +0.68 / −0.01 / −0.00 / −0.48 | +1.91 | no |
+| seasonality (CV) | 8 | pre-holiday, indices + metals | 0.514 | 1.98 | +0.84 / +0.53 / +0.73 / +0.35 | +2.83 | no (t < 2) |
+| cross-sectional reversal | 8 | currency-level, 21 days | −0.203 (best) | −0.91 | all negative | −1.61 | no |
+| lead-lag | 6 | all lose in every cell | −1.421 (best) | −4.34 | all negative | −2.07 | no |
+
+**What the builders reported, briefly:**
+- **Trend:** the textbook version loses even before costs (gross −0.66%/yr). The 21 non-USD crosses lose; USD pairs and gold have gross Sharpe of about 0.25–0.32. The best version was chosen after seeing that, and 2002–04 gives most of its profit.
+- **ML daily:** out-of-sample rank IC 0.023 (trees) / 0.0004 (ridge). The predicted edge is about the size of the costs.
+- **ML hourly:** a real but tiny 8-hour signal (IC 0.012–0.061 every year); costs (6.3%/yr) eat it. Profits come from a handful of news days.
+- **Month-end:** (a) USD into the London fix pointed the *wrong* way (t −1.76); (c) the unwind had no gross edge; (b) **fading the month's stock move on the last days** is the only consistent effect. The builder says plainly that V8 was picked after seeing DE40 add nothing; Bonferroni over 8 variants needs t ≈ 2.7, so it's "not significant"; and the sample is only 6.4 years, 76 month-ends, on three correlated US indices.
+
+**Data artifacts found by the agents (they matter for any hourly work, including part 4's):**
+1. **XAUUSD/XAGUSD hourly candles are about 1 hour out of line with forex in 2011–2014.** EURUSD's return correlates +0.20 to +0.45 with gold's *next* hour in those years. Any hourly strategy mixing gold and forex shows fake profits there that no no-peek test can catch.
+2. **US500, US30, DE40 and US2000 "H1" files hold one daily bar per day for 2012–2015.** Real hourly bars start in 2016.
+
+**Rule amendments (decided before any part 6 locked look):**
+1. **Leverage cap.** The bar's "size for a 25% worst drop" scales rarely-invested strategies to absurd leverage (month-end V8 would need about 17×, peaking at 22× on trade days). From now on every locked look also caps the size so total positions never exceed **10× the account** on any development day (`judge.locked_look(..., max_gross=10)`, tested).
+2. **ML hourly is excluded** from everything downstream because of artifact 1 (it trades gold alongside forex).
+3. **Pre-registered portfolio P1:** each family's builder-chosen best variant with development Sharpe ≥ 0.25 and at least 3 of 4 cells positive, excluding ML hourly (artifact) and the pre-holiday rule (its 2022–26 results were already seen in part 4). Weights: equal risk (inverse development volatility of each component's daily P&L). The portfolio must pass the development gate, then 3 skeptics, then gets **one** locked look (`judge.locked_look_portfolio`, `max_gross=10`). From cycle 1 that's trend (USD pairs + gold), ML daily and month-end; cycle 2's families join under the same rule.

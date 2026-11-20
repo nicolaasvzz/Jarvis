@@ -116,3 +116,52 @@ def test_scale_for_cap_keeps_the_worst_drop_at_the_cap():
     r = rng.normal(0.0003, 0.01, 2000)
     k = judge.scale_for_cap(r)
     assert judge.curve(r, k)[1] <= 0.25 + 1e-9 < judge.curve(r, k * 1.05)[1]
+
+
+def _fake_frames(df):
+    def f(symbols=None, tf="D1", dev=True, cache=None):
+        d = df[df["time"] < judge.DEV_END].reset_index(drop=True) if dev else df
+        return {"US500": d}
+    return f
+
+
+def _const(size):
+    def strat(fr, params):
+        return {s: pd.Series(size, index=df["time"], dtype=float) for s, df in fr.items()}
+    return strat
+
+
+def test_locked_size_is_capped_by_gross_leverage(tmp_path, monkeypatch):
+    rng = np.random.default_rng(4)
+    df = _daily(100 * np.exp(np.cumsum(rng.normal(0.0001, 0.002, 9000))), start="2002-01-01")
+    monkeypatch.setattr(judge, "frames", _fake_frames(df))
+    res = judge.locked_look("five x", _const(5.0), {}, looks_file=tmp_path / "l.json", max_gross=10.0)
+    assert math.isclose(res["size_for_leverage_cap"], 2.0)
+    assert res["size"] <= 2.0 + 1e-9 and res["locked_gross_max"] <= 10.0 + 1e-9
+
+
+def test_portfolio_is_the_weighted_sum_of_its_parts(monkeypatch):
+    rng = np.random.default_rng(5)
+    df = _daily(100 * np.exp(np.cumsum(rng.normal(0.0002, 0.01, 6000))), start="2002-01-01")
+    monkeypatch.setattr(judge, "frames", _fake_frames(df))
+    a = {"name": "a", "strategy": _honest, "params": {}, "symbols": None, "tf": "D1", "weight": 1.0}
+    b = {"name": "b", "strategy": _const(1.0), "params": {}, "symbols": None, "tf": "D1", "weight": 0.5}
+    both, gross, per, _ = judge.portfolio_tables([a, b])
+    only_a, _, _, _ = judge.portfolio_tables([a])
+    only_b, _, _, _ = judge.portfolio_tables([{**b, "weight": 1.0}])
+    expect = only_a.sum(axis=1).add(0.5 * only_b.sum(axis=1), fill_value=0.0)
+    assert np.allclose(both.sum(axis=1).to_numpy(), expect.reindex(both.index).to_numpy())
+    assert set(per) == {"a", "b"} and gross.max() <= 1.5 + 1e-9
+    rep = judge.evaluate_portfolio([a, b])
+    assert set(rep["components"]) == {"a", "b"} and "all" in rep["cells"]
+
+
+def test_portfolio_locked_look_happens_once(tmp_path, monkeypatch):
+    rng = np.random.default_rng(6)
+    df = _daily(100 * np.exp(np.cumsum(rng.normal(0.0002, 0.01, 9000))), start="2002-01-01")
+    monkeypatch.setattr(judge, "frames", _fake_frames(df))
+    comps = [{"name": "a", "strategy": _honest, "params": {}, "symbols": None, "tf": "D1", "weight": 1.0}]
+    res = judge.locked_look_portfolio("mix v1", comps, looks_file=tmp_path / "l.json")
+    assert "components" in res and res["components"][0]["name"] == "a"
+    with pytest.raises(RuntimeError):
+        judge.locked_look_portfolio("mix v1", comps, looks_file=tmp_path / "l.json")
