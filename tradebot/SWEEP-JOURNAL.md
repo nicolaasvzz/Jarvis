@@ -1882,3 +1882,15 @@ Each family's builder-chosen best variant on the development years (Sharpe of th
 1. **Leverage cap.** The bar's "size for a 25% worst drop" scales rarely-invested strategies to absurd leverage (month-end V8 would need about 17×, peaking at 22× on trade days). From now on every locked look also caps the size so total positions never exceed **10× the account** on any development day (`judge.locked_look(..., max_gross=10)`, tested).
 2. **ML hourly is excluded** from everything downstream because of artifact 1 (it trades gold alongside forex).
 3. **Pre-registered portfolio P1:** each family's builder-chosen best variant with development Sharpe ≥ 0.25 and at least 3 of 4 cells positive, excluding ML hourly (artifact) and the pre-holiday rule (its 2022–26 results were already seen in part 4). Weights: equal risk (inverse development volatility of each component's daily P&L). The portfolio must pass the development gate, then 3 skeptics, then gets **one** locked look (`judge.locked_look_portfolio`, `max_gross=10`). From cycle 1 that's trend (USD pairs + gold), ML daily and month-end; cycle 2's families join under the same rule.
+
+## Part 6 cycle 1: verification of month-end flows (finished 04:50): KILLED, 2 of 3 refute
+
+| Skeptic | Verdict | Key evidence |
+|---|---|---|
+| leakage | not refuted | No leak: `assert_no_peek` at every one of 1,657 cut points (4.1 million positions compared, 0 mismatches); no full-sample statistics or cross-market joins. It found a sizing defect (dividing by markets that start later) that only touches unscored warm-up years, and not V8 at all. |
+| overfitting | **refuted** | Reproduced exactly. Index data covers only 6.4 years, so the deflated-Sharpe haircut for 8 variants is 0.806, more than the 0.801 Sharpe. One group carries 100% (three US indices whose results correlate 0.52–0.93; half B is US30 alone). The edge sits on one day (the day before the last weekday, t 2.54; the last day t 0.56). 5 of 76 months give 75% of the profit. |
+| costs | **refuted** | **One extra bar of delay flips it to Sharpe −0.66, all four cells negative.** Doubled costs: t 1.84 (no longer a candidate). The D1 index spreads are recorded as 0, so the judge charged only the 1bp floor; the real fill-hour spread is 1.2–2.3bp. It needs 17× (8.4× average, 22× peak on trade days) to reach a 25% drop. |
+
+**Cycle 1 ends with no survivors.**
+
+**Rule amendment (before any portfolio locked look):** a component refuted by 2 of 3 skeptics can't enter a portfolio. So month-end flows leaves P1. P1 from cycle 1 is now trend (USD pairs + gold) and ML daily, plus whatever cycle 2 adds. The portfolio itself must still pass the gate and its own skeptics.
